@@ -1,8 +1,75 @@
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import { parseSpRecordInput } from "../state/record-schema"
+import { decideNextDispatches, type DispatchDecision } from "../router/transition"
+import { buildNodeTaskPacket } from "../session/templates"
+import type { SessionOrchestrator } from "../session/orchestrator"
 import type { ProjectStore } from "../state/store"
+import type { WorkflowState } from "../state/types"
 
-export function createRecordTool(store: ProjectStore): ToolDefinition {
+export type RecordHandlerContext = {
+  sessionID?: string
+  agent?: string
+}
+
+export function createRecordHandler(deps: {
+  store: ProjectStore
+  orchestrator: Pick<SessionOrchestrator, "dispatch">
+}) {
+  return async (input: unknown, context: RecordHandlerContext = {}): Promise<string> => {
+    const record = parseSpRecordInput(input)
+    const state = deps.store.recordNodeResult({
+      input: record,
+    })
+    const decisions = decideNextDispatches(state, record)
+    const dispatches = []
+
+    for (const decision of decisions) {
+      if (decision.action !== "create_session" && decision.action !== "reuse_session") continue
+      const current = deps.store.readCurrent() ?? state
+      const nodeID = nextDispatchNodeID(current, decision)
+      const packet = buildNodeTaskPacket({
+        state: current,
+        decision,
+        nodeID,
+      })
+      const result = await deps.orchestrator.dispatch({
+        project: current.project,
+        runID: current.id,
+        parentSessionID: current.parent_session_id ?? context.sessionID ?? current.session,
+        decision,
+        packet,
+      })
+      deps.store.addNodeRun({
+        phase: decision.phase,
+        agent: decision.agent,
+        primary_skill: decision.primary_skill,
+        session_id: result.session_id,
+        task_id: decision.task_id,
+        task_markdown: result.task_markdown,
+      })
+      dispatches.push({
+        action: result.action,
+        agent: decision.agent,
+        phase: decision.phase,
+        task_id: decision.task_id,
+        session_id: result.session_id,
+      })
+    }
+
+    return JSON.stringify(
+      {
+        state: deps.store.readCurrent(),
+        decisions,
+        dispatches,
+      },
+      null,
+      2,
+    )
+  }
+}
+
+export function createRecordTool(store: ProjectStore, orchestrator: Pick<SessionOrchestrator, "dispatch"> = createNoopOrchestrator()): ToolDefinition {
+  const handler = createRecordHandler({ store, orchestrator })
   return tool({
     description: "Record a Superpowers node result, artifact, evidence, and validated gate update.",
     args: {
@@ -36,9 +103,26 @@ export function createRecordTool(store: ProjectStore): ToolDefinition {
         .optional()
         .describe("Plan task graph. depends_on is the only parallelism contract."),
     },
-    async execute(args) {
-      const next = store.record(parseSpRecordInput(args))
-      return JSON.stringify(next, null, 2)
+    async execute(args, context) {
+      return handler(args, { sessionID: context.sessionID, agent: context.agent })
     },
   })
+}
+
+function nextDispatchNodeID(state: WorkflowState, decision: Extract<DispatchDecision, { action: "create_session" | "reuse_session" }>): string {
+  const index = state.node_runs.length + 1
+  const task = decision.task_id ? `-${decision.task_id}` : ""
+  return `${String(index).padStart(3, "0")}-${decision.phase}${task}`
+}
+
+function createNoopOrchestrator(): Pick<SessionOrchestrator, "dispatch"> {
+  return {
+    async dispatch(args) {
+      return {
+        action: args.decision.action,
+        session_id: args.decision.action === "reuse_session" ? args.decision.session_id : "session-dispatch-unavailable",
+        task_markdown: `# Dispatch unavailable\n\n${args.packet.objective}\n`,
+      }
+    },
+  }
 }

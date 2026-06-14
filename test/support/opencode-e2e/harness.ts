@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { createMockLlmServer, type MockLlmExpectation, type RecordedMockLlmRequest } from "../llm-mock/server"
@@ -34,7 +34,9 @@ export type OpencodeE2EHarness = {
   }
   runOpencode(args: OpencodeRunArgs): Promise<OpencodeRunResult>
   readWorkflowState(): WorkflowState | null
+  readLastWorkflowState(): WorkflowState | null
   readArtifact(name: string): string | null
+  readLastArtifact(name: string): string | null
   close(): Promise<void>
 }
 
@@ -106,8 +108,18 @@ export async function createOpencodeE2EHarness(options: HarnessOptions = {}): Pr
     readWorkflowState() {
       return readWorkflowState(projectDir)
     },
+    readLastWorkflowState() {
+      return readLastWorkflowState(projectDir)
+    },
     readArtifact(name) {
       const state = readWorkflowState(projectDir)
+      if (!state) return null
+      const artifactPath = join(projectDir, ".opencode", "superpowers", "runs", state.id, "artifacts", `${name}.md`)
+      if (!existsSync(artifactPath)) return null
+      return readFileSync(artifactPath, "utf8")
+    },
+    readLastArtifact(name) {
+      const state = readLastWorkflowState(projectDir)
       if (!state) return null
       const artifactPath = join(projectDir, ".opencode", "superpowers", "runs", state.id, "artifacts", `${name}.md`)
       if (!existsSync(artifactPath)) return null
@@ -119,6 +131,19 @@ export async function createOpencodeE2EHarness(options: HarnessOptions = {}): Pr
       rmSync(projectDir, { recursive: true, force: true })
     },
   }
+}
+
+function readLastWorkflowState(projectDir: string): WorkflowState | null {
+  const runsRoot = join(projectDir, ".opencode", "superpowers", "runs")
+  if (!existsSync(runsRoot)) return null
+  const runIDs = readdirSync(runsRoot)
+    .map((run) => ({ run, mtime: statSync(join(runsRoot, run)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+  const latest = runIDs[0]?.run
+  if (!latest) return null
+  const statePath = join(runsRoot, latest, "state.json")
+  if (!existsSync(statePath)) return null
+  return JSON.parse(readFileSync(statePath, "utf8")) as WorkflowState
 }
 
 function readWorkflowState(projectDir: string): WorkflowState | null {
@@ -181,6 +206,7 @@ function isolatedEnv(home: string): NodeJS.ProcessEnv {
     HOME: home,
     XDG_CONFIG_HOME: join(home, ".config"),
     OPENCODE_DISABLE_UPDATE_CHECK: "1",
+    OPENCODE_SUPERPOWERS_DISABLE_CHILD_PROMPT: "1",
     NO_COLOR: "1",
   }
 }

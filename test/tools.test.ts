@@ -7,7 +7,7 @@ import { createRecordTool } from "../src/tools/sp-record"
 import { createRouteTool } from "../src/tools/sp-route"
 
 describe("sp_route tool", () => {
-  test("starts a workflow for explicit slash commands", async () => {
+  test("returns a proposal for explicit slash commands without starting a run", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-route-tool-"))
     try {
       const store = createProjectStore(project)
@@ -30,7 +30,7 @@ describe("sp_route tool", () => {
         },
       )
 
-      expect(store.readCurrent()?.mode).toBe("debug")
+      expect(store.readCurrent()).toBeNull()
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

@@ -1,5 +1,5 @@
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
-import { routeWorkflow } from "../router/route"
+import { buildWorkflowProposal } from "../controller/proposal"
 import type { ProjectStore } from "../state/store"
 
 export function createRouteTool(store: ProjectStore): ToolDefinition {
@@ -11,19 +11,12 @@ export function createRouteTool(store: ProjectStore): ToolDefinition {
       session: tool.schema.string().optional().describe("OpenCode session id"),
     },
     async execute(args, context) {
-      const decision = routeWorkflow({
+      const proposal = buildWorkflowProposal({
         request: args.request,
         command: args.command,
-        currentState: store.readCurrent(),
+        existingState: store.readCurrent(),
       })
-      if (decision.mode !== "idle" && (decision.reason.startsWith("matched") || decision.reason.startsWith("explicit command"))) {
-        store.start({
-          session: args.session ?? context.sessionID,
-          mode: decision.mode,
-          goal: args.request,
-        })
-      }
-      return JSON.stringify(decision, null, 2)
+      return JSON.stringify(proposal, null, 2)
     },
   })
 }

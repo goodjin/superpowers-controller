@@ -79,6 +79,18 @@ describe("mock LLM server", () => {
 
     const pending = await fetch(server.url("/__mock/pending")).then((item) => item.json())
     expect(pending.expectations).toEqual([])
+
+    const recorded = await fetch(server.url("/__mock/requests")).then((item) => item.json())
+    expect(recorded.requests[0].response).toMatchObject({
+      status: 200,
+      stream: false,
+      type: "tool_call",
+      name: "sp_route",
+      arguments: {
+        request: "/sp-debug fix tests",
+        command: "/sp-debug",
+      },
+    })
   })
 
   test("returns 409 when no expectation is registered for the request id", async () => {
@@ -95,6 +107,14 @@ describe("mock LLM server", () => {
         code: "unexpected_llm_request",
         request_id: "missing",
       },
+    })
+
+    const recorded = await fetch(server.url("/__mock/requests")).then((item) => item.json())
+    expect(recorded.requests[0].response).toMatchObject({
+      status: 409,
+      stream: false,
+      type: "error",
+      code: "unexpected_llm_request",
     })
   })
 

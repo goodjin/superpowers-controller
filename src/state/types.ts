@@ -6,6 +6,8 @@ export type WorkflowKind =
   | "verify-finish"
   | "parallel-investigate"
 
+export type WorkflowEntrypoint = WorkflowKind | "design" | "plan" | "execute" | "debug" | "review" | "verify"
+
 export type WorkflowMode =
   | "idle"
   | "design"
@@ -66,6 +68,22 @@ export type TaskGraph = {
   }>
 }
 
+export type NodeRunStatus = "running" | "passed" | "failed" | "blocked" | "needs_user"
+
+export type NodeRun = {
+  id: string
+  task_id?: string
+  phase: string
+  agent: string
+  primary_skill?: string
+  session_id: string
+  status: NodeRunStatus
+  attempts: number
+  started_at: string
+  ended_at?: string
+  record_path?: string
+}
+
 export type SpRecordInput = {
   event: NodeEvent
   status: NodeStatus
@@ -85,15 +103,22 @@ export type WorkflowState = {
   id: string
   project: string
   session: string
+  parent_session_id: string
+  workflow: WorkflowKind
+  entrypoint: WorkflowEntrypoint
+  limited_context: boolean
   mode: WorkflowMode
   phase: string
+  current_phase: string
+  status: "intake" | "running" | "waiting_user" | "blocked" | "passed" | "failed"
   goal: string
   created_at: string
   updated_at: string
   gates: Partial<Record<WorkflowGate, boolean>>
   artifacts: Partial<Record<WorkflowArtifact, string>>
   task_graph?: TaskGraph
-  pending_question?: SpRecordInput["question"]
+  node_runs: NodeRun[]
+  pending_question?: (SpRecordInput["question"] & { source_node_id?: string }) | undefined
   history: Array<{
     at: string
     event: string

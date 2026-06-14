@@ -1,4 +1,4 @@
-import type { WorkflowArtifact, WorkflowGate, WorkflowMode, WorkflowRecord, WorkflowState } from "./types"
+import type { WorkflowArtifact, WorkflowGate, WorkflowKind, WorkflowMode, WorkflowRecord, WorkflowState } from "./types"
 
 const GATE_ARTIFACTS: Partial<Record<WorkflowGate, WorkflowArtifact>> = {
   spec_written: "spec",
@@ -24,13 +24,20 @@ export function createInitialState(args: {
     id: args.id,
     project: args.project,
     session: args.session,
+    parent_session_id: args.session,
+    workflow: workflowForMode(args.mode),
+    entrypoint: workflowForMode(args.mode),
+    limited_context: false,
     mode: args.mode,
     phase: initialPhase(args.mode),
+    current_phase: initialPhase(args.mode),
+    status: args.mode === "idle" ? "intake" : "running",
     goal: args.goal,
     created_at: now,
     updated_at: now,
     gates: args.gates ?? {},
     artifacts: {},
+    node_runs: [],
     history: [{ at: now, event: "created", to: args.mode }],
   }
 }
@@ -59,6 +66,8 @@ export function applyRecord(state: WorkflowState, record: WorkflowRecord): Workf
   return {
     ...state,
     phase: nextPhase,
+    current_phase: nextPhase,
+    status: statusForRecord(record),
     updated_at: now,
     gates: { ...state.gates, ...gateUpdates },
     artifacts: { ...state.artifacts, ...artifactRefs },
@@ -76,6 +85,31 @@ export function applyRecord(state: WorkflowState, record: WorkflowRecord): Workf
       },
     ],
   }
+}
+
+function workflowForMode(mode: WorkflowMode): WorkflowKind {
+  switch (mode) {
+    case "debug":
+      return "debug"
+    case "plan":
+      return "plan-only"
+    case "review":
+      return "review"
+    case "verify-finish":
+      return "verify-finish"
+    case "parallel-investigate":
+      return "parallel-investigate"
+    default:
+      return "feature"
+  }
+}
+
+function statusForRecord(record: WorkflowRecord): WorkflowState["status"] {
+  if (record.status === "needs_user") return "waiting_user"
+  if (record.status === "blocked") return "blocked"
+  if (record.status === "failed") return "failed"
+  if (record.event === "finish" && record.status === "passed") return "passed"
+  return "running"
 }
 
 function normalizeArtifactRefs(artifacts: NonNullable<WorkflowRecord["artifacts"]>): WorkflowState["artifacts"] {

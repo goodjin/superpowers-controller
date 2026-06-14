@@ -84,6 +84,28 @@ describe("evaluateToolGate", () => {
     expect(result.allowed).toBe(false)
     expect(result.reason).toContain("red_test_seen")
   })
+
+  test("super-agent cannot execute mutating production tools", () => {
+    const state = createInitialState({
+      id: "run-1",
+      project: "/repo",
+      session: "session-1",
+      mode: "execute",
+      goal: "implement plan",
+      gates: { plan_written: true, red_test_seen: true },
+    })
+
+    const result = evaluateToolGate({
+      config: { ...DEFAULT_CONFIG, mode: "strict" },
+      state,
+      agent: "super-agent",
+      tool: "edit",
+      args: { filePath: "src/plugin.ts" },
+    })
+
+    expect(result.allowed).toBe(false)
+    expect(result.reason).toContain("super-agent")
+  })
 })
 
 describe("evaluateCompletionGate", () => {

@@ -10,6 +10,7 @@ export type GateResult = {
 export function evaluateToolGate(args: {
   config: WorkflowConfig
   state: WorkflowState | null | undefined
+  agent?: string
   tool: string
   args: Record<string, unknown>
 }): GateResult {
@@ -32,6 +33,10 @@ export function evaluateToolGate(args: {
 
   if (isProductionWrite(args.args) && state.gates.red_test_seen !== true) {
     return resultForMode(args.config.tdd, "red_test_seen gate is required before production code writes")
+  }
+
+  if (args.agent === "super-agent") {
+    return resultForMode(args.config.mode, "super-agent cannot execute mutating production tools")
   }
 
   return allow()

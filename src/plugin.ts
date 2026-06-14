@@ -3,6 +3,8 @@ import { createAgentConfig } from "./agents"
 import { createCommandConfig } from "./commands"
 import { loadConfig } from "./config/load"
 import { evaluateToolGate } from "./router/gates"
+import { createOpenCodeSessionAdapter } from "./session/adapter"
+import { createSessionOrchestrator } from "./session/orchestrator"
 import { buildRuntimeSkillInjection, hasRuntimeSkillInjection } from "./skills/runtime-injection"
 import { createProjectStore } from "./state/store"
 import { createTools } from "./tools"
@@ -11,8 +13,9 @@ export function createPluginModule(): PluginModule {
   const server: Plugin = async (ctx) => {
     const config = loadConfig(ctx.directory)
     const store = createProjectStore(ctx.directory)
+    const orchestrator = createSessionOrchestrator(createOpenCodeSessionAdapter(ctx as Parameters<typeof createOpenCodeSessionAdapter>[0]))
     return {
-      tool: createTools(store),
+      tool: createTools(store, orchestrator),
       config: async (hostConfig: Record<string, unknown>) => {
         hostConfig.agent = {
           ...createAgentConfig(),
@@ -27,6 +30,7 @@ export function createPluginModule(): PluginModule {
         const gate = evaluateToolGate({
           config,
           state: store.readCurrent(),
+          agent: (input as { agent?: string }).agent,
           tool: input.tool,
           args: output.args,
         })

@@ -8,6 +8,12 @@ export type NormalizedTaskGraph = TaskGraph & {
   }>
 }
 
+export type TaskRunSets = {
+  passed: Set<string>
+  running: Set<string>
+  failed: Set<string>
+}
+
 export function normalizeTaskGraph(graph: TaskGraph): NormalizedTaskGraph {
   const ids = new Set(graph.tasks.map((task) => task.id))
   for (const task of graph.tasks) {
@@ -41,4 +47,11 @@ export function normalizeTaskGraph(graph: TaskGraph): NormalizedTaskGraph {
   })
 
   return implicitDependsOn.length > 0 ? { tasks, implicit_depends_on: implicitDependsOn } : { tasks }
+}
+
+export function getRunnableTasks(graph: NormalizedTaskGraph, runs: TaskRunSets): NormalizedTaskGraph["tasks"] {
+  return graph.tasks.filter((task) => {
+    if (runs.passed.has(task.id) || runs.running.has(task.id) || runs.failed.has(task.id)) return false
+    return task.depends_on.every((dependency) => runs.passed.has(dependency) && !runs.failed.has(dependency))
+  })
 }

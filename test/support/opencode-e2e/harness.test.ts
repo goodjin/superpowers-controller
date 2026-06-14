@@ -1,11 +1,11 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { createOpencodeE2EHarness } from "./harness"
-import { createE2ELogger } from "./logging"
+import { createE2ELogger, type E2EScenarioLogger } from "./logging"
 
 let harness: Awaited<ReturnType<typeof createOpencodeE2EHarness>> | null = null
 const e2eLog = createE2ELogger({
-  suite: "OpenCode e2e harness",
-  description: "Verify the reusable harness can run real opencode against the mock LLM provider.",
+  suite: "OpenCode e2e 基础设施",
+  description: "验证可复用 harness 能启动真实 opencode，并通过 mock LLM 服务完成一次请求。",
 })
 
 beforeAll(() => {
@@ -22,15 +22,15 @@ afterEach(async () => {
 })
 
 describe("createOpencodeE2EHarness", () => {
-  test("runs opencode against the mock LLM provider and records the request", async () => {
+  test("通过 mock LLM 服务运行 opencode 并记录请求", async () => {
     await e2eLog.scenario(
-      "harness smoke",
-      "Start a temporary OpenCode project, route one prompt through the mock provider, and verify request capture.",
+      "harness 冒烟测试",
+      "启动临时 OpenCode 项目，让一个提示词经过 mock LLM 服务，并验证请求被正确记录。",
       async (log) => {
-        log.step("Create isolated harness", "temporary HOME, config, project directory, plugin entry, and mock LLM server are prepared")
+        log.step("创建隔离 harness", "准备临时 HOME、配置、项目目录、插件入口和 mock LLM 服务")
         harness = await createOpencodeE2EHarness()
 
-        log.step("Register mock response", "one request_id expectation should be consumed by the real provider call")
+        log.step("注册 mock 响应", "真实模型调用应该消费一个 request_id 预设响应")
         await harness.mock.expect([
           {
             request_id: "harness-smoke",
@@ -41,7 +41,7 @@ describe("createOpencodeE2EHarness", () => {
           },
         ])
 
-        log.step("Run opencode", "the prompt marker should select the registered response")
+        log.step("运行 opencode", "提示词标记应该命中已注册的 mock 响应")
         const result = await harness.runOpencode({
           title: "Harness smoke",
           message: "[e2e_trace_id:harness-smoke] [llm_request_id:harness-smoke] say hello",
@@ -49,17 +49,23 @@ describe("createOpencodeE2EHarness", () => {
 
         expect(result.code).toBe(0)
         expect(result.error).toBeUndefined()
-        log.verify("OpenCode exited successfully with the mock provider response")
+        log.verify("OpenCode 已使用 mock 模型响应并成功退出")
 
-        log.step("Verify provider request capture", "mock server should record exactly one provider request with request_id=harness-smoke")
+        log.step("验证模型请求记录", "mock server 应该只记录一个 request_id=harness-smoke 的模型请求")
         const requests = await harness.mock.requests()
+        log.mockInteractions(requests)
         expect(requests).toHaveLength(1)
         expect(requests[0]?.request_id).toBe("harness-smoke")
 
         const pending = await harness.mock.pending()
         expect(pending).toEqual([])
-        log.verify("mock server recorded one request and has no pending expectations")
+        logNoWorkflowState(log)
+        log.verify("mock server 记录了一个请求，并且没有剩余预设响应")
       },
     )
   }, 30_000)
 })
+
+function logNoWorkflowState(log: E2EScenarioLogger): void {
+  log.stateSnapshot("harness 冒烟测试没有创建 workflow state", null)
+}

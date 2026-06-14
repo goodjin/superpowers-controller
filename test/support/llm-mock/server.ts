@@ -38,7 +38,30 @@ export type MockLlmExpectation = {
 export type RecordedMockLlmRequest = {
   request_id: string | null
   body: ChatCompletionRequest
+  response?: RecordedMockLlmResponse
 }
+
+export type RecordedMockLlmResponse =
+  | {
+      status: 200
+      stream: boolean
+      type: "text"
+      content: string
+    }
+  | {
+      status: 200
+      stream: boolean
+      type: "tool_call"
+      name: string
+      arguments: Record<string, unknown>
+    }
+  | {
+      status: number
+      stream: false
+      type: "error"
+      code: string
+      message: string
+    }
 
 type ExpectationPayload = {
   expectations?: MockLlmExpectation[]
@@ -123,14 +146,22 @@ export async function createMockLlmServer(): Promise<MockLlmServer> {
           headers: headersToRecord(request.headers),
           body,
         })
-        requests.push({ request_id: requestId, body })
+        const recordedRequest: RecordedMockLlmRequest = { request_id: requestId, body }
+        requests.push(recordedRequest)
 
         if (!requestId) {
+          recordedRequest.response = {
+            status: 409,
+            stream: false,
+            type: "error",
+            code: "missing_request_id",
+            message: "LLM mock request did not include a request_id marker.",
+          }
           return json(
             {
               error: {
-                code: "missing_request_id",
-                message: "LLM mock request did not include a request_id marker.",
+                code: recordedRequest.response.code,
+                message: recordedRequest.response.message,
               },
             },
             409,
@@ -139,12 +170,19 @@ export async function createMockLlmServer(): Promise<MockLlmServer> {
 
         const index = expectations.findIndex((item) => item.request_id === requestId)
         if (index === -1) {
+          recordedRequest.response = {
+            status: 409,
+            stream: false,
+            type: "error",
+            code: "unexpected_llm_request",
+            message: `No expectation registered for request_id ${requestId}.`,
+          }
           return json(
             {
               error: {
-                code: "unexpected_llm_request",
+                code: recordedRequest.response.code,
                 request_id: requestId,
-                message: `No expectation registered for request_id ${requestId}.`,
+                message: recordedRequest.response.message,
               },
             },
             409,
@@ -152,6 +190,7 @@ export async function createMockLlmServer(): Promise<MockLlmServer> {
         }
 
         const [expectation] = expectations.splice(index, 1)
+        recordedRequest.response = toRecordedResponse(expectation.response, body.stream === true)
         if (body.stream === true) return streamChatCompletion(body, requestId, expectation.response)
         return json(toChatCompletion(body, requestId, expectation.response))
       }
@@ -169,6 +208,25 @@ export async function createMockLlmServer(): Promise<MockLlmServer> {
     async close() {
       await server.stop()
     },
+  }
+}
+
+function toRecordedResponse(response: MockLlmResponse, stream: boolean): RecordedMockLlmResponse {
+  if (response.type === "text") {
+    return {
+      status: 200,
+      stream,
+      type: "text",
+      content: response.content,
+    }
+  }
+
+  return {
+    status: 200,
+    stream,
+    type: "tool_call",
+    name: response.name,
+    arguments: response.arguments,
   }
 }
 
