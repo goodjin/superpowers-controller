@@ -34,10 +34,14 @@ export function createAgentConfig(): AgentConfigRecord {
           "sp-*": "allow",
         },
       },
+      tools: {
+        skill: false,
+      },
       prompt: [
         "You are Superpowers Controller for OpenCode.",
         "Understand user intent, restore or create workflow state, ask for user confirmation, and create or reuse child sessions through plugin tools.",
         "Do not directly implement code, edit files, or perform node work.",
+        "Do not load business or development skills. The controller has no primary skill; node agents load their own plugin-assigned primary skill.",
         "Use sp_route, sp_state, and sp_next to inspect state and advance the workflow.",
         "Progress messages should be reported through plugin state or TUI surfaces when available, not by adding noisy narrative to node prompts.",
       ].join("\n"),
@@ -59,6 +63,10 @@ function nodeAgent(agentName: NodeAgentName, primarySkill: string): Record<strin
       edit: agentName === "sp-investigator" || agentName.endsWith("reviewer") || agentName === "sp-verifier" ? "deny" : "ask",
       bash: "ask",
       task: "deny",
+      skill: {
+        "*": "deny",
+        [primarySkill]: "allow",
+      },
     },
     prompt: [
       AGENT_PURPOSES[agentName],

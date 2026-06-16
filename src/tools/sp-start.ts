@@ -1,10 +1,11 @@
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import { prepareExplicitStartRun } from "../controller/intake"
+import { noopProgressReporter, type ProgressReporter } from "../progress/reporter"
 import { decideNextDispatches } from "../router/transition"
 import type { ProjectStore } from "../state/store"
 import type { WorkflowEntrypoint, WorkflowKind } from "../state/types"
 
-export function createStartTool(store: ProjectStore): ToolDefinition {
+export function createStartTool(store: ProjectStore, progress: ProgressReporter = noopProgressReporter): ToolDefinition {
   return tool({
     description: "Start a confirmed Superpowers workflow proposal and create the workflow run.",
     args: {
@@ -23,6 +24,12 @@ export function createStartTool(store: ProjectStore): ToolDefinition {
         parentSessionID: args.session ?? context.sessionID,
       })
       const state = store.startRun(start)
+      await progress.report({
+        stage: "run_started",
+        title: "Superpowers workflow",
+        message: `${state.workflow} workflow run started from ${state.entrypoint}.`,
+        variant: "success",
+      })
       return JSON.stringify(
         {
           state,

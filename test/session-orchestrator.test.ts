@@ -30,6 +30,7 @@ describe("buildNodeTaskPrompt", () => {
 describe("createSessionOrchestrator", () => {
   test("creates a node session and returns the rendered task packet", async () => {
     const calls: Array<{ agent: string; prompt: string }> = []
+    const progress: Array<{ stage: string; message: string }> = []
     const orchestrator = createSessionOrchestrator({
       async createNodeSession(input) {
         calls.push({ agent: input.agent, prompt: input.prompt })
@@ -38,7 +39,9 @@ describe("createSessionOrchestrator", () => {
       async continueNodeSession() {
         throw new Error("unexpected reuse")
       },
-      async showProgress() {},
+      async showProgress(input) {
+        progress.push({ stage: input.stage, message: input.message })
+      },
     })
 
     const result = await orchestrator.dispatch({
@@ -69,6 +72,16 @@ describe("createSessionOrchestrator", () => {
     expect(result.task_markdown).toContain("Primary skill: superpowers-brainstorming")
     expect(calls[0]?.agent).toBe("sp-designer")
     expect(calls[0]?.prompt).toContain("Create design.")
+    expect(progress).toEqual([
+      {
+        stage: "dispatch_started",
+        message: "Starting sp-designer for 001-design.",
+      },
+      {
+        stage: "node_running",
+        message: "Created sp-designer for 001-design.",
+      },
+    ])
   })
 
   test("reuses an existing node session for retry dispatch", async () => {

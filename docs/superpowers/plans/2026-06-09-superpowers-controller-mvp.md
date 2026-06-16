@@ -4,7 +4,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first OpenCode-only MVP of `opencode-superpowers-controller`, a stateful workflow controller for the Superpowers methodology.
+**Goal:** Build the first OpenCode adapter MVP for `Superpowers Controller`, a stateful controller for coding agents using the Superpowers methodology. The early development package was `opencode-superpowers-controller`; the long-term product name is `Superpowers Controller`.
 
 **Architecture:** The plugin exports a small OpenCode `PluginModule` and composes config injection, custom tools, project-local workflow state, router decisions, and gate checks through testable modules. Installer only registers the plugin and copies bundled skills/commands; agents and commands are dynamically injected through the plugin config hook.
 
@@ -52,7 +52,7 @@
 - Create: `src/config/schema.ts`
 - Create: `src/config/load.ts`
 
-- [ ] Write package metadata using repo `opencode-superpowers`, npm package `opencode-superpowers-controller`, plugin id `superpowers-controller`, display name `Superpowers Controller for OpenCode`.
+- [ ] Write package metadata using repo `opencode-superpowers`, initial npm package `opencode-superpowers-controller`, plugin id `superpowers-controller`, display name `Superpowers Controller`.
 - [ ] Add `bun test`, `bun run build`, and CLI bin scripts.
 - [ ] Define config defaults: `mode: "guided"`, `tdd: "strict"`, all gates guided or strict according to schema defaults, project-local state.
 - [ ] Build a minimal plugin factory that returns `id: "superpowers-controller"` and server hooks.
@@ -180,6 +180,6 @@
 
 ## Self-Review
 
-- Spec coverage: Covers naming, OpenCode-only scope, guided default, adapted skills, project-local state, dynamic injection, optional multi-agent support, doctor, and no first-version uninstall.
+- Spec coverage: Covers naming, first OpenCode adapter scope, guided default, adapted skills, project-local state, dynamic injection, optional multi-agent support, doctor, and no first-version uninstall.
 - Placeholder scan: No task uses placeholder language for behavior-critical pieces.
 - Type consistency: State, gates, router, tools, agents, commands, and installer names match the confirmed product naming.

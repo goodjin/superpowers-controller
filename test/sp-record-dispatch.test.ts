@@ -20,6 +20,7 @@ describe("sp_record dispatch integration", () => {
       })
 
       const dispatched: string[] = []
+      const progress: Array<{ stage: string; message: string }> = []
       const handler = createRecordHandler({
         store,
         orchestrator: {
@@ -30,6 +31,11 @@ describe("sp_record dispatch integration", () => {
               session_id: `session-${args.packet.task_id}`,
               task_markdown: `# Task\n\n${args.packet.objective}`,
             }
+          },
+        },
+        progress: {
+          async report(input) {
+            progress.push({ stage: input.stage, message: input.message })
           },
         },
       })
@@ -57,6 +63,12 @@ describe("sp_record dispatch integration", () => {
       expect(result.dispatches).toHaveLength(2)
       expect(state?.node_runs.map((node) => node.task_id)).toEqual(["T1", "T2"])
       expect(state?.node_runs.every((node) => node.status === "running")).toBe(true)
+      expect(progress).toEqual([
+        {
+          stage: "node_recorded",
+          message: "plan recorded as passed; workflow is at plan-complete.",
+        },
+      ])
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -75,11 +87,17 @@ describe("sp_record dispatch integration", () => {
         parentSessionID: "session-main",
       })
 
+      const progress: Array<{ stage: string; message: string }> = []
       const handler = createRecordHandler({
         store,
         orchestrator: {
           async dispatch() {
             throw new Error("unexpected dispatch")
+          },
+        },
+        progress: {
+          async report(input) {
+            progress.push({ stage: input.stage, message: input.message })
           },
         },
       })
@@ -97,6 +115,16 @@ describe("sp_record dispatch integration", () => {
       const state = store.readCurrent()
       expect(state?.status).toBe("waiting_user")
       expect(state?.pending_question?.prompt).toContain("strict")
+      expect(progress).toEqual([
+        {
+          stage: "node_recorded",
+          message: "question recorded as needs_user; workflow is at waiting-user.",
+        },
+        {
+          stage: "waiting_user_input",
+          message: "Node requested user input.",
+        },
+      ])
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

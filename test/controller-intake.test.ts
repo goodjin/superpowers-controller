@@ -86,6 +86,36 @@ describe("controller intake", () => {
 })
 
 describe("sp_route and sp_start tools", () => {
+  test("sp_route reports that a proposal is waiting for user confirmation", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-route-progress-"))
+    try {
+      const store = createProjectStore(project)
+      const progress: Array<{ stage: string; message: string }> = []
+      const route = createRouteTool(store, {
+        async report(input) {
+          progress.push({ stage: input.stage, message: input.message })
+        },
+      })
+
+      await route.execute(
+        {
+          request: "/sp-debug fix failing tests",
+          command: "/sp-debug",
+        },
+        toolContext,
+      )
+
+      expect(progress).toEqual([
+        {
+          stage: "waiting_user_confirmation",
+          message: "debug workflow proposal is ready; waiting for user confirmation.",
+        },
+      ])
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("sp_route returns a proposal without creating a run", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-route-proposal-"))
     try {
@@ -104,6 +134,38 @@ describe("sp_route and sp_start tools", () => {
       expect(proposal.workflow).toBe("debug")
       expect(proposal.requires_confirmation).toBe(true)
       expect(store.readCurrent()).toBeNull()
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start reports that a confirmed workflow run started", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-progress-"))
+    try {
+      const store = createProjectStore(project)
+      const progress: Array<{ stage: string; message: string }> = []
+      const start = createStartTool(store, {
+        async report(input) {
+          progress.push({ stage: input.stage, message: input.message })
+        },
+      })
+
+      await start.execute(
+        {
+          request: "Add workflow gates",
+          workflow: "feature",
+          entrypoint: "feature",
+          proposal: "# Proposal\n\nRun feature workflow.",
+        },
+        toolContext,
+      )
+
+      expect(progress).toEqual([
+        {
+          stage: "run_started",
+          message: "feature workflow run started from feature.",
+        },
+      ])
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

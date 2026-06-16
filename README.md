@@ -1,24 +1,26 @@
-# Superpowers Controller for OpenCode
+# Superpowers Controller
 
-Superpowers Controller for OpenCode 是一个面向 OpenCode 的流程控制插件。
+Superpowers Controller 是一个面向 coding agents 的状态控制插件。
 
-它基于 Superpowers methodology，但不等同于上游 Superpowers plugin。上游 skills 主要提供工作方法；这个插件在这些方法之上加了一层轻量状态机、路由和门禁，让设计、计划、调试、TDD、审查、验证这些步骤有状态可查、有证据可追、有 gate 可拦。
+它基于 Superpowers methodology，但不等同于上游 Superpowers plugin。上游 skills 主要提供工作方法；这个插件在这些方法之上加了一层状态机、路由、门禁、会话控制和结果记录，让设计、计划、调试、TDD、审查、验证这些步骤有状态可查、有证据可追、有 gate 可拦。
 
 一句话：
 
-> Superpowers Controller for OpenCode adds a lightweight workflow state machine and gate system on top of the Superpowers methodology, so OpenCode agents follow design, planning, debugging, TDD, review, and verification flows without relying on prompt discipline alone.
+> Superpowers Controller adds state, routing, gates, session control, and result recording on top of the Superpowers methodology, so coding agents can follow disciplined development workflows without relying on prompt discipline alone.
 
 ## 边界
 
 - This project builds on the Superpowers methodology.
 - It is not the upstream Superpowers plugin.
-- Use upstream Superpowers if you only need skills; use this plugin if you want stateful workflow routing and gates.
+- It is not affiliated with the upstream Superpowers project.
+- Use upstream Superpowers if you only need skills; use this plugin if you want state, routing, gates, session control, and result recording.
 
 对应到中文：
 
 - 它借鉴并打包 Superpowers 方法论。
-- 它不是上游 Superpowers plugin。
-- 如果你只需要 skills，直接用上游 Superpowers 就够了；如果你希望 OpenCode 记住流程状态、自动路由节点、在证据不足时拦住写入和完成声明，用这个插件更合适。
+- 它是独立项目，不隶属于上游 Superpowers plugin。
+- 它没有上游 Superpowers 项目的官方背书。
+- 如果你只需要 skills，直接用上游 Superpowers 就够了；如果你希望 agent 记住流程状态、自动路由节点、在证据不足时拦住写入和完成声明，用这个插件更合适。
 
 ## 用途
 
@@ -153,6 +155,8 @@ Commands 以动态注入为主，不再由 installer 复制 markdown command 文
 - 项目本地有 `state.json` 和 artifacts，后续恢复时有依据。
 
 ## 安装
+
+当前 OpenCode adapter 的开发包和命令仍使用 `opencode-superpowers-controller`。品牌名已经定为 `Superpowers Controller`，发布包名后续可以单独同步到 `superpowers-controller`。
 
 ```bash
 bunx opencode-superpowers-controller install

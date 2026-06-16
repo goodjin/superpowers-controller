@@ -21,6 +21,12 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
       packet: NodeTaskPacket
     }): Promise<SessionDispatchResult> {
       const taskMarkdown = buildNodeTaskPrompt(args.packet)
+      await adapter.showProgress({
+        stage: "dispatch_started",
+        title: "Superpowers dispatch",
+        message: `Starting ${args.decision.agent} for ${args.packet.node_id}.`,
+        variant: "info",
+      })
       if (args.decision.action === "reuse_session") {
         await adapter.continueNodeSession({
           sessionID: args.decision.session_id,
@@ -28,8 +34,9 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
           prompt: taskMarkdown,
         })
         await adapter.showProgress({
+          stage: "node_running",
           title: "Superpowers dispatch",
-          message: `Reused ${args.decision.agent} for ${args.packet.node_id}`,
+          message: `Reused ${args.decision.agent} for ${args.packet.node_id}.`,
           variant: "info",
         })
         return {
@@ -46,8 +53,9 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
         prompt: taskMarkdown,
       })
       await adapter.showProgress({
+        stage: "node_running",
         title: "Superpowers dispatch",
-        message: `Created ${args.decision.agent} for ${args.packet.node_id}`,
+        message: `Created ${args.decision.agent} for ${args.packet.node_id}.`,
         variant: "success",
       })
       return {

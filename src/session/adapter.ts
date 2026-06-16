@@ -1,3 +1,5 @@
+import type { ProgressUpdate } from "../progress/reporter"
+
 export type SessionAdapter = {
   createNodeSession(input: {
     parentSessionID: string
@@ -12,11 +14,7 @@ export type SessionAdapter = {
     prompt: string
   }): Promise<void>
 
-  showProgress(input: {
-    title: string
-    message: string
-    variant: "info" | "success" | "warning" | "error"
-  }): Promise<void>
+  showProgress(input: ProgressUpdate): Promise<void>
 }
 
 type OpenCodePluginContext = {

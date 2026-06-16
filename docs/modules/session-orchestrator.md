@@ -8,9 +8,10 @@ session orchestrator 模块把 dispatch decision 变成 OpenCode node session。
 
 - `src/session/task-packet.ts`：node task packet 类型。
 - `src/session/templates.ts`：把 packet 渲染成 node prompt，并声明 primary skill 和 `sp_record` contract。
-- `src/session/adapter.ts`：封装 OpenCode SDK 的 `session.create`、`session.prompt`、`tui.showToast`。
+- `src/session/adapter.ts`：封装 OpenCode SDK 的 `session.create`、`session.prompt`、`tui.showToast` 和 `app.log` fallback。
 - `src/session/orchestrator.ts`：根据 create/reuse dispatch 调用 adapter。
 - `src/router/transition.ts`：生成 orchestrator 消费的 dispatch decision。
+- `src/progress/reporter.ts`：定义 dispatch progress 的稳定事件结构。
 
 ## Dispatch Contract
 
@@ -29,6 +30,15 @@ orchestrator 接收：
 - `task_markdown`
 
 store 随后用这些信息创建 `node_runs`，并写入 `nodes/<node-id>/task.md`。
+
+## Progress Behavior
+
+orchestrator 在每次 dispatch 时发送两类 progress：
+
+- `dispatch_started`：准备创建或复用节点 session。
+- `node_running`：节点 session 已创建或复用，task prompt 已提交。
+
+这些提示走 adapter 的 `showProgress()`，生产环境优先显示 TUI toast，缺失时写入 app log。
 
 ## E2E Behavior
 

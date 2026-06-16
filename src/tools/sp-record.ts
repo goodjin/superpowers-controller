@@ -1,10 +1,11 @@
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import { parseSpRecordInput } from "../state/record-schema"
+import { noopProgressReporter, type ProgressReporter } from "../progress/reporter"
 import { decideNextDispatches, type DispatchDecision } from "../router/transition"
 import { buildNodeTaskPacket } from "../session/templates"
 import type { SessionOrchestrator } from "../session/orchestrator"
 import type { ProjectStore } from "../state/store"
-import type { WorkflowState } from "../state/types"
+import type { NodeStatus, WorkflowState } from "../state/types"
 
 export type RecordHandlerContext = {
   sessionID?: string
@@ -14,8 +15,10 @@ export type RecordHandlerContext = {
 export function createRecordHandler(deps: {
   store: ProjectStore
   orchestrator: Pick<SessionOrchestrator, "dispatch">
+  progress?: ProgressReporter
 }) {
   return async (input: unknown, context: RecordHandlerContext = {}): Promise<string> => {
+    const progress = deps.progress ?? noopProgressReporter
     const record = parseSpRecordInput(input)
     const state = deps.store.recordNodeResult({
       input: record,
@@ -23,7 +26,41 @@ export function createRecordHandler(deps: {
     const decisions = decideNextDispatches(state, record)
     const dispatches = []
 
+    await progress.report({
+      stage: "node_recorded",
+      title: "Superpowers workflow",
+      message: `${record.event} recorded as ${record.status}; workflow is at ${state.current_phase ?? state.phase}.`,
+      variant: variantForRecordStatus(record.status),
+    })
+
     for (const decision of decisions) {
+      if (decision.action === "wait_user") {
+        await progress.report({
+          stage: "waiting_user_input",
+          title: "Superpowers workflow",
+          message: "Node requested user input.",
+          variant: "warning",
+        })
+        continue
+      }
+      if (decision.action === "blocked") {
+        await progress.report({
+          stage: "workflow_blocked",
+          title: "Superpowers workflow",
+          message: `Workflow blocked: ${decision.reason}`,
+          variant: "error",
+        })
+        continue
+      }
+      if (decision.action === "finish") {
+        await progress.report({
+          stage: "workflow_finished",
+          title: "Superpowers workflow",
+          message: "Workflow finished.",
+          variant: "success",
+        })
+        continue
+      }
       if (decision.action !== "create_session" && decision.action !== "reuse_session") continue
       const current = deps.store.readCurrent() ?? state
       const nodeID = nextDispatchNodeID(current, decision)
@@ -68,8 +105,12 @@ export function createRecordHandler(deps: {
   }
 }
 
-export function createRecordTool(store: ProjectStore, orchestrator: Pick<SessionOrchestrator, "dispatch"> = createNoopOrchestrator()): ToolDefinition {
-  const handler = createRecordHandler({ store, orchestrator })
+export function createRecordTool(
+  store: ProjectStore,
+  orchestrator: Pick<SessionOrchestrator, "dispatch"> = createNoopOrchestrator(),
+  progress: ProgressReporter = noopProgressReporter,
+): ToolDefinition {
+  const handler = createRecordHandler({ store, orchestrator, progress })
   return tool({
     description: "Record a Superpowers node result, artifact, evidence, and validated gate update.",
     args: {
@@ -107,6 +148,18 @@ export function createRecordTool(store: ProjectStore, orchestrator: Pick<Session
       return handler(args, { sessionID: context.sessionID, agent: context.agent })
     },
   })
+}
+
+function variantForRecordStatus(status: NodeStatus): "info" | "success" | "warning" | "error" {
+  switch (status) {
+    case "passed":
+      return "success"
+    case "needs_user":
+      return "warning"
+    case "blocked":
+    case "failed":
+      return "error"
+  }
 }
 
 function nextDispatchNodeID(state: WorkflowState, decision: Extract<DispatchDecision, { action: "create_session" | "reuse_session" }>): string {

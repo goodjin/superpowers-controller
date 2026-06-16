@@ -27,9 +27,12 @@ describe("createAgentConfig", () => {
       const agent = agents[agentName]
       expect(agent, `${agentName} should be injected`).toBeDefined()
       const prompt = String(agent.prompt ?? "")
+      const permission = agent.permission as { skill?: Record<string, string> } | undefined
       expect(prompt, `${agentName} should load ${primarySkill}`).toContain(primarySkill)
       expect(prompt, `${agentName} should describe one primary skill`).toContain("Primary skill:")
       expect(prompt, `${agentName} should not mention control-plane fields`).toContain("Do not include next_action")
+      expect(permission?.skill?.["*"], `${agentName} should deny unrelated global skills`).toBe("deny")
+      expect(permission?.skill?.[primarySkill], `${agentName} should allow only its primary skill`).toBe("allow")
     }
   })
 
@@ -38,6 +41,8 @@ describe("createAgentConfig", () => {
 
     expect(controller?.mode).toBe("primary")
     expect((controller?.permission as { edit?: string } | undefined)?.edit).toBe("deny")
+    expect((controller?.tools as { skill?: boolean } | undefined)?.skill).toBe(false)
     expect(String(controller?.prompt ?? "")).toContain("create or reuse child sessions")
+    expect(String(controller?.prompt ?? "")).toContain("Do not load business or development skills")
   })
 })

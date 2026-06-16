@@ -24,6 +24,7 @@
     "test": "bun test ./test/*.test.ts ./test/support/*.test.ts",
     "test:e2e:opencode": "bun run build && bun test ./test/support/opencode-e2e/*.test.ts ./test/e2e/*.test.ts",
     "doctor": "bun run src/cli/index.ts doctor",
+    "deploy:superagent": "bash scripts/deploy-superagent-runtime.sh restart",
     "e2e:opencode": "bun run build && bun run scripts/e2e-opencode-1.16.2.ts",
     "e2e:opencode:mock-llm": "bun run build && bun run scripts/e2e-opencode-mock-llm.ts"
   },

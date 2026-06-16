@@ -2,7 +2,7 @@
 
 ## 定位
 
-Superpowers Controller for OpenCode 是一个流程控制插件，不是一个 prompt 包。
+Superpowers Controller 是一个面向 coding agents 的状态控制插件。它负责运行时控制，不是 prompt 包；它是独立项目，没有上游 Superpowers 的官方背书。
 
 核心原则：
 
@@ -30,13 +30,15 @@ super-agent 主会话
   -> 结束时调用 sp_record
 
 插件
-  -> 创建 / 复用 OpenCode session
+  -> 创建 / 复用底层 harness session
   -> 生成节点 task.md
   -> 写 artifacts
   -> 写 state / changelog / node records
   -> 根据 transition table 调度下一步
   -> 用 TUI toast 展示进度，避免污染模型上下文
 ```
+
+当前实现的首个 adapter 落在 OpenCode 上，所以代码和测试里会出现 OpenCode session、OpenCode plugin hook 和 `opencode-superpowers-controller` 开发包名。产品命名不绑定 OpenCode：长期展示名是 `Superpowers Controller`，包名目标是 `superpowers-controller`。
 
 ## Agents
 

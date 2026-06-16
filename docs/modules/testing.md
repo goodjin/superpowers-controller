@@ -20,6 +20,14 @@
 - `scripts/e2e-opencode-mock-llm.ts`：用临时 OpenCode 配置启动真实 `opencode run`，通过 mock provider 验证 request_id 匹配。
 - `scripts/e2e-opencode-1.16.2.ts`：原有插件加载 smoke，验证 9 个动态注入 agents。
 
+## Progress Prompt Tests
+
+workflow progress 是 side-channel 行为，用单元测试验证，不要求 e2e 解析 OpenCode TUI toast：
+
+- `test/controller-intake.test.ts` 断言 `sp_route` 发送 `waiting_user_confirmation`，`sp_start` 发送 `run_started`。
+- `test/session-orchestrator.test.ts` 断言 dispatch 先发送 `dispatch_started`，成功创建 session 后发送 `node_running`。
+- `test/sp-record-dispatch.test.ts` 断言节点记录后发送 `node_recorded`，`needs_user` 决策额外发送 `waiting_user_input`。
+
 ## Mock LLM Contract
 
 测试 prompt 使用 marker 绑定请求：

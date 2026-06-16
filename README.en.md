@@ -1,18 +1,19 @@
-# Superpowers Controller for OpenCode
+# Superpowers Controller
 
-Superpowers Controller for OpenCode is an OpenCode workflow-control plugin.
+Superpowers Controller is a stateful control plugin for coding agents.
 
-It builds on the Superpowers methodology, but it is a separate project from the upstream Superpowers plugin. Upstream skills provide working methods. This plugin adds a lightweight state machine, routing layer, session-control layer, and gate system so design, planning, debugging, TDD, review, and verification steps have project-local state, evidence, and enforcement.
+It builds on the Superpowers methodology, but it is a separate project from the upstream Superpowers plugin. Upstream skills provide working methods. This plugin adds state, routing, gates, session control, and result recording so design, planning, debugging, TDD, review, and verification steps have project-local state, evidence, and enforcement.
 
 One-sentence positioning:
 
-> Superpowers Controller for OpenCode adds a lightweight workflow state machine and gate system on top of the Superpowers methodology, so OpenCode agents follow design, planning, debugging, TDD, review, and verification flows without relying on prompt discipline alone.
+> Superpowers Controller adds state, routing, gates, session control, and result recording on top of the Superpowers methodology, so coding agents can follow disciplined development workflows without relying on prompt discipline alone.
 
 ## Boundaries
 
 - This project builds on the Superpowers methodology.
 - It is not the upstream Superpowers plugin.
-- Use upstream Superpowers if you only need skills; use this plugin if you want stateful workflow routing and gates.
+- It is not affiliated with the upstream Superpowers project.
+- Use upstream Superpowers if you only need skills; use this plugin if you want state, routing, gates, session control, and result recording.
 
 ## Purpose
 
@@ -143,6 +144,8 @@ This plugin helps with longer, stateful, or interruptible work:
 - Project-local `state.json` and artifacts give later sessions something concrete to recover from.
 
 ## Install
+
+The current OpenCode adapter package and command still use `opencode-superpowers-controller`. The product name is now `Superpowers Controller`; a package/bin rename to `superpowers-controller` can be handled separately.
 
 ```bash
 bunx opencode-superpowers-controller install

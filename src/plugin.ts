@@ -13,9 +13,11 @@ export function createPluginModule(): PluginModule {
   const server: Plugin = async (ctx) => {
     const config = loadConfig(ctx.directory)
     const store = createProjectStore(ctx.directory)
-    const orchestrator = createSessionOrchestrator(createOpenCodeSessionAdapter(ctx as Parameters<typeof createOpenCodeSessionAdapter>[0]))
+    const adapter = createOpenCodeSessionAdapter(ctx as Parameters<typeof createOpenCodeSessionAdapter>[0])
+    const progress = { report: adapter.showProgress }
+    const orchestrator = createSessionOrchestrator(adapter)
     return {
-      tool: createTools(store, orchestrator),
+      tool: createTools(store, orchestrator, progress),
       config: async (hostConfig: Record<string, unknown>) => {
         hostConfig.agent = {
           ...createAgentConfig(),
