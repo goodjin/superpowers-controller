@@ -1,6 +1,6 @@
 import { createNodeProgressStore } from "./progress/node-progress"
 import { createProjectStore } from "./state/store"
-import { buildProgressPanelViewModel, renderProgressPanelText } from "./tui/progress-panel"
+import { buildProgressPanelViewModel, renderCompactProgressText, renderProgressPanelText } from "./tui/progress-panel"
 import type { WorkflowState } from "./state/types"
 
 type TuiApi = {
@@ -10,6 +10,9 @@ type TuiApi = {
   }
   command?: {
     register(callback: () => Array<{ title: string; value: string; description?: string; category?: string; onSelect?: () => void }>): () => void
+  }
+  slots?: {
+    register(plugin: { slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }): string
   }
   state: {
     path: {
@@ -42,6 +45,12 @@ export function createTuiPluginModule() {
           },
         },
       ]))
+      api.slots?.register({
+        slots: {
+          session_prompt_right: (_context, props) => renderCompactProgressText(currentProgressModel(api, props?.session_id)),
+          sidebar_footer: (_context, props) => renderCompactProgressText(currentProgressModel(api, props?.session_id)),
+        },
+      })
       if (api.command) {
         disposers.push(api.command.register(() => [
           {
@@ -58,6 +67,16 @@ export function createTuiPluginModule() {
       })
     },
   }
+}
+
+function currentProgressModel(api: TuiApi, sessionID?: unknown) {
+  const workflow = createProjectStore(api.state.path.directory)
+  const state = workflow.readCurrent()
+  if (typeof sessionID === "string" && state?.parent_session_id && sessionID !== state.parent_session_id) {
+    return buildProgressPanelViewModel(null, {}, {})
+  }
+  const progress = state ? createNodeProgressStore(api.state.path.directory).readRun(state) : {}
+  return buildProgressPanelViewModel(state, progress, liveStatusBySession(api, state))
 }
 
 function liveStatusBySession(api: TuiApi, state: WorkflowState | null): Record<string, string> {

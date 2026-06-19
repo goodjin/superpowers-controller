@@ -76,3 +76,17 @@ export function renderProgressPanelText(model: ProgressPanelViewModel): string {
   }
   return lines.join("\n").trimEnd()
 }
+
+export function renderCompactProgressText(model: ProgressPanelViewModel): string {
+  if (!model.active) return ""
+  const row = [...model.rows].reverse().find((candidate) => candidate.durable_status === "running") ?? model.rows.at(-1)
+  if (!row) return "SP: active workflow has no child sessions"
+
+  const task = row.task_id ? ` ${row.task_id}` : ""
+  const live = row.live_status === "unknown" ? row.durable_status : `${row.durable_status}/${row.live_status}`
+  return truncateLine(`SP: ${row.agent}${task} ${live} - ${row.latest_summary}`)
+}
+
+function truncateLine(value: string, max = 120): string {
+  return value.length > max ? `${value.slice(0, max - 3)}...` : value
+}

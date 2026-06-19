@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildProgressPanelViewModel, renderProgressPanelText } from "../src/tui/progress-panel"
+import { buildProgressPanelViewModel, renderCompactProgressText, renderProgressPanelText } from "../src/tui/progress-panel"
 import type { NodeProgressEntry } from "../src/progress/node-progress"
 import type { WorkflowState } from "../src/state/types"
 
@@ -94,5 +94,6 @@ describe("progress panel view model", () => {
     expect(text).toContain("feature run run-1 is running at implement.")
     expect(text).toContain("001-implement-T1")
     expect(text).toContain("bash running")
+    expect(renderCompactProgressText(model)).toBe("SP: sp-implementer T1 running/busy - bash running")
   })
 })
