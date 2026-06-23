@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createNodeProgressStore } from "../src/progress/node-progress"
 import { createProjectStore } from "../src/state/store"
-import { createCompactProgressSlot, createTuiPluginModule, RESIDENT_PROGRESS_SLOT_NAMES } from "../src/tui"
+import { createCompactProgressSlot, createProgressSlot, createTuiPluginModule, RESIDENT_PROGRESS_SLOT_NAMES } from "../src/tui"
 
 describe("Superpowers TUI plugin", () => {
   test("registers the progress route and persistent progress slots", async () => {
@@ -91,6 +91,28 @@ describe("Superpowers TUI plugin", () => {
       expect(typeof slots.app_bottom).toBe("function")
       expect(typeof slots.session_prompt_right).toBe("function")
       expect(slots.home_prompt_right).toBeUndefined()
+      const workflowStatusSlot = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "workflow-status" },
+      )
+      expect(workflowStatusSlot()).toEqual({
+        type: "text",
+        value: "SP: feature intake@intake | tasks 0/1 done | sessions 1 running",
+      })
+      const sidebarSlot = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "sidebar-context" },
+      )
+      expect(sidebarSlot()).toEqual({
+        type: "text",
+        value: "SP unfinished tasks\nT1: running - T1",
+      })
+      expect(sidebarSlot(undefined, { session_id: "session-main" })).toEqual({
+        type: "text",
+        value: "SP running sessions\nsp-implementer T1: busy - bash running",
+      })
       const compactSlot = createCompactProgressSlot(
         api,
         (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),

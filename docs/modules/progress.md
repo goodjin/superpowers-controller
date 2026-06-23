@@ -66,14 +66,16 @@ TUI entry 暴露在 package 的 `./tui` export。
 
 child question bridge route 名为 `superpowers-questions`，命令值为 `superpowers.questions`。它读取 OpenCode 的 pending question API，只展示 active workflow 中 `node_runs[].session_id` 拥有的问题，并提供每个选项的 `Reply` action 和一个 `Reject question` action。
 
-主会话常驻进度通过 TUI slot 展示。主承载面优先放在 main bottom/sidebar；为了避免当前 host layout 不渲染这些 slot 时完全看不到进度，`session_prompt_right` 只作为短 fallback indicator：
+主会话常驻进度通过 TUI slot 展示。不同 slot 不再复用同一条 compact 文本，而是按可用空间分工：
 
-- `home_bottom`、`app_bottom`：主会话/首页底部常驻 surface，承载一行 compact progress。
-- `sidebar_content`、`sidebar_footer`：右侧栏常驻/降级 surface，承载同一行 compact progress。
+- `app_bottom`：主会话底部常驻 surface，承载整体 workflow 状态，例如 workflow/status/current phase、任务完成数、运行中 session 数。
+- `home_bottom`：首页底部 surface，承载同一类整体 workflow 状态。
+- `sidebar_content`：右侧栏主体。没有 session props 时按首页场景展示未完成任务；有 parent/child session props 时按主会话场景展示运行中的 child session 列表。
+- `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。
 - `session_prompt_right`：短 fallback indicator，限制为 44 字符，避免主会话没有任何可见 progress 锚点。完整内容不放在输入区。
 - `home_prompt_right`、`home_footer`：不注册 Superpowers compact progress。`home_prompt_right` 会靠近输入区，`home_footer` 与 host footer 区域语义不稳定，先交给主会话底部、sidebar surface 和短 fallback 承载。
 
-常驻行只显示 active workflow 中最新 running node 的 agent、task、durable/live status 和最新 progress 摘要。`session_prompt_right` fallback 会截短；完整历史仍通过 `superpowers-progress` route 查看。
+当前没有在本机 OpenCode TUI 包中确认到可用的主会话内容区 slot 名称，所以进行中会话的详细过程仍通过 `superpowers-progress` route 查看；待 host 暴露明确的 session content slot 后，再把详细过程挂到该 surface。`session_prompt_right` fallback 会截短，只做可见锚点。
 
 running node 的最新 progress 如果超过显示阈值没有更新，会在 compact 行和完整面板里标为 `stalled`，例如 `SP: sp-spec-reviewer running/busy/stalled - write pending`。这表示 Controller 仍然有登记的 child session，但最近的 child progress 已经停住，需要用户能在主会话直接看到。
 

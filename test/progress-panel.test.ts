@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { buildProgressPanelViewModel, renderCompactProgressText, renderProgressPanelText } from "../src/tui/progress-panel"
+import {
+  buildProgressPanelViewModel,
+  renderCompactProgressText,
+  renderProgressPanelText,
+  renderRunningSessionsText,
+  renderUnfinishedTasksText,
+  renderWorkflowStatusText,
+} from "../src/tui/progress-panel"
 import type { NodeProgressEntry } from "../src/progress/node-progress"
 import type { WorkflowState } from "../src/state/types"
 
@@ -12,6 +19,7 @@ describe("progress panel view model", () => {
       title: "Superpowers Progress",
       summary: "No active Superpowers workflow.",
       rows: [],
+      tasks: [],
     })
     expect(renderProgressPanelText(model)).toContain("No active Superpowers workflow.")
   })
@@ -35,6 +43,22 @@ describe("progress panel view model", () => {
       updated_at: "2026-06-19T00:00:00.000Z",
       gates: {},
       artifacts: {},
+      task_graph: {
+        tasks: [
+          {
+            id: "T1",
+            title: "Implement progress surface",
+            summary: "Show progress in TUI",
+            depends_on: [],
+          },
+          {
+            id: "T2",
+            title: "Document progress surface",
+            summary: "Update module docs",
+            depends_on: ["T1"],
+          },
+        ],
+      },
       node_runs: [
         {
           id: "001-implement-T1",
@@ -77,6 +101,21 @@ describe("progress panel view model", () => {
       active: true,
       title: "Superpowers Progress",
       summary: "feature run run-1 is running at implement.",
+      workflow: "feature",
+      status: "running",
+      current_phase: "implement",
+      tasks: [
+        {
+          task_id: "T1",
+          title: "Implement progress surface",
+          status: "running",
+        },
+        {
+          task_id: "T2",
+          title: "Document progress surface",
+          status: "pending",
+        },
+      ],
       rows: [
         {
           node_id: "001-implement-T1",
@@ -98,6 +137,9 @@ describe("progress panel view model", () => {
     expect(text).toContain("bash running")
     expect(renderCompactProgressText(model)).toBe("SP: sp-implementer T1 running/busy - bash running")
     expect(renderCompactProgressText(model, 44)).toBe("SP: sp-implementer T1 running/busy - bash...")
+    expect(renderWorkflowStatusText(model)).toBe("SP: feature running@implement | tasks 0/2 done | sessions 1 running")
+    expect(renderRunningSessionsText(model)).toContain("sp-implementer T1: busy - bash running")
+    expect(renderUnfinishedTasksText(model)).toContain("T2: pending - Document progress surface")
   })
 
   test("marks stale running child progress as stalled", () => {

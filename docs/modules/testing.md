@@ -19,7 +19,7 @@
 - `test/node-progress.test.ts`：child session 事件到节点 progress JSONL 的映射、忽略无关 session、错误摘要。
 - `test/progress-panel.test.ts`：TUI progress panel view-model 和文本渲染。
 - `test/plugin-progress-event.test.ts`：server plugin `event` hook 写入 child progress。
-- `test/tui-plugin.test.ts`：TUI route、命令入口、resident progress slot 注册、短 prompt fallback，以及无 session props compact progress 渲染。
+- `test/tui-plugin.test.ts`：TUI route、命令入口、resident progress slot 注册、slot-specific workflow/sidebar/fallback 渲染，以及无 session props compact progress 渲染。
 - `test/package-entrypoints.test.ts`：package build/export 包含 `./tui` 入口。
 - `test/e2e/opencode-workflow.test.ts`：workflow e2e，覆盖 proposal/start、prepare-review-start、debug root cause、strict debug gate、完整 feature lifecycle、`sp_record` 校验恢复、completion verification、active waiting reroute 和 strict execute gate 顺序。
 - `scripts/e2e-opencode-mock-llm.ts`：用临时 OpenCode 配置启动真实 `opencode run`，通过 mock provider 验证 request_id 匹配。
@@ -37,7 +37,7 @@ child session live progress 走事件归档，不靠 toast 断言：
 
 - `test/node-progress.test.ts` 覆盖 `message.part.updated`、`session.status`、`session.error` 等事件的归档形状。
 - `test/plugin-progress-event.test.ts` 覆盖 server hook 只处理 active workflow 中已登记的 child session。
-- `test/tui-plugin.test.ts` 覆盖 `superpowers-progress` route、`superpowers.progress` 命令入口、resident progress slot 名单、短 prompt fallback，以及 parent/child/no-props/unrelated session 下的 compact progress 行。
+- `test/tui-plugin.test.ts` 覆盖 `superpowers-progress` route、`superpowers.progress` 命令入口、resident progress slot 名单、`app_bottom` workflow status、`sidebar_content` 首页任务列表/主会话运行列表、短 prompt fallback，以及 parent/child/no-props/unrelated session 下的 compact progress 行。
 
 ## Mock LLM Contract
 

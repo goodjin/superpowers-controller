@@ -14,7 +14,14 @@ import {
   type QuestionBridgeClient,
   type QuestionRequest,
 } from "./tui/question-bridge"
-import { buildProgressPanelViewModel, renderCompactProgressText, renderProgressPanelText } from "./tui/progress-panel"
+import {
+  buildProgressPanelViewModel,
+  renderCompactProgressText,
+  renderProgressPanelText,
+  renderRunningSessionsText,
+  renderUnfinishedTasksText,
+  renderWorkflowStatusText,
+} from "./tui/progress-panel"
 import type { WorkflowState } from "./state/types"
 
 export const RESIDENT_PROGRESS_SLOT_NAMES = [
@@ -25,7 +32,7 @@ export const RESIDENT_PROGRESS_SLOT_NAMES = [
   "session_prompt_right",
 ] as const
 
-const PROMPT_FALLBACK_PROGRESS_SLOT_NAMES = new Set<string>(["session_prompt_right"])
+type ProgressSlotRenderer = "compact" | "workflow-status" | "sidebar-context"
 
 type TuiApi = {
   route: {
@@ -77,9 +84,9 @@ export function createTuiPluginModule() {
       ]))
       api.slots?.register({
         slots: residentProgressSlots((slotName) =>
-          createCompactProgressSlot(api, createTextElement, {
+          createProgressSlot(api, createTextElement, {
             questionClient,
-            maxChars: PROMPT_FALLBACK_PROGRESS_SLOT_NAMES.has(slotName) ? 44 : 120,
+            ...progressSlotOptions(slotName),
           }),
         ),
       })
@@ -120,9 +127,18 @@ type CompactProgressSlotOptions = {
   refreshMs?: number
   questionClient?: QuestionBridgeClient
   maxChars?: number
+  renderer?: ProgressSlotRenderer
 }
 
 export function createCompactProgressSlot(
+  api: TuiApi,
+  renderText: (value: TextSource) => unknown = createTextElement,
+  options: CompactProgressSlotOptions = {},
+): (_context?: unknown, props?: Record<string, unknown>) => unknown {
+  return createProgressSlot(api, renderText, { renderer: "compact", ...options })
+}
+
+export function createProgressSlot(
   api: TuiApi,
   renderText: (value: TextSource) => unknown = createTextElement,
   options: CompactProgressSlotOptions = {},
@@ -131,16 +147,31 @@ export function createCompactProgressSlot(
     const sessionID = slotSessionID(props)
     const refreshMs = options.refreshMs ?? 1000
     if (refreshMs <= 0) {
-      const text = safeCompactProgressText(api, sessionID, options.maxChars)
+      const text = safeProgressSlotText(api, sessionID, props, options.renderer ?? "compact", options.maxChars)
       return text ? renderText(text) : null
     }
-    const [text, setText] = createSignal(safeCompactProgressText(api, sessionID, options.maxChars))
+    const [text, setText] = createSignal(safeProgressSlotText(api, sessionID, props, options.renderer ?? "compact", options.maxChars))
     const timer = setInterval(() => {
-      void refreshCompactProgressText(api, sessionID, options.questionClient, options.maxChars, setText)
+      void refreshProgressSlotText(api, sessionID, props, options.questionClient, options.renderer ?? "compact", options.maxChars, setText)
     }, refreshMs)
-    void refreshCompactProgressText(api, sessionID, options.questionClient, options.maxChars, setText)
+    void refreshProgressSlotText(api, sessionID, props, options.questionClient, options.renderer ?? "compact", options.maxChars, setText)
     onCleanup(() => clearInterval(timer))
     return renderText(text)
+  }
+}
+
+function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions, "renderer" | "maxChars"> {
+  switch (slotName) {
+    case "app_bottom":
+    case "home_bottom":
+    case "sidebar_footer":
+      return { renderer: "workflow-status", maxChars: 100 }
+    case "sidebar_content":
+      return { renderer: "sidebar-context" }
+    case "session_prompt_right":
+      return { renderer: "compact", maxChars: 44 }
+    default:
+      return { renderer: "compact" }
   }
 }
 
@@ -148,34 +179,47 @@ function slotSessionID(props?: Record<string, unknown>): unknown {
   return typeof props?.session_id === "string" ? props.session_id : props?.sessionID
 }
 
-function safeCompactProgressText(api: TuiApi, sessionID?: unknown, maxChars?: number): string {
+function safeProgressSlotText(
+  api: TuiApi,
+  sessionID: unknown,
+  props: Record<string, unknown> | undefined,
+  renderer: ProgressSlotRenderer,
+  maxChars?: number,
+): string {
   try {
     const state = currentWorkflowState(api)
     const progress = state ? createNodeProgressStore(api.state.path.directory).readRun(state) : {}
-    return renderCompactProgressText(progressModel(api, state, progress, sessionID), maxChars)
+    const model = progressModel(api, state, progress, sessionID)
+    if (renderer === "workflow-status") return renderWorkflowStatusText(model, maxChars)
+    if (renderer === "sidebar-context") {
+      return typeof slotSessionID(props) === "string" ? renderRunningSessionsText(model) : renderUnfinishedTasksText(model)
+    }
+    return renderCompactProgressText(model, maxChars)
   } catch {
     return "SP: progress unavailable"
   }
 }
 
-async function refreshCompactProgressText(
+async function refreshProgressSlotText(
   api: TuiApi,
   sessionID: unknown,
+  props: Record<string, unknown> | undefined,
   client: QuestionBridgeClient | undefined,
+  renderer: ProgressSlotRenderer,
   maxChars: number | undefined,
   setText: (value: string) => void,
 ): Promise<void> {
   try {
-    if (!client) {
-      setText(safeCompactProgressText(api, sessionID, maxChars))
+    if (!client || renderer !== "compact") {
+      setText(safeProgressSlotText(api, sessionID, props, renderer, maxChars))
       return
     }
     const state = currentWorkflowState(api)
     const questions = filterWorkflowQuestionRequests(state, await client.list(api.state.path.directory))
     const questionText = renderCompactQuestionText(questions)
-    setText(questionText || safeCompactProgressText(api, sessionID, maxChars))
+    setText(questionText || safeProgressSlotText(api, sessionID, props, renderer, maxChars))
   } catch {
-    setText(safeCompactProgressText(api, sessionID, maxChars))
+    setText(safeProgressSlotText(api, sessionID, props, renderer, maxChars))
   }
 }
 
