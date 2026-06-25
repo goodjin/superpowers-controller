@@ -15,7 +15,7 @@
 - `test/dispatch-transition.test.ts`：intake、plan、task-scoped implementation acceptance、串行 review、code-review 后回到 task graph、retry 和 needs_user 的 dispatch decision。
 - `test/session-orchestrator.test.ts`：node task markdown 模板、session create/reuse adapter 调用。
 - `test/store-node-runs.test.ts`：`node_runs` 创建、`nodes/*/task.md`、`nodes/*/record.json` 和完成状态更新。
-- `test/sp-record-dispatch.test.ts`：legacy record handler 覆盖，验证 `sp_report(plan)` 语义后 dispatch implementer、implementation report 后派发带 task/report 上下文的 acceptance，并在 `needs_user` 时不派发。
+- `test/sp-record-dispatch.test.ts`：legacy record handler 覆盖，验证 `sp_report(plan)` 语义后 dispatch implementer、implementation report 后派发带 task/report 上下文的 acceptance、检查失败后回派 implementer 并恢复 workflow running，并在 `needs_user` 时不派发。
 - `test/node-progress.test.ts`：child session 事件到节点 progress JSONL 的映射、忽略无关 session、错误摘要。
 - `test/progress-panel.test.ts`：TUI progress panel view-model 和文本渲染。
 - `test/plugin-progress-event.test.ts`：server plugin `event` hook 写入 child progress。
@@ -38,7 +38,7 @@ child session live progress 走事件归档，不靠 toast 断言：
 
 - `test/node-progress.test.ts` 覆盖 `message.part.updated`、`session.status`、`session.error` 等事件的归档形状。
 - `test/plugin-progress-event.test.ts` 覆盖 server hook 只处理 active workflow 中已登记的 child session。
-- `test/tui-plugin.test.ts` 覆盖 `superpowers-progress` route、`superpowers.progress` 命令入口、resident progress slot 名单、prompt/home prompt slot 不注册、`app_bottom` no-props 隐藏/主会话 workflow status、`sidebar_content` no-props 全局进度/主会话运行列表，以及 parent/child/no-props/unrelated session 下的 compact progress 行。
+- `test/tui-plugin.test.ts` 覆盖 `superpowers-progress` route、`superpowers.progress` 命令入口、resident progress slot 名单、`home_prompt` / `home_prompt_right` compact progress 注册、`app_bottom` no-props 隐藏/主会话 workflow status、`sidebar_content` no-props 全局进度/主会话运行列表，以及 parent/child/no-props/unrelated session 下的 compact progress 行。
 
 ## Mock LLM Contract
 

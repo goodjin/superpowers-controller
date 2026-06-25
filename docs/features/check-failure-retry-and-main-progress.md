@@ -1,0 +1,29 @@
+# Check Failure Retry And Main Progress
+
+## 背景
+
+检查环节失败时，runtime 已经有回派 implementer 的 transition，但 state store 在追加 retry node run 时不会把 workflow 从 `failed` 恢复成 `running`。结果是 workflow 已经派发了修复会话，界面仍可能显示失败态，看起来像卡在 acceptance、verification 或 code review。
+
+TUI 常驻进度也缺少主会话区域入口。当前只注册 `sidebar_footer`、`sidebar_content` 和 `app_bottom`，没有 `home_prompt` / `home_prompt_right`。当 host 没有给 sidebar/app_bottom 传 session props，用户会看到 workflow 在运行，但主会话区域没有任何可见进度。
+
+## 目标
+
+- 任意检查环节 `failed` 后，transition 复用对应 task 的 implementer session 或创建新的 implementer session。
+- retry node run 写入后，workflow 状态恢复为 `running`，`current_phase` 更新为 retry phase。
+- retry prompt 包含失败检查的 summary / findings，方便 implementer 修复。
+- `home_prompt` 和 `home_prompt_right` 注册 compact progress，让主会话区域能看到当前 workflow 进度。
+- `sidebar_content` 继续支持无 session props 的全局读取。
+
+## 非目标
+
+- 不在这次改动里重构独立 task/check state。
+- 不改变 public tool surface。
+- 不把 progress 注入模型上下文；它仍然是 TUI side-channel。
+
+## 验收
+
+- Acceptance failed 后，runtime 派发 `reuse_session` 到同一 task 的 implementer。
+- Retry node run 创建后，workflow status 为 `running`。
+- Retry prompt 包含失败检查上下文。
+- TUI slot 列表包含 `home_prompt` 和 `home_prompt_right`。
+- 主会话 compact slot 能显示当前 running node，例如 `SP: sp-implementer T1 running/busy - ...`。

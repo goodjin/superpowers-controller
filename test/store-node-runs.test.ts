@@ -29,6 +29,8 @@ describe("ProjectStore node runs", () => {
 
       const runRoot = join(store.root, "runs", state.id)
       const persisted = store.readCurrent()
+      expect(persisted?.status).toBe("running")
+      expect(persisted?.current_phase).toBe("implement")
       expect(persisted?.node_runs).toHaveLength(1)
       expect(persisted?.node_runs[0]).toMatchObject({
         id: node.id,

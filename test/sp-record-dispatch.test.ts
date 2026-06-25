@@ -230,4 +230,95 @@ describe("sp_report dispatch integration", () => {
       rmSync(project, { recursive: true, force: true })
     }
   })
+
+  test("failed check dispatches retry implementer and restores workflow to running", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-record-retry-"))
+    try {
+      const store = createProjectStore(project)
+      store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add gates",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+      })
+      const implementer = store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        session_id: "session-impl",
+        task_id: "T1",
+        task_markdown: "# Task\n\nImplement T1.",
+      })
+      store.recordNodeResult({
+        nodeID: implementer.id,
+        input: {
+          event: "implementation",
+          status: "passed",
+          summary: "Implemented T1.",
+          artifacts: { patch_summary: "Patch summary." },
+          gates: { implementation_done: true },
+        },
+      })
+      store.addNodeRun({
+        phase: "acceptance",
+        agent: "sp-acceptance-reviewer",
+        primary_skill: "superpowers-requesting-code-review",
+        session_id: "session-acceptance",
+        task_id: "T1",
+        task_markdown: "# Acceptance\n\nReview T1.",
+      })
+
+      const prompts: string[] = []
+      const handler = createReportHandler({
+        store,
+        orchestrator: {
+          async dispatch(args) {
+            const taskMarkdown = buildNodeTaskPrompt(args.packet)
+            prompts.push(taskMarkdown)
+            return {
+              action: args.decision.action,
+              session_id: args.decision.action === "reuse_session" ? args.decision.session_id : "session-new",
+              task_markdown: taskMarkdown,
+            }
+          },
+        },
+      })
+
+      const output = await handler(
+        {
+          event: "acceptance",
+          status: "failed",
+          summary: "Acceptance found a missing edge case.",
+          findings: "Missing validation for empty input.",
+        },
+        { sessionID: "session-acceptance", agent: "sp-acceptance-reviewer" },
+      )
+
+      const result = JSON.parse(output)
+      const state = store.readCurrent()
+      expect(result.dispatches[0]).toMatchObject({
+        action: "reuse_session",
+        agent: "sp-implementer",
+        phase: "implement",
+        task_id: "T1",
+        session_id: "session-impl",
+      })
+      expect(state?.status).toBe("running")
+      expect(state?.current_phase).toBe("implement")
+      expect(state?.node_runs.at(-1)).toMatchObject({
+        phase: "implement",
+        agent: "sp-implementer",
+        task_id: "T1",
+        status: "running",
+        attempts: 2,
+      })
+      expect(prompts[0]).toContain("## Retry Context")
+      expect(prompts[0]).toContain("Acceptance found a missing edge case.")
+      expect(prompts[0]).toContain("Missing validation for empty input.")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
 })

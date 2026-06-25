@@ -268,6 +268,9 @@ export function createProjectStore(project: string): ProjectStore {
       }
       const next = {
         ...current,
+        status: resumableStatus(current.status),
+        phase: args.phase,
+        current_phase: args.phase,
         node_runs: [...current.node_runs, node],
         updated_at: new Date().toISOString(),
       }
@@ -289,6 +292,11 @@ export function createProjectStore(project: string): ProjectStore {
       if (existsSync(currentPath)) rmSync(currentPath)
     },
   }
+}
+
+function resumableStatus(status: WorkflowState["status"]): WorkflowState["status"] {
+  if (status === "passed" || status === "canceled") return status
+  return "running"
 }
 
 function createWorkflowState(args: {
