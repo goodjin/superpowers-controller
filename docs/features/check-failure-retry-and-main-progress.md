@@ -4,14 +4,15 @@
 
 检查环节失败时，runtime 已经有回派 implementer 的 transition，但 state store 在追加 retry node run 时不会把 workflow 从 `failed` 恢复成 `running`。结果是 workflow 已经派发了修复会话，界面仍可能显示失败态，看起来像卡在 acceptance、verification 或 code review。
 
-TUI 常驻进度也缺少主会话区域入口。当前只注册 `sidebar_footer`、`sidebar_content` 和 `app_bottom`，没有 `home_prompt` / `home_prompt_right`。当 host 没有给 sidebar/app_bottom 传 session props，用户会看到 workflow 在运行，但主会话区域没有任何可见进度。
+TUI 常驻进度也缺少主会话区域入口。主会话 prompt 附近应使用 session 相关 slot，例如 `session_prompt_right`。`home_prompt` / `home_prompt_right` 属于首页区域，不能用来解决主会话区域展示。
 
 ## 目标
 
 - 任意检查环节 `failed` 后，transition 复用对应 task 的 implementer session 或创建新的 implementer session。
 - retry node run 写入后，workflow 状态恢复为 `running`，`current_phase` 更新为 retry phase。
 - retry prompt 包含失败检查的 summary / findings，方便 implementer 修复。
-- `home_prompt` 和 `home_prompt_right` 注册 compact progress，让主会话区域能看到当前 workflow 进度。
+- `session_prompt_right` 注册 compact progress，让主会话区域能看到当前 workflow 进度。
+- `home_prompt` 和 `home_prompt_right` 不注册 Superpowers resident progress。
 - `sidebar_content` 继续支持无 session props 的全局读取。
 
 ## 非目标
@@ -25,5 +26,5 @@ TUI 常驻进度也缺少主会话区域入口。当前只注册 `sidebar_footer
 - Acceptance failed 后，runtime 派发 `reuse_session` 到同一 task 的 implementer。
 - Retry node run 创建后，workflow status 为 `running`。
 - Retry prompt 包含失败检查上下文。
-- TUI slot 列表包含 `home_prompt` 和 `home_prompt_right`。
+- TUI slot 列表包含 `session_prompt_right`，不包含 `home_prompt` 和 `home_prompt_right`。
 - 主会话 compact slot 能显示当前 running node，例如 `SP: sp-implementer T1 running/busy - ...`。

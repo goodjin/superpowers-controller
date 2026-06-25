@@ -26,8 +26,7 @@ import {
 import type { WorkflowState } from "./state/types"
 
 export const RESIDENT_PROGRESS_SLOT_NAMES = [
-  "home_prompt",
-  "home_prompt_right",
+  "session_prompt_right",
   "sidebar_footer",
   "sidebar_content",
   "app_bottom",
@@ -169,9 +168,7 @@ function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions,
       return { renderer: "workflow-status", maxChars: 100 }
     case "sidebar_content":
       return { renderer: "sidebar", allowGlobal: true }
-    case "home_prompt":
-      return { renderer: "compact", maxChars: 120 }
-    case "home_prompt_right":
+    case "session_prompt_right":
       return { renderer: "compact", maxChars: 80 }
     default:
       return { renderer: "compact" }

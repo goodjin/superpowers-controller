@@ -68,11 +68,11 @@ child question bridge route 名为 `superpowers-questions`，命令值为 `super
 
 主会话常驻进度通过 TUI slot 展示。不同 slot 不再复用同一条 compact 文本，而是按可用空间分工：
 
-- `home_prompt`、`home_prompt_right`：主会话区域的短进度锚点，展示 compact progress，例如当前运行中的 agent、task、session live status 和最新 activity。
+- `session_prompt_right`：主会话 prompt 附近的短进度锚点，展示 compact progress，例如当前运行中的 agent、task、session live status 和最新 activity。
 - `app_bottom`：主会话底部常驻 surface，承载整体 workflow 状态，例如 workflow/status/current phase、任务完成数、运行中 session 数。没有 session props 时不渲染。
 - `sidebar_content`：右侧栏主体。展示 workflow 总览、运行中 child session 列表；当 OpenCode pending question API 返回 child session question 时，优先展示问题正文和选项摘要。
 - `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。没有 session props 时不渲染。
-- `session_prompt_right`、`home_bottom`、`home_footer`：不注册 Superpowers resident progress。
+- `home_prompt`、`home_prompt_right`、`home_bottom`、`home_footer`：不注册 Superpowers resident progress。`home_*` 是首页区域，不作为主会话运行态展示入口。
 
 详细过程仍通过 `superpowers-progress` route 查看；子会话问题的完整交互仍通过 `superpowers-questions` route 完成。
 
