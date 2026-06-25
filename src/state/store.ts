@@ -444,6 +444,8 @@ function reportFilenameForEvent(event: WorkflowRecord["event"]): string | undefi
     case "debug":
     case "question":
       return "report.md"
+    case "investigation":
+      return "investigation.md"
     case "acceptance":
       return "acceptance.md"
     case "code-review":
@@ -467,6 +469,8 @@ function artifactForReportEvent(event: WorkflowRecord["event"]): keyof NonNullab
       return "verification_log"
     case "finish":
       return "finish_note"
+    case "investigation":
+      return "investigation"
     case "debug":
       return "root_cause"
     case "implementation":

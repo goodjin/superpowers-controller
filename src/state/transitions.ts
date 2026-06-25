@@ -50,7 +50,12 @@ export function applyRecord(state: WorkflowState, record: WorkflowRecord): Workf
     throw new Error("sp_report rejected: too many gates updated in one report")
   }
 
-  if (record.event === "finish" && record.status === "passed" && state.gates.verification_fresh !== true) {
+  if (
+    record.event === "finish" &&
+    record.status === "passed" &&
+    requiresFreshVerificationForFinish(state.workflow) &&
+    state.gates.verification_fresh !== true
+  ) {
     throw new Error("sp_report rejected: verification_fresh is required before completion reports")
   }
 
@@ -124,8 +129,13 @@ function statusForRecord(state: WorkflowState, record: WorkflowRecord): Workflow
   if (record.status === "blocked") return "blocked"
   if (record.status === "failed") return "failed"
   if (state.activation === "draft" && record.event === "plan" && record.status === "passed") return "waiting_user"
+  if (state.workflow === "plan-only" && record.event === "plan" && record.status === "passed") return "passed"
   if (record.event === "finish" && record.status === "passed") return "passed"
   return "running"
+}
+
+function requiresFreshVerificationForFinish(workflow: WorkflowKind): boolean {
+  return workflow === "feature" || workflow === "debug" || workflow === "review" || workflow === "verify-finish"
 }
 
 function normalizeArtifactRefs(artifacts: NonNullable<WorkflowRecord["artifacts"]>): WorkflowState["artifacts"] {
@@ -168,6 +178,8 @@ function phaseForRecord(state: WorkflowState, record: WorkflowRecord): string {
     case "plan":
       if (record.status !== "passed") return "plan-retry"
       return state.activation === "draft" ? "awaiting-plan-approval" : "plan-complete"
+    case "investigation":
+      return record.status === "passed" ? "investigation-complete" : "investigation-retry"
     case "debug":
       return record.status === "passed" ? "root-cause-found" : "debug-retry"
     case "red-test":

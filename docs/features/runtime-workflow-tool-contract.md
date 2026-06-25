@@ -1086,6 +1086,15 @@ Runtime 生成每个 session prompt。Agent 不自己拼 source context。每个
   - checks 按 acceptance、verification、code review 顺序运行。
   - acceptance、verification 或 code review failed 后复用 implementer。
   - 所有 checks passed 后关闭 implementer，并把 task 标记为 passed。
-  - 非编程 workflow 不要求编程检查。
+  - Plan-only 的 planner passed 后保存 `plan.md` 和 `tasks.json`，workflow 结束为 `passed`，不启动 implementer。
+  - Parallel-investigate 的 investigation passed 后启动 finish；finish 不要求 `verification_fresh`。
 - E2E 更新：
   - 覆盖五个工具的完整链路：`sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
+  - 每类 workflow 至少有一条完整闭环用例：
+    - Feature：`prepare -> start -> design -> plan -> implement -> acceptance -> verification -> code-review -> finish`。
+    - Debug repair：`start -> debug -> implement -> acceptance -> verification -> code-review -> finish`。
+    - Plan-only：`start -> planner -> passed`，确认不会派发 implementer。
+    - Review：`start -> acceptance -> verification -> code-review -> finish`。
+    - Verify-finish：`start -> verification -> finish`，同时保留 fresh verification gate 失败恢复用例。
+    - Parallel-investigate：`start -> investigator -> finish`。
+  - 补充门禁和恢复用例：strict debug 写入阻断、record validation recovery、active waiting reroute、execute gate order。

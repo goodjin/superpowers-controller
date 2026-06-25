@@ -132,12 +132,16 @@ await createOpencodeE2EHarness({
 
 ## Workflow E2E Coverage
 
-`bun run test:e2e:opencode` 当前运行 8 个场景：
+`bun run test:e2e:opencode` 当前覆盖这些场景：
 
 - harness smoke：验证真实 `opencode run` 能消费 mock LLM response。
 - debug happy path：workflow 创建后通过 `sp_report` 写入 root cause。
+- debug repair full chain：debugger 记录根因后，runtime 派发 implementer、acceptance、verification、code review 和 finisher，最终进入 `passed`。
 - strict debug gate：缺少 `root_cause_found` 时阻断修复写入。
 - feature lifecycle：一条长链路覆盖 proposal、start、design、plan、两个 implementer dispatch、acceptance、verification、code review、finish 和历史 run 保留。
+- plan-only full chain：planner 写入计划和 task graph 后 workflow 直接通过，不启动 implementer。
+- review full chain：独立 review workflow 依次执行 acceptance、verification、code review 和 finish。
+- parallel-investigate full chain：investigator 写入调查报告后由 finisher 汇总，非编程流程不要求 `verification_fresh`。
 - record validation recovery：缺 artifact 的 gate 更新失败，随后附带 artifact 恢复。
 - completion verification gate：fresh verification 前拒绝 `done`，验证后接受。
 - active waiting reroute：等待态 workflow 保持当前 mode，不被新意图覆盖。

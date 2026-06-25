@@ -49,7 +49,13 @@ export function decideNextDispatches(state: WorkflowState, record?: SpRecordInpu
       return [create("plan", "sp-planner", "design passed")]
     case "debug":
       return [create("implement", "sp-implementer", "root cause recorded")]
+    case "investigation":
+      if (state.node_runs.some((run) => run.agent === "sp-investigator" && run.status === "running")) return []
+      return [create("finish", "sp-finisher", "investigation passed")]
     case "plan":
+      if (state.workflow === "plan-only") {
+        return [{ action: "finish", reason: "plan-only workflow complete" }]
+      }
       return planDispatches(state, record)
     case "implementation":
       if (state.node_runs.some((run) => run.agent === "sp-implementer" && run.status === "running")) return []

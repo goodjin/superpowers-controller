@@ -13,7 +13,7 @@ export function createReportTool(
   return tool({
     description: "Report a Superpowers node result, artifact, evidence, question, or task graph patch to the runtime.",
     args: {
-      event: tool.schema.string().describe("Node event enum: intake, question, design, plan, debug, red-test, implementation, acceptance, code-review, verification, or finish"),
+      event: tool.schema.string().describe("Node event enum: intake, question, design, plan, investigation, debug, red-test, implementation, acceptance, code-review, verification, or finish"),
       status: tool.schema.string().describe("Node status enum: progress, passed, failed, blocked, or needs_user"),
       summary: tool.schema.string().describe("Short markdown summary of this report"),
       gates: tool.schema.record(tool.schema.string(), tool.schema.boolean()).optional().describe("Structured gate updates keyed by known gate name"),

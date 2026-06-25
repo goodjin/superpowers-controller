@@ -83,6 +83,9 @@ function requiredArtifactsForPhase(phase: string, state: WorkflowState): NodeTas
     case "verification":
       return [{ name: "patch_summary", path: "artifacts/patch_summary.md" }]
     case "finish":
+      if (state.workflow === "parallel-investigate") {
+        return [{ name: "investigation", path: "artifacts/investigation.md" }]
+      }
       return [{ name: "verification_log", path: "artifacts/verification_log.md" }]
     default:
       return []
@@ -95,6 +98,8 @@ function recordContractForPhase(phase: string): NodeTaskPacket["record_contract"
       return { event: "design", expected_artifacts: ["spec"], allowed_gates: ["design_approved", "spec_written"] }
     case "plan":
       return { event: "plan", expected_artifacts: ["plan"], allowed_gates: ["plan_written"] }
+    case "investigate":
+      return { event: "investigation", expected_artifacts: ["investigation"], allowed_gates: [] }
     case "debug":
       return { event: "debug", expected_artifacts: ["root_cause"], allowed_gates: ["root_cause_found"] }
     case "implement":

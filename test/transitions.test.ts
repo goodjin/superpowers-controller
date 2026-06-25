@@ -92,6 +92,47 @@ describe("applyRecord", () => {
     ).toThrow("verification_fresh")
   })
 
+  test("marks plan-only workflow passed when plan is recorded", () => {
+    const state = createInitialState({
+      id: "run-1",
+      project: "/repo",
+      session: "session-1",
+      mode: "plan",
+      goal: "plan implementation",
+    })
+
+    const next = applyRecord(state, {
+      event: "plan",
+      status: "passed",
+      summary: "Plan ready.",
+      artifacts: { plan: "# Plan" },
+      gates: { plan_written: true },
+    })
+
+    expect(next.status).toBe("passed")
+    expect(next.phase).toBe("plan-complete")
+  })
+
+  test("allows parallel investigation completion without fresh verification", () => {
+    const state = createInitialState({
+      id: "run-1",
+      project: "/repo",
+      session: "session-1",
+      mode: "parallel-investigate",
+      goal: "investigate options",
+    })
+
+    const next = applyRecord(state, {
+      event: "finish",
+      status: "passed",
+      summary: "Investigation summarized.",
+      artifacts: { finish_note: "Investigation result." },
+    })
+
+    expect(next.status).toBe("passed")
+    expect(next.phase).toBe("finished")
+  })
+
   test("rejects completion while task graph tasks are not all passed", () => {
     const state = createInitialState({
       id: "run-1",

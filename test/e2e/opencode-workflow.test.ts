@@ -155,6 +155,164 @@ describe("OpenCode 工作流 e2e", () => {
     )
   }, 30_000)
 
+  test("debug 修复 workflow 跑完根因、修复、检查和收尾", async () => {
+    await e2eLog.scenario(
+      "debug 修复闭环",
+      "debugger 先记录根因，runtime 再派发 implementer、acceptance、verification、code review 和 finisher。",
+      async (log) => {
+        log.step("创建启用子节点 prompt 的 harness", "每个 runtime 派发的节点都会生成可断言的 request id 和 task.md")
+        harness = await createOpencodeE2EHarness({ enableChildPrompts: true } as never)
+        const requestId = "debug-repair-full-chain"
+
+        log.step("注册 debug 修复链路 mock 响应", "子节点应该按 debug -> implement -> acceptance -> verification -> code-review -> finish 嵌套执行")
+        await harness.mock.expect([
+          startCall(requestId, {
+            request: "/sp-debug 修复批量任务重试失败",
+            workflow: "debug",
+            entrypoint: "debug",
+          }),
+          toolCall("node-001-debug", "sp_report", {
+            event: "debug",
+            status: "passed",
+            summary: "Retry jobs fail because stale attempt state is reused after cancellation.",
+            gates: {
+              root_cause_found: true,
+            },
+            artifacts: {
+              root_cause: "Retry jobs fail because stale attempt state is reused after cancellation.",
+            },
+          }),
+          textResponse("node-001-debug", "root cause recorded"),
+          toolCall("node-002-implement", "sp_report", {
+            event: "implementation",
+            status: "passed",
+            summary: "The retry path now resets attempt state before enqueueing a replacement job.",
+            gates: {
+              implementation_done: true,
+            },
+            artifacts: {
+              patch_summary: "Reset retry attempt state before enqueueing replacement jobs and added regression coverage.",
+            },
+          }),
+          textResponse("node-002-implement", "repair recorded"),
+          toolCall("node-003-acceptance", "sp_report", {
+            event: "acceptance",
+            status: "passed",
+            summary: "Acceptance passed for cancel-then-retry behavior.",
+            gates: {
+              acceptance_passed: true,
+            },
+            artifacts: {
+              acceptance: "The repair matches the confirmed retry behavior and does not change unrelated queue states.",
+            },
+          }),
+          textResponse("node-003-acceptance", "acceptance recorded"),
+          toolCall("node-004-verification", "sp_report", {
+            event: "verification",
+            status: "passed",
+            summary: "Fresh verification passed after the retry repair.",
+            gates: {
+              verification_fresh: true,
+            },
+            artifacts: {
+              verification_log: "bun test retry-queue.test.ts passed after the final repair.",
+            },
+          }),
+          textResponse("node-004-verification", "verification recorded"),
+          toolCall("node-005-code-review", "sp_report", {
+            event: "code-review",
+            status: "passed",
+            summary: "No blocking review issues remain in the retry state reset.",
+            gates: {
+              code_review_passed: true,
+            },
+            artifacts: {
+              code_review: "Reviewed retry state reset, queue side effects, and regression coverage. No blockers.",
+            },
+          }),
+          textResponse("node-005-code-review", "code review recorded"),
+          toolCall("node-006-finish", "sp_report", {
+            event: "finish",
+            status: "passed",
+            summary: "The debug repair workflow is ready to close.",
+            artifacts: {
+              finish_note: "Ready after root cause, repair, acceptance, verification, and code review.",
+            },
+          }),
+          textResponse("node-006-finish", "finish recorded"),
+          textResponse(requestId, "debug repair workflow completed"),
+        ])
+
+        log.step("运行 opencode", "sp_start 后的后续节点应由 runtime 自动派发")
+        const result = await harness.runOpencode({
+          title: "Debug repair full chain",
+          timeoutMs: 90_000,
+          message: `[e2e_trace_id:debug-repair-full-chain] [llm_request_id:${requestId}] /sp-debug 修复批量任务重试失败`,
+        })
+
+        expect(result.code).toBe(0)
+        expect(result.error).toBeUndefined()
+
+        log.step("验证嵌套请求顺序", "子节点应先一路派发到 finish，再逐层返回文本响应")
+        const requests = await readLoggedMockRequests(log, harness)
+        expect(requests.map((request) => request.request_id)).toEqual([
+          requestId,
+          "node-001-debug",
+          "node-002-implement",
+          "node-003-acceptance",
+          "node-004-verification",
+          "node-005-code-review",
+          "node-006-finish",
+          "node-006-finish",
+          "node-005-code-review",
+          "node-004-verification",
+          "node-003-acceptance",
+          "node-002-implement",
+          "node-001-debug",
+          requestId,
+        ])
+        expect(await harness.mock.pending()).toEqual([])
+        log.verify("debug 修复链路的所有 mock 响应均被消费")
+
+        log.step("验证最终 workflow 状态", "debug 修复完成后应具备根因、实现、三类检查和 finish 证据")
+        const state = readLoggedWorkflowState(log, harness, "debug 修复闭环完成后")
+        expect(state?.mode).toBe("debug")
+        expect(state?.phase).toBe("finished")
+        expect(state?.status).toBe("passed")
+        expect(state?.gates).toMatchObject({
+          root_cause_found: true,
+          implementation_done: true,
+          acceptance_passed: true,
+          verification_fresh: true,
+          code_review_passed: true,
+        })
+        expect(state?.history.map((entry) => entry.event)).toEqual([
+          "created",
+          "debug",
+          "implementation",
+          "acceptance",
+          "verification",
+          "code-review",
+          "finish",
+        ])
+        logArtifactSnapshots(log, harness, ["root_cause", "patch_summary", "acceptance", "verification_log", "code_review", "finish_note"])
+        expect(harness.readArtifact("verification_log")).toContain("retry-queue.test.ts passed")
+
+        expect(harness.listNodeIDs()).toEqual([
+          "001-debug",
+          "002-implement",
+          "003-acceptance",
+          "004-verification",
+          "005-code-review",
+          "006-finish",
+        ])
+        expect(harness.readNodeTask("002-implement")).toContain("Primary skill: superpowers-test-driven-development")
+        expect(harness.readNodeRecord("006-finish")).toMatchObject({ event: "finish", status: "passed" })
+        log.verify("debug 修复 workflow 已完整跑到 passed")
+      },
+    )
+  }, 120_000)
+
   test("super-agent 原生 task 调用被 Controller 拦截", async () => {
     await e2eLog.scenario(
       "super-agent native task 阻断",
@@ -376,6 +534,307 @@ describe("OpenCode 工作流 e2e", () => {
       },
     )
   }, 70_000)
+
+  test("plan-only workflow 只生成计划并结束", async () => {
+    await e2eLog.scenario(
+      "plan-only 计划闭环",
+      "planner 写入 plan 和 task_graph 后 workflow 直接通过，不派发 implementer。",
+      async (log) => {
+        log.step("创建启用子节点 prompt 的 harness", "plan-only 应只创建 planner 节点")
+        harness = await createOpencodeE2EHarness({ enableChildPrompts: true } as never)
+        const requestId = "plan-only-full-chain"
+
+        log.step("注册 plan-only mock 响应", "planner 提交计划和任务图后，runtime 应返回 finish decision 而不创建实现节点")
+        await harness.mock.expect([
+          startCall(requestId, {
+            request: "/sp-plan 设计批量任务恢复方案",
+            workflow: "plan-only",
+            entrypoint: "plan-only",
+          }),
+          toolCall("node-001-plan", "sp_report", {
+            event: "plan",
+            status: "passed",
+            summary: "The recovery plan and task graph are ready for later user-approved execution.",
+            gates: {
+              plan_written: true,
+            },
+            artifacts: {
+              plan: [
+                "# Batch recovery plan",
+                "1. Snapshot unfinished tasks before restart.",
+                "2. Reconcile runtime sessions against persisted task state.",
+                "3. Ask for user confirmation before starting repair work.",
+              ].join("\n"),
+            },
+            task_graph: {
+              tasks: [
+                {
+                  id: "T1",
+                  title: "Recovery snapshot",
+                  summary: "Persist unfinished task snapshots.",
+                  depends_on: [],
+                  files: ["src/recovery/snapshot.ts"],
+                },
+                {
+                  id: "T2",
+                  title: "Runtime reconciliation",
+                  summary: "Compare active sessions with stored tasks.",
+                  depends_on: ["T1"],
+                  files: ["src/recovery/reconcile.ts"],
+                },
+              ],
+            },
+          }),
+          textResponse("node-001-plan", "plan-only recorded"),
+          textResponse(requestId, "plan-only workflow completed"),
+        ])
+
+        log.step("运行 opencode", "plan-only 不应进入 implementer 子会话")
+        const result = await harness.runOpencode({
+          title: "Plan-only full chain",
+          timeoutMs: 70_000,
+          message: `[e2e_trace_id:plan-only-full-chain] [llm_request_id:${requestId}] /sp-plan 设计批量任务恢复方案`,
+        })
+
+        expect(result.code).toBe(0)
+        expect(result.error).toBeUndefined()
+
+        log.step("验证请求顺序", "只有 parent 和 planner 两个 request id 应出现")
+        const requests = await readLoggedMockRequests(log, harness)
+        expect(requests.map((request) => request.request_id)).toEqual([
+          requestId,
+          "node-001-plan",
+          "node-001-plan",
+          requestId,
+        ])
+        expect(await harness.mock.pending()).toEqual([])
+        log.verify("plan-only 未派发 implementer")
+
+        log.step("验证计划结果", "workflow 应直接进入 passed，计划和 task_graph 都应落盘")
+        const state = readLoggedWorkflowState(log, harness, "plan-only 完成后")
+        expect(state?.mode).toBe("plan")
+        expect(state?.workflow).toBe("plan-only")
+        expect(state?.phase).toBe("plan-complete")
+        expect(state?.status).toBe("passed")
+        expect(state?.gates.plan_written).toBe(true)
+        expect(state?.task_graph?.tasks.map((task) => task.id)).toEqual(["T1", "T2"])
+        expect(state?.node_runs.map((run) => run.agent)).toEqual(["sp-planner"])
+        logArtifactSnapshots(log, harness, ["plan"])
+        expect(harness.readArtifact("plan")).toContain("Batch recovery plan")
+        expect(harness.listNodeIDs()).toEqual(["001-plan"])
+        expect(harness.readNodeRecord("001-plan")).toMatchObject({ event: "plan", status: "passed" })
+        log.verify("plan-only workflow 以 planner 输出作为结果完成")
+      },
+    )
+  }, 100_000)
+
+  test("review workflow 依次执行 acceptance、verification、code review 和 finish", async () => {
+    await e2eLog.scenario(
+      "review 检查闭环",
+      "独立 review workflow 应先验收，再验证，最后代码审查，通过后由 finisher 汇总。",
+      async (log) => {
+        log.step("创建启用子节点 prompt 的 harness", "review workflow 的三个检查节点需要稳定编号")
+        harness = await createOpencodeE2EHarness({ enableChildPrompts: true } as never)
+        const requestId = "review-full-chain"
+
+        log.step("注册 review mock 响应", "runtime 应按 acceptance -> verification -> code-review -> finish 顺序派发")
+        await harness.mock.expect([
+          startCall(requestId, {
+            request: "/sp-review 检查任务运行面板改动",
+            workflow: "review",
+            entrypoint: "review",
+          }),
+          toolCall("node-001-acceptance", "sp_report", {
+            event: "acceptance",
+            status: "passed",
+            summary: "The delivered behavior matches the confirmed task and plan.",
+            gates: {
+              acceptance_passed: true,
+            },
+            artifacts: {
+              acceptance: "The status filter and retry confirmation behavior satisfy the accepted workflow scope.",
+            },
+          }),
+          textResponse("node-001-acceptance", "acceptance recorded"),
+          toolCall("node-002-verification", "sp_report", {
+            event: "verification",
+            status: "passed",
+            summary: "Fresh verification passed for the reviewed change.",
+            gates: {
+              verification_fresh: true,
+            },
+            artifacts: {
+              verification_log: "bun test task-run-panel.test.ts passed for the reviewed change.",
+            },
+          }),
+          textResponse("node-002-verification", "verification recorded"),
+          toolCall("node-003-code-review", "sp_report", {
+            event: "code-review",
+            status: "passed",
+            summary: "No blocking code review issues remain.",
+            gates: {
+              code_review_passed: true,
+            },
+            artifacts: {
+              code_review: "Reviewed state handling, confirmation flow, and test coverage. No blockers.",
+            },
+          }),
+          textResponse("node-003-code-review", "code review recorded"),
+          toolCall("node-004-finish", "sp_report", {
+            event: "finish",
+            status: "passed",
+            summary: "The review workflow is ready to close.",
+            artifacts: {
+              finish_note: "Review closed after acceptance, fresh verification, and code review passed.",
+            },
+          }),
+          textResponse("node-004-finish", "finish recorded"),
+          textResponse(requestId, "review workflow completed"),
+        ])
+
+        log.step("运行 opencode", "review workflow 应由 runtime 自动推进三个检查节点")
+        const result = await harness.runOpencode({
+          title: "Review full chain",
+          timeoutMs: 90_000,
+          message: `[e2e_trace_id:review-full-chain] [llm_request_id:${requestId}] /sp-review 检查任务运行面板改动`,
+        })
+
+        expect(result.code).toBe(0)
+        expect(result.error).toBeUndefined()
+
+        log.step("验证请求顺序", "review 的检查顺序应固定为 acceptance、verification、code review")
+        const requests = await readLoggedMockRequests(log, harness)
+        expect(requests.map((request) => request.request_id)).toEqual([
+          requestId,
+          "node-001-acceptance",
+          "node-002-verification",
+          "node-003-code-review",
+          "node-004-finish",
+          "node-004-finish",
+          "node-003-code-review",
+          "node-002-verification",
+          "node-001-acceptance",
+          requestId,
+        ])
+        expect(await harness.mock.pending()).toEqual([])
+        log.verify("review 子节点顺序符合定义")
+
+        log.step("验证 review 结果", "三类检查门禁和 finish 产物都应完成")
+        const state = readLoggedWorkflowState(log, harness, "review 完成后")
+        expect(state?.mode).toBe("review")
+        expect(state?.phase).toBe("finished")
+        expect(state?.status).toBe("passed")
+        expect(state?.gates).toMatchObject({
+          acceptance_passed: true,
+          verification_fresh: true,
+          code_review_passed: true,
+        })
+        expect(state?.history.map((entry) => entry.event)).toEqual([
+          "created",
+          "acceptance",
+          "verification",
+          "code-review",
+          "finish",
+        ])
+        logArtifactSnapshots(log, harness, ["acceptance", "verification_log", "code_review", "finish_note"])
+        expect(harness.readArtifact("code_review")).toContain("No blockers")
+        expect(harness.listNodeIDs()).toEqual([
+          "001-acceptance",
+          "002-verification",
+          "003-code-review",
+          "004-finish",
+        ])
+        log.verify("review workflow 已完整跑到 passed")
+      },
+    )
+  }, 120_000)
+
+  test("parallel-investigate workflow 完成调查并汇总", async () => {
+    await e2eLog.scenario(
+      "parallel-investigate 调查闭环",
+      "单任务调查在 investigator 汇报后派发 finisher，finish 不要求 fresh verification。",
+      async (log) => {
+        log.step("创建启用子节点 prompt 的 harness", "调查节点和收尾节点都应生成 task.md")
+        harness = await createOpencodeE2EHarness({ enableChildPrompts: true } as never)
+        const requestId = "parallel-investigate-full-chain"
+
+        log.step("注册调查 mock 响应", "investigator 提交 investigation report 后，runtime 应派发 finisher")
+        await harness.mock.expect([
+          startCall(requestId, {
+            request: "/sp-parallel-investigate 调查会话状态恢复策略",
+            workflow: "parallel-investigate",
+            entrypoint: "parallel-investigate",
+          }),
+          toolCall("node-001-investigate", "sp_report", {
+            event: "investigation",
+            status: "passed",
+            summary: "Runtime memory is authoritative; persisted state is a recovery snapshot.",
+            artifacts: {
+              investigation: [
+                "# Session recovery investigation",
+                "- Runtime memory should decide active sessions.",
+                "- Persisted workflow files provide recovery candidates after restart.",
+                "- Re-dispatch should use idempotent start semantics.",
+              ].join("\n"),
+            },
+          }),
+          textResponse("node-001-investigate", "investigation recorded"),
+          toolCall("node-002-finish", "sp_report", {
+            event: "finish",
+            status: "passed",
+            summary: "The investigation workflow has a clear recovery recommendation.",
+            artifacts: {
+              finish_note: "Use runtime memory as current truth and scan workflow files only when memory has no active workflow.",
+            },
+          }),
+          textResponse("node-002-finish", "finish recorded"),
+          textResponse(requestId, "parallel investigation workflow completed"),
+        ])
+
+        log.step("运行 opencode", "parallel-investigate 不应要求 verification_fresh")
+        const result = await harness.runOpencode({
+          title: "Parallel investigate full chain",
+          timeoutMs: 90_000,
+          message: `[e2e_trace_id:parallel-investigate-full-chain] [llm_request_id:${requestId}] /sp-parallel-investigate 调查会话状态恢复策略`,
+        })
+
+        expect(result.code).toBe(0)
+        expect(result.error).toBeUndefined()
+
+        log.step("验证请求顺序", "调查节点后应直接进入 finish")
+        const requests = await readLoggedMockRequests(log, harness)
+        expect(requests.map((request) => request.request_id)).toEqual([
+          requestId,
+          "node-001-investigate",
+          "node-002-finish",
+          "node-002-finish",
+          "node-001-investigate",
+          requestId,
+        ])
+        expect(await harness.mock.pending()).toEqual([])
+        log.verify("调查和汇总节点都已执行")
+
+        log.step("验证调查结果", "workflow 应保存 investigation 和 finish_note，并进入 passed")
+        const state = readLoggedWorkflowState(log, harness, "parallel-investigate 完成后")
+        expect(state?.mode).toBe("parallel-investigate")
+        expect(state?.phase).toBe("finished")
+        expect(state?.status).toBe("passed")
+        expect(state?.gates.verification_fresh).not.toBe(true)
+        expect(state?.history.map((entry) => entry.event)).toEqual([
+          "created",
+          "investigation",
+          "finish",
+        ])
+        logArtifactSnapshots(log, harness, ["investigation", "finish_note"])
+        expect(harness.readArtifact("investigation")).toContain("Runtime memory should decide active sessions")
+        expect(harness.listNodeIDs()).toEqual(["001-investigate", "002-finish"])
+        expect(harness.readNodeTask("001-investigate")).toContain("event: investigation")
+        expect(harness.readNodeTask("002-finish")).toContain("artifacts/investigation.md")
+        expect(harness.readNodeRecord("002-finish")).toMatchObject({ event: "finish", status: "passed" })
+        log.verify("parallel-investigate workflow 已完整跑到 passed")
+      },
+    )
+  }, 120_000)
 
   test("暴露缺少产物的校验错误并通过有效记录恢复", async () => {
     await e2eLog.scenario(

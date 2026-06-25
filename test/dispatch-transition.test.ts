@@ -112,6 +112,44 @@ describe("decideNextDispatches", () => {
     expect(decisions.every((decision) => "agent" in decision && decision.agent === "sp-implementer")).toBe(true)
   })
 
+  test("plan-only plan passed finishes without implementation dispatch", () => {
+    const decisions = decideNextDispatches(
+      state({
+        workflow: "plan-only",
+        mode: "plan",
+        current_phase: "plan",
+      }),
+      {
+        event: "plan",
+        status: "passed",
+        summary: "Plan ready.",
+        artifacts: { plan: "# Plan" },
+        gates: { plan_written: true },
+      },
+    )
+
+    expect(decisions).toEqual([{ action: "finish", reason: "plan-only workflow complete" }])
+  })
+
+  test("investigation passed dispatches finisher", () => {
+    const decisions = decideNextDispatches(
+      state({
+        workflow: "parallel-investigate",
+        mode: "parallel-investigate",
+        current_phase: "investigate",
+      }),
+      {
+        event: "investigation",
+        status: "passed",
+        summary: "Investigation complete.",
+        artifacts: { investigation: "Findings." },
+      },
+    )
+
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]).toMatchObject({ action: "create_session", agent: "sp-finisher", phase: "finish" })
+  })
+
   test("code review failed reuses the last implementer session", () => {
     const decisions = decideNextDispatches(
       state({
