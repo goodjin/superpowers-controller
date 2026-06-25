@@ -10,6 +10,7 @@ import {
   filterWorkflowQuestionRequests,
   renderCompactQuestionText,
   renderQuestionBridgeText,
+  renderSidebarQuestionText,
   type QuestionAction,
   type QuestionBridgeClient,
   type QuestionRequest,
@@ -28,9 +29,6 @@ export const RESIDENT_PROGRESS_SLOT_NAMES = [
   "sidebar_footer",
   "sidebar_content",
   "app_bottom",
-  "session_prompt_right",
-  "home_prompt",
-  "home_prompt_right",
 ] as const
 
 type ProgressSlotRenderer = "compact" | "workflow-status" | "running-sessions" | "sidebar"
@@ -169,11 +167,6 @@ function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions,
       return { renderer: "workflow-status", maxChars: 100 }
     case "sidebar_content":
       return { renderer: "sidebar", allowGlobal: true }
-    case "session_prompt_right":
-      return { renderer: "compact", maxChars: 44 }
-    case "home_prompt":
-    case "home_prompt_right":
-      return { renderer: "compact", maxChars: 80, allowGlobal: true }
     default:
       return { renderer: "compact" }
   }
@@ -216,13 +209,13 @@ async function refreshProgressSlotText(
   setText: (value: string) => void,
 ): Promise<void> {
   try {
-    if (!client || renderer !== "compact") {
+    if (!client) {
       setText(safeProgressSlotText(api, sessionID, props, renderer, maxChars, allowGlobal))
       return
     }
     const state = currentWorkflowState(api)
     const questions = filterWorkflowQuestionRequests(state, await client.list(api.state.path.directory))
-    const questionText = renderCompactQuestionText(questions)
+    const questionText = renderer === "sidebar" ? renderSidebarQuestionText(questions) : renderer === "compact" ? renderCompactQuestionText(questions) : ""
     setText(questionText || safeProgressSlotText(api, sessionID, props, renderer, maxChars, allowGlobal))
   } catch {
     setText(safeProgressSlotText(api, sessionID, props, renderer, maxChars, allowGlobal))

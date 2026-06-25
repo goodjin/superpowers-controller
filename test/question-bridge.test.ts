@@ -4,6 +4,7 @@ import {
   filterWorkflowQuestionRequests,
   renderCompactQuestionText,
   renderQuestionBridgeText,
+  renderSidebarQuestionText,
   type QuestionRequest,
 } from "../src/tui/question-bridge"
 import type { WorkflowState } from "../src/state/types"
@@ -90,8 +91,12 @@ describe("question bridge", () => {
     const childRequests = filterWorkflowQuestionRequests(state, requests)
     expect(renderQuestionBridgeText(childRequests)).toContain("1 pending child question.")
     expect(renderQuestionBridgeText(childRequests)).toContain("Options: Merge locally / Leave branch")
+    expect(renderSidebarQuestionText(childRequests)).toBe(
+      "SP pending child question\nFinish action: Implementation complete and verification passed. How would you like to finalize this work?\nOptions: Merge locally / Leave branch",
+    )
     expect(renderCompactQuestionText(childRequests)).toContain("SP Q: Finish action")
     expect(renderQuestionBridgeText([])).toBe("No pending child questions.")
+    expect(renderSidebarQuestionText([])).toBe("")
     expect(renderCompactQuestionText([])).toBe("")
   })
 })

@@ -122,6 +122,21 @@ export function renderQuestionBridgeText(requests: QuestionRequest[]): string {
   return lines.join("\n")
 }
 
+export function renderSidebarQuestionText(requests: QuestionRequest[], maxRequests = 2): string {
+  if (requests.length === 0) return ""
+  const lines = [`SP pending child question${requests.length === 1 ? "" : "s"}`]
+  for (const request of requests.slice(0, maxRequests)) {
+    const first = request.questions[0]
+    if (!first) continue
+    lines.push(`${first.header}: ${first.question}`)
+    if (first.options.length > 0) {
+      lines.push(`Options: ${first.options.map((option) => option.label).join(" / ")}`)
+    }
+  }
+  if (requests.length > maxRequests) lines.push(`+${requests.length - maxRequests} more`)
+  return lines.join("\n")
+}
+
 export function renderCompactQuestionText(requests: QuestionRequest[]): string {
   const request = requests[0]
   const question = request?.questions[0]

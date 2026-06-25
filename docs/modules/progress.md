@@ -69,20 +69,18 @@ child question bridge route 名为 `superpowers-questions`，命令值为 `super
 主会话常驻进度通过 TUI slot 展示。不同 slot 不再复用同一条 compact 文本，而是按可用空间分工：
 
 - `app_bottom`：主会话底部常驻 surface，承载整体 workflow 状态，例如 workflow/status/current phase、任务完成数、运行中 session 数。没有 session props 时不渲染。
-- `sidebar_content`：右侧栏主体。展示 workflow 总览、运行中 child session 列表；没有 session props 的首页/全局场景也读取 current workflow 并显示进度。
+- `sidebar_content`：右侧栏主体。展示 workflow 总览、运行中 child session 列表；当 OpenCode pending question API 返回 child session question 时，优先展示问题正文和选项摘要。
 - `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。没有 session props 时不渲染。
-- `session_prompt_right`：短 fallback indicator，限制为 44 字符，避免主会话没有任何可见 progress 锚点。完整内容不放在输入区。
-- `home_prompt`、`home_prompt_right`：首页 prompt 附近的短进度锚点，使用 compact 文本，便于用户在未进入主会话时看到当前 workflow 是否仍在推进。
-- `home_bottom`、`home_footer`：不注册 Superpowers resident progress。
+- `session_prompt_right`、`home_prompt`、`home_prompt_right`、`home_bottom`、`home_footer`：不注册 Superpowers resident progress。首页和输入区附近不展示插件常驻内容。
 
-详细过程仍通过 `superpowers-progress` route 查看；`session_prompt_right` 和 home prompt fallback 会截短，只做可见锚点。
+详细过程仍通过 `superpowers-progress` route 查看；子会话问题的完整交互仍通过 `superpowers-questions` route 完成。
 
 running node 的最新 progress 如果超过显示阈值没有更新，会在 compact 行和完整面板里标为 `stalled`，例如 `SP: sp-acceptance-reviewer running/busy/stalled - write pending`。这表示 Controller 仍然有登记的 child session，但最近的 child progress 已经停住，需要用户能在主会话直接看到。
 
 slot render 必须返回 OpenTUI/Solid element，而不是裸字符串。TUI 入口会加载 `@opentui/solid/runtime-plugin-support`，再使用 `@opentui/solid` 创建 `text` element，并对 workflow/progress 读取异常做 fail-closed 处理；读取失败时只显示 `SP: progress unavailable`，避免异常进入 host TUI 渲染器。
 
-常驻 slot 不能依赖父会话消息流触发刷新。child session 写入 `progress.jsonl` 时，parent session 的 `time_updated` 可能不变，因此 compact surface 需要自己定时重读 workflow/progress。`sidebar_content` 和 home prompt 允许没有 session props 时读取 current workflow；其他非 compact resident slot 仍需要传入 session props，并且只在当前 session 属于 active workflow 时展示，包括 parent session 和 `node_runs[].session_id` 中登记过的 child session。无关 session 继续隐藏。
+常驻 slot 不能依赖父会话消息流触发刷新。child session 写入 `progress.jsonl` 时，parent session 的 `time_updated` 可能不变，因此 resident surface 需要自己定时重读 workflow/progress。`sidebar_content` 允许没有 session props 时读取 current workflow，以兼容 host 没有传入 session props 的主会话 sidebar；其他非 compact resident slot 仍需要传入 session props，并且只在当前 session 属于 active workflow 时展示，包括 parent session 和 `node_runs[].session_id` 中登记过的 child session。无关 session 继续隐藏。
 
-当 OpenCode pending question API 返回 child session question 时，compact slot 优先显示问题摘要，例如 `SP Q: Finish action - ...`；没有 pending question 时再显示普通 child progress。问题正文、选项和确认/取消动作在 `superpowers-questions` route 中完成，避免把交互塞进一行状态文本。
+当 OpenCode pending question API 返回 child session question 时，`sidebar_content` 优先显示多行问题摘要和选项；没有 pending question 时再显示普通 child progress。确认/取消动作在 `superpowers-questions` route 中完成。
 
 OpenCode 原生 Todo 面板来自 child session 的 `todowrite` tool part，和 Superpowers progress surface 是两条不同 UI 链路。看到 Todo 只能说明该 session 调用了 `todowrite`，不能说明 Superpowers resident progress 已经成功显示。
