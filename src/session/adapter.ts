@@ -34,7 +34,10 @@ type OpenCodePluginContext = {
 export function createOpenCodeSessionAdapter(ctx: OpenCodePluginContext): SessionAdapter {
   async function continueNodeSession(input: { sessionID: string; agent: string; prompt: string }): Promise<void> {
     if (process.env.OPENCODE_SUPERPOWERS_DISABLE_CHILD_PROMPT === "1") return
-    await callMethod(ctx.client.session, "prompt", {
+    const methods = process.env.OPENCODE_SUPERPOWERS_E2E_CHILD_REQUEST_MARKERS === "1"
+      ? ["prompt"]
+      : ["promptAsync", "prompt"]
+    await callFirstMethod(ctx.client.session, methods, {
       path: { id: input.sessionID },
       body: {
         agent: input.agent,
@@ -81,6 +84,15 @@ async function callMethod(target: unknown, method: string, input: unknown): Prom
   const fn = target[method]
   if (typeof fn !== "function") return undefined
   return fn.call(target, input)
+}
+
+async function callFirstMethod(target: unknown, methods: string[], input: unknown): Promise<unknown> {
+  if (!isRecord(target)) return undefined
+  for (const method of methods) {
+    const fn = target[method]
+    if (typeof fn === "function") return fn.call(target, input)
+  }
+  throw new Error(`OpenCode client is missing required method: ${methods.join(" or ")}`)
 }
 
 function extractSessionID(value: unknown): string | null {

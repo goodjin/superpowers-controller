@@ -32,6 +32,7 @@ export type ProjectStore = {
     runID: string
     parentSessionID: string
   }): WorkflowState
+  recoverInterruptedRunningNodes(args: { reason: string }): WorkflowState | null
   consumePendingQuestion(args: {
     runID: string
     parentSessionID?: string
@@ -160,6 +161,47 @@ export function createProjectStore(project: string): ProjectStore {
       appendChangelog(root, next.id, `activated ${next.workflow} workflow from ${next.entrypoint}`)
       return next
     },
+    recoverInterruptedRunningNodes(args) {
+      const current = this.readCurrent()
+      if (!current) return null
+      const interrupted = current.node_runs.filter((node) => node.status === "running")
+      if (interrupted.length === 0) return current
+      const now = new Date().toISOString()
+      const interruptedIDs = new Set(interrupted.map((node) => node.id))
+      const next: WorkflowState = {
+        ...current,
+        status: "recovered_unknown",
+        updated_at: now,
+        node_runs: current.node_runs.map((node) => {
+          if (!interruptedIDs.has(node.id)) return node
+          return {
+            ...node,
+            status: "interrupted" as const,
+            closed_at: now,
+            ended_at: now,
+          }
+        }),
+        history: [
+          ...current.history,
+          {
+            at: now,
+            event: "startup_recovered_interrupted_nodes",
+            from: current.phase,
+            to: current.phase,
+            summary: args.reason,
+          },
+        ],
+      }
+      writeState(root, next)
+      writeCurrent(root, next.id)
+      appendEvent(root, next.id, {
+        type: "startup_recovered_interrupted_nodes",
+        node_ids: [...interruptedIDs],
+        reason: args.reason,
+      })
+      appendChangelog(root, next.id, `startup recovered interrupted nodes ${[...interruptedIDs].join(", ")}: ${args.reason}`)
+      return next
+    },
     consumePendingQuestion(args) {
       const current = this.readRun(args.runID)
       if (!current) {
@@ -286,7 +328,7 @@ export function createProjectStore(project: string): ProjectStore {
         const matchesSession = args.sessionID && run.session_id === args.sessionID
         const matchesWorkflow = !args.taskID && !args.sessionID
         if (!matchesTask && !matchesSession && !matchesWorkflow) return run
-        if (!["running", "blocked", "needs_user"].includes(run.status)) return run
+        if (!["running", "blocked", "needs_user", "interrupted"].includes(run.status)) return run
         return {
           ...run,
           status: "blocked" as const,

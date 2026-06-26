@@ -1,7 +1,7 @@
 import type { NodeRun, WorkflowState } from "./types"
 import type { TaskRunSets } from "./task-graph"
 
-const BLOCKING_STATUSES = new Set<NodeRun["status"]>(["running", "failed", "blocked", "needs_user"])
+const BLOCKING_STATUSES = new Set<NodeRun["status"]>(["running", "failed", "blocked", "needs_user", "interrupted"])
 
 export function taskRunSetsForWorkflow(state: WorkflowState): TaskRunSets {
   const passed = new Set<string>()
@@ -17,7 +17,9 @@ export function taskRunSetsForWorkflow(state: WorkflowState): TaskRunSets {
     const latest = latestNodeRunsByPhase(state, task.id)
     const statuses = Array.from(latest.values()).map((run) => run.status)
     if (statuses.includes("running")) running.add(task.id)
-    if (statuses.some((status) => status === "failed" || status === "blocked" || status === "needs_user")) failed.add(task.id)
+    if (statuses.some((status) => status === "failed" || status === "blocked" || status === "needs_user" || status === "interrupted")) {
+      failed.add(task.id)
+    }
     if (statuses.length > 0 && !running.has(task.id) && !failed.has(task.id)) running.add(task.id)
   }
 

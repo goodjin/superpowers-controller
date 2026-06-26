@@ -40,7 +40,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
             taskMarkdown,
           })
         }
-        scheduleNodePrompt(adapter, {
+        const scheduled = scheduleNodePrompt(adapter, {
           sessionID: args.decision.session_id,
           agent: args.decision.agent,
           prompt: taskMarkdown,
@@ -51,6 +51,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
             variant: "error",
           },
         })
+        if (shouldAwaitScheduledPrompt()) await scheduled
         await adapter.showProgress({
           stage: "node_running",
           title: "Superpowers dispatch",
@@ -75,7 +76,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
           taskMarkdown,
         })
       }
-      scheduleNodePrompt(adapter, {
+      const scheduled = scheduleNodePrompt(adapter, {
         sessionID,
         agent: args.decision.agent,
         prompt: taskMarkdown,
@@ -86,6 +87,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
           variant: "error",
         },
       })
+      if (shouldAwaitScheduledPrompt()) await scheduled
       await adapter.showProgress({
         stage: "node_running",
         title: "Superpowers dispatch",
@@ -103,7 +105,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
       agent: string
       prompt: string
     }): Promise<SessionResumeResult> {
-      scheduleNodePrompt(adapter, {
+      const scheduled = scheduleNodePrompt(adapter, {
         sessionID: args.sessionID,
         agent: args.agent,
         prompt: args.prompt,
@@ -114,6 +116,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
           variant: "error",
         },
       })
+      if (shouldAwaitScheduledPrompt()) await scheduled
       await adapter.showProgress({
         stage: "node_resumed",
         title: "Superpowers dispatch",
@@ -130,7 +133,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
       agent: string
       prompt: string
     }): Promise<void> {
-      scheduleNodePrompt(adapter, {
+      const scheduled = scheduleNodePrompt(adapter, {
         sessionID: args.sessionID,
         agent: args.agent,
         prompt: args.prompt,
@@ -141,6 +144,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
           variant: "error",
         },
       })
+      if (shouldAwaitScheduledPrompt()) await scheduled
       await adapter.showProgress({
         stage: "parent_notified",
         title: "Superpowers workflow",
@@ -164,8 +168,8 @@ function scheduleNodePrompt(
       variant: "info" | "success" | "warning" | "error"
     }
   },
-) {
-  void (async () => {
+): Promise<void> {
+  const scheduled = (async () => {
     try {
       await adapter.continueNodeSession({
         sessionID: args.sessionID,
@@ -178,7 +182,13 @@ function scheduleNodePrompt(
         message: `${args.failure.message} ${errorMessage(error)}`,
       })
     }
-  })().catch(() => {})
+  })()
+  void scheduled.catch(() => {})
+  return scheduled
+}
+
+function shouldAwaitScheduledPrompt(): boolean {
+  return process.env.OPENCODE_SUPERPOWERS_E2E_CHILD_REQUEST_MARKERS === "1"
 }
 
 function errorMessage(error: unknown): string {

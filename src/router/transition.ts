@@ -96,6 +96,14 @@ export function decideNextDispatches(state: WorkflowState, record?: SpRecordInpu
 function decideFromState(state: WorkflowState): DispatchDecision[] {
   if (state.status === "waiting_user") return [{ action: "wait_user", reason: "workflow is waiting for user input" }]
   if (state.status === "canceled") return [{ action: "blocked", reason: "workflow is canceled" }]
+  if (state.status === "recovered_unknown") {
+    const interrupted = state.node_runs.filter((run) => run.status === "interrupted").map((run) => run.id)
+    const suffix = interrupted.length > 0 ? ` Interrupted nodes: ${interrupted.join(", ")}.` : ""
+    return [{
+      action: "blocked",
+      reason: `workflow was recovered after startup and needs user confirmation before retry or cancel.${suffix}`,
+    }]
+  }
 
   const finish = latestNodeRun(state, (run) => run.phase === "finish")
   if (finish?.status === "running") return []

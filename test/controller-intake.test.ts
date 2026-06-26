@@ -666,6 +666,117 @@ describe("sp_prepare and sp_start tools", () => {
     }
   })
 
+  test("sp_start resume waits for user decision after startup interrupted nodes", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-recovered-unknown-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add usage records",
+        request: "# Request\n\nAdd usage records.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-main",
+      })
+      store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        session_id: "session-impl-old",
+        task_id: "T3",
+        task_markdown: "# Implement T3",
+      })
+      store.recoverInterruptedRunningNodes({
+        reason: "Plugin process started.",
+      })
+      const start = createStartTool(store, {
+        async dispatch() {
+          throw new Error("recovered workflow should wait for user decision")
+        },
+      })
+
+      const output = await start.execute({ run_id: state.id }, toolContext)
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.state.status).toBe("recovered_unknown")
+      expect(result.dispatches).toEqual([
+        {
+          action: "blocked",
+          reason: "workflow was recovered after startup and needs user confirmation before retry or cancel. Interrupted nodes: 001-implement-T3.",
+        },
+      ])
+      expect(store.readCurrent()?.node_runs).toHaveLength(1)
+      expect(store.readCurrent()?.node_runs[0]?.status).toBe("interrupted")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start resume retries a user-selected interrupted task with a new node session", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-retry-interrupted-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add usage records",
+        request: "# Request\n\nAdd usage records.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-main",
+      })
+      const oldNode = store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        session_id: "session-impl-old",
+        task_id: "T3",
+        task_markdown: "# Implement T3",
+      })
+      store.recoverInterruptedRunningNodes({
+        reason: "Plugin process started.",
+      })
+      const start = createStartTool(store, {
+        async dispatch(args) {
+          return {
+            action: args.decision.action,
+            session_id: "session-impl-new",
+            task_markdown: "# Retry T3",
+          }
+        },
+      })
+
+      const output = await start.execute({ run_id: state.id, task_id: "T3" }, toolContext)
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.dispatches).toEqual([
+        {
+          action: "create_session",
+          phase: "implement",
+          agent: "sp-implementer",
+          task_id: "T3",
+          session_id: "session-impl-new",
+        },
+      ])
+      const nodes = store.readCurrent()?.node_runs ?? []
+      expect(nodes).toHaveLength(2)
+      expect(nodes[0]).toMatchObject({
+        id: oldNode.id,
+        session_id: "session-impl-old",
+        status: "interrupted",
+      })
+      expect(nodes[1]).toMatchObject({
+        id: "002-implement-T3-retry-2",
+        session_id: "session-impl-new",
+        status: "running",
+        task_id: "T3",
+        attempts: 2,
+      })
+      expect(store.readCurrent()?.status).toBe("running")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("sp_start resume does not restart a canceled workflow from entrypoint", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-start-resume-canceled-"))
     try {

@@ -1,6 +1,7 @@
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import { prepareExplicitStartRun } from "../controller/intake"
 import { noopProgressReporter, type ProgressReporter } from "../progress/reporter"
+import { AGENT_SKILL_MAP, type NodeAgentName } from "../router/modes"
 import { decideNextDispatches } from "../router/transition"
 import { buildChildResumePrompt, buildNodeTaskPacket } from "../session/templates"
 import type { SessionOrchestrator } from "../session/orchestrator"
@@ -118,7 +119,7 @@ export function createStartTool(
       return JSON.stringify(
         {
           state,
-          dispatches: dispatches.length > 0 ? dispatches : startDecisions(state, startMode),
+          dispatches: dispatches.length > 0 ? dispatches : startDecisions(state, startMode, args.task_id),
         },
         null,
         2,
@@ -135,8 +136,8 @@ async function dispatchStart(args: {
   startMode: "new" | "resume"
 }): Promise<Array<Record<string, string | undefined>>> {
   if (!args.orchestrator) return []
-  const decisions = startDecisions(args.state, args.startMode)
-  const filtered = args.taskID
+  const decisions = startDecisions(args.state, args.startMode, args.taskID)
+  const filtered = args.taskID && args.state.status !== "recovered_unknown"
     ? decisions.filter((decision) => "task_id" in decision && decision.task_id === args.taskID)
     : decisions
   const dispatches: Array<Record<string, string | undefined>> = []
@@ -188,7 +189,10 @@ async function dispatchStart(args: {
   return dispatches
 }
 
-function startDecisions(state: ReturnType<ProjectStore["activateRun"]>, startMode: "new" | "resume" = "new") {
+function startDecisions(state: ReturnType<ProjectStore["activateRun"]>, startMode: "new" | "resume" = "new", taskID?: string) {
+  if (startMode === "resume" && state.status === "recovered_unknown" && taskID) {
+    return [interruptedRetryDecision(state, taskID)]
+  }
   if (startMode === "resume") return decideNextDispatches(state)
   if (state.task_graph?.tasks.length && state.current_phase === "plan-complete") {
     return decideNextDispatches(state, {
@@ -202,6 +206,30 @@ function startDecisions(state: ReturnType<ProjectStore["activateRun"]>, startMod
     status: "passed",
     summary: "Workflow start confirmed.",
   })
+}
+
+function interruptedRetryDecision(state: ReturnType<ProjectStore["activateRun"]>, taskID: string) {
+  const node = [...state.node_runs]
+    .reverse()
+    .find((run) => run.status === "interrupted" && (run.task_id === taskID || run.id === taskID))
+  if (!node) {
+    throw new Error(`No interrupted node found for task_id ${taskID}.`)
+  }
+  if (!isNodeAgentName(node.agent)) {
+    throw new Error(`Cannot retry interrupted node ${node.id}: unknown agent ${node.agent}.`)
+  }
+  return {
+    action: "create_session" as const,
+    phase: node.phase,
+    agent: node.agent,
+    primary_skill: node.primary_skill ?? AGENT_SKILL_MAP[node.agent],
+    task_id: node.task_id,
+    reason: `retry interrupted node ${node.id}`,
+  }
+}
+
+function isNodeAgentName(agent: string): agent is NodeAgentName {
+  return agent in AGENT_SKILL_MAP
 }
 
 function nextDispatchNodeID(index: number, phase: string, taskID?: string): string {

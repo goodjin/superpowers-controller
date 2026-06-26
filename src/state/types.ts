@@ -81,7 +81,7 @@ export type TaskGraph = {
   }>
 }
 
-export type NodeRunStatus = "running" | "passed" | "failed" | "blocked" | "needs_user"
+export type NodeRunStatus = "running" | "passed" | "failed" | "blocked" | "needs_user" | "interrupted"
 
 export type NodeRun = {
   id: string

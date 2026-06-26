@@ -11,10 +11,27 @@ import { buildRuntimeSkillInjection, hasRuntimeSkillInjection } from "./skills/r
 import { createProjectStore } from "./state/store"
 import { createTools } from "./tools"
 
+const startupRecoveryProjects = new Set<string>()
+
 export function createPluginModule(): PluginModule {
   const server: Plugin = async (ctx) => {
     const config = loadConfig(ctx.directory)
     const store = createProjectStore(ctx.directory)
+    if (!startupRecoveryProjects.has(ctx.directory)) {
+      startupRecoveryProjects.add(ctx.directory)
+      const recovered = store.recoverInterruptedRunningNodes({
+        reason: "Plugin process started; persisted running child sessions cannot be assumed live after startup.",
+      })
+      if (recovered?.status === "recovered_unknown") {
+        await ctx.client.app.log({
+          body: {
+            service: "superpowers-controller",
+            level: "warn",
+            message: `Recovered workflow ${recovered.id} with interrupted running node sessions after plugin startup.`,
+          },
+        })
+      }
+    }
     const nodeProgress = createNodeProgressStore(ctx.directory)
     const adapter = createOpenCodeSessionAdapter(ctx as Parameters<typeof createOpenCodeSessionAdapter>[0])
     const progress = { report: adapter.showProgress }
