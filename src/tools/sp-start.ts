@@ -27,11 +27,13 @@ export function createStartTool(
       const sessionID = args.session ?? context.sessionID
       let state
       let dispatches: Array<Record<string, string | undefined>> = []
+      let startMode: "new" | "resume" = "new"
       if (args.run_id) {
         state = store.activateRun({
           runID: args.run_id,
           parentSessionID: sessionID,
         })
+        startMode = "resume"
       } else {
         if (!args.request || !args.workflow || !args.entrypoint || !args.proposal) {
           throw new Error("sp_start requires request, workflow, entrypoint, and proposal when run_id is not provided.")
@@ -50,6 +52,7 @@ export function createStartTool(
         orchestrator,
         state,
         taskID: args.task_id,
+        startMode,
       })
       await progress.report({
         stage: "run_started",
@@ -60,7 +63,7 @@ export function createStartTool(
       return JSON.stringify(
         {
           state,
-          dispatches: dispatches.length > 0 ? dispatches : startDecisions(state),
+          dispatches: dispatches.length > 0 ? dispatches : startDecisions(state, startMode),
         },
         null,
         2,
@@ -74,9 +77,10 @@ async function dispatchStart(args: {
   orchestrator?: Pick<SessionOrchestrator, "dispatch">
   state: ReturnType<ProjectStore["activateRun"]>
   taskID?: string
+  startMode: "new" | "resume"
 }): Promise<Array<Record<string, string | undefined>>> {
   if (!args.orchestrator) return []
-  const decisions = startDecisions(args.state)
+  const decisions = startDecisions(args.state, args.startMode)
   const filtered = args.taskID
     ? decisions.filter((decision) => "task_id" in decision && decision.task_id === args.taskID)
     : decisions
@@ -129,7 +133,8 @@ async function dispatchStart(args: {
   return dispatches
 }
 
-function startDecisions(state: ReturnType<ProjectStore["activateRun"]>) {
+function startDecisions(state: ReturnType<ProjectStore["activateRun"]>, startMode: "new" | "resume" = "new") {
+  if (startMode === "resume") return decideNextDispatches(state)
   if (state.task_graph?.tasks.length && state.current_phase === "plan-complete") {
     return decideNextDispatches(state, {
       event: "plan",

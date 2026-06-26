@@ -1,5 +1,6 @@
 import { AGENT_SKILL_MAP, type NodeAgentName } from "./modes"
 import { getRunnableTasks, normalizeTaskGraph } from "../state/task-graph"
+import { hasRunningNodeRuns, latestNodeRun, taskRunSetsForWorkflow } from "../state/task-status"
 import type { SpRecordInput, WorkflowState } from "../state/types"
 
 export type DispatchDecision =
@@ -43,6 +44,7 @@ export type ReviewContext = {
 
 export function decideNextDispatches(state: WorkflowState, record?: SpRecordInput): DispatchDecision[] {
   if (!record) return decideFromState(state)
+  if (record.status === "progress") return []
   if (record.status === "needs_user") return [{ action: "wait_user", reason: "node requested user input" }]
   if (record.status === "blocked") return [{ action: "blocked", reason: record.summary }]
   if (record.status === "failed") return failedRecordDispatches(state, record)
@@ -93,8 +95,51 @@ export function decideNextDispatches(state: WorkflowState, record?: SpRecordInpu
 
 function decideFromState(state: WorkflowState): DispatchDecision[] {
   if (state.status === "waiting_user") return [{ action: "wait_user", reason: "workflow is waiting for user input" }]
-  if (state.status === "blocked") return [{ action: "blocked", reason: "workflow is blocked" }]
-  return []
+  if (state.status === "canceled") return [{ action: "blocked", reason: "workflow is canceled" }]
+
+  const finish = latestNodeRun(state, (run) => run.phase === "finish")
+  if (finish?.status === "running") return []
+  if (finish?.status === "passed") return [{ action: "finish", reason: "finish record passed" }]
+  if (finish?.status === "needs_user") return [{ action: "wait_user", reason: "finish node requested user input" }]
+  if (finish && ["failed", "blocked"].includes(finish.status)) return [create("finish", "sp-finisher", `finish is ${finish.status}; retry finish`)]
+
+  const blockedCheck = latestRecoverableCheck(state)
+  if (blockedCheck) return failedRecordDispatches(state, {
+    event: eventForPhase(blockedCheck.phase),
+    status: "failed",
+    summary: `${blockedCheck.phase} is ${blockedCheck.status}; retry implementation`,
+  })
+
+  if (state.status === "blocked" || state.status === "failed") return [{ action: "blocked", reason: `workflow is ${state.status}` }]
+  if (hasRunningNodeRuns(state)) return []
+
+  if (state.task_graph?.tasks.length) {
+    const runnable = planDispatches(state, {
+      event: "plan",
+      status: "passed",
+      summary: "Recover runnable tasks from durable state.",
+    })
+    if (runnable.length > 0) return runnable
+    if (allGraphTasksCodeReviewed(state)) return [create("finish", "sp-finisher", "all task graph checks passed")]
+    return []
+  }
+
+  switch (state.current_phase) {
+    case "design-complete":
+      return [create("plan", "sp-planner", "design already passed")]
+    case "root-cause-found":
+      return [create("implement", "sp-implementer", "root cause already recorded")]
+    case "investigation-complete":
+    case "code-review-passed":
+    case "verification-passed":
+      return [create("finish", "sp-finisher", `${state.current_phase} is ready for finish`)]
+    case "intake":
+    case "plan":
+      if (state.node_runs.length === 0) return dispatchEntrypoint(state)
+      return []
+    default:
+      return []
+  }
 }
 
 function dispatchEntrypoint(state: WorkflowState): DispatchDecision[] {
@@ -118,9 +163,7 @@ function planDispatches(state: WorkflowState, record: SpRecordInput): DispatchDe
   const graph = record.task_graph ?? state.task_graph
   if (!graph) return [create("implement", "sp-implementer", "plan passed without task graph")]
   const normalized = normalizeTaskGraph(graph)
-  const passed = new Set(state.node_runs.filter((run) => run.task_id && run.status === "passed").map((run) => run.task_id as string))
-  const running = new Set(state.node_runs.filter((run) => run.task_id && run.status === "running").map((run) => run.task_id as string))
-  const failed = new Set(state.node_runs.filter((run) => run.task_id && run.status === "failed").map((run) => run.task_id as string))
+  const { passed, running, failed } = taskRunSetsForWorkflow({ ...state, task_graph: normalized })
   return getRunnableTasks(normalized, { passed, running, failed }).map((task) =>
     create("implement", "sp-implementer", `task ${task.id} is runnable`, task.id),
   )
@@ -183,16 +226,20 @@ function phaseForEvent(event: SpRecordInput["event"]): string {
   }
 }
 
-function hasRunningNodeRuns(state: WorkflowState): boolean {
-  return state.node_runs.some((run) => run.status === "running")
-}
-
 function allGraphTasksCodeReviewed(state: WorkflowState): boolean {
   if (!state.task_graph?.tasks.length) return true
-  const reviewed = new Set(
-    state.node_runs
-      .filter((run) => run.task_id && run.phase === "code-review" && run.status === "passed")
-      .map((run) => run.task_id as string),
+  return state.task_graph.tasks.every((task) => taskRunSetsForWorkflow(state).passed.has(task.id))
+}
+
+function latestRecoverableCheck(state: WorkflowState) {
+  return latestNodeRun(
+    state,
+    (run) => ["acceptance", "verification", "code-review"].includes(run.phase) && ["failed", "blocked", "needs_user"].includes(run.status),
   )
-  return state.task_graph.tasks.every((task) => reviewed.has(task.id))
+}
+
+function eventForPhase(phase: string): SpRecordInput["event"] {
+  if (phase === "code-review") return "code-review"
+  if (phase === "verification") return "verification"
+  return "acceptance"
 }

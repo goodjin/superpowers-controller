@@ -174,4 +174,76 @@ describe("applyRecord", () => {
       }),
     ).toThrow("incomplete tasks")
   })
+
+  test("allows completion only after task implementation and required checks pass", () => {
+    const state = createInitialState({
+      id: "run-1",
+      project: "/repo",
+      session: "session-1",
+      mode: "execute",
+      goal: "finish work",
+      gates: { verification_fresh: true },
+    })
+    const withCompletedTask = {
+      ...state,
+      workflow: "feature" as const,
+      task_graph: {
+        tasks: [
+          { id: "T1", title: "API", summary: "Build API", depends_on: [] },
+        ],
+      },
+      node_runs: [
+        {
+          id: "001-implement-T1",
+          task_id: "T1",
+          phase: "implement",
+          agent: "sp-implementer",
+          session_id: "session-implement",
+          status: "passed" as const,
+          attempts: 1,
+          started_at: "2026-06-20T00:00:00.000Z",
+        },
+        {
+          id: "002-acceptance-T1",
+          task_id: "T1",
+          phase: "acceptance",
+          agent: "sp-acceptance-reviewer",
+          session_id: "session-acceptance",
+          status: "passed" as const,
+          attempts: 1,
+          started_at: "2026-06-20T00:01:00.000Z",
+        },
+        {
+          id: "003-verification-T1",
+          task_id: "T1",
+          phase: "verification",
+          agent: "sp-verifier",
+          session_id: "session-verification",
+          status: "passed" as const,
+          attempts: 1,
+          started_at: "2026-06-20T00:02:00.000Z",
+        },
+        {
+          id: "004-code-review-T1",
+          task_id: "T1",
+          phase: "code-review",
+          agent: "sp-code-reviewer",
+          session_id: "session-code-review",
+          status: "passed" as const,
+          attempts: 1,
+          started_at: "2026-06-20T00:03:00.000Z",
+        },
+      ],
+    }
+
+    const next = applyRecord(withCompletedTask, {
+      event: "finish",
+      status: "passed",
+      summary: "Ready to finish.",
+      artifacts: { finish_note: "Implemented and checked." },
+    })
+
+    expect(next.status).toBe("passed")
+    expect(next.phase).toBe("finished")
+  })
 })

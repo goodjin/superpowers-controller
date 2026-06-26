@@ -7,6 +7,7 @@ import { prepareStartRun } from "../src/controller/intake"
 import { createProjectStore } from "../src/state/store"
 import { createPrepareTool } from "../src/tools/sp-prepare"
 import { createStartTool } from "../src/tools/sp-start"
+import { createCancelTool } from "../src/tools/sp-cancel"
 
 const toolContext = {
   sessionID: "session-main",
@@ -246,7 +247,308 @@ describe("sp_prepare and sp_start tools", () => {
       rmSync(project, { recursive: true, force: true })
     }
   })
+
+  test("sp_start resume preserves waiting-user workflows without dispatching", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-resume-waiting-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add workflow gates",
+        request: "# Request\n\nAdd workflow gates.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-main",
+      })
+      store.recordNodeResult({
+        input: {
+          event: "question",
+          status: "needs_user",
+          summary: "Need user choice.",
+          question: {
+            prompt: "Use strict gates?",
+            options: [{ label: "Strict", description: "Block risky writes." }],
+          },
+        },
+      })
+      const start = createStartTool(store, {
+        async dispatch() {
+          throw new Error("unexpected dispatch")
+        },
+      })
+
+      const output = await start.execute({ run_id: state.id }, toolContext)
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.state.status).toBe("waiting_user")
+      expect(result.state.pending_question.prompt).toContain("strict")
+      expect(result.dispatches).toEqual([{ action: "wait_user", reason: "workflow is waiting for user input" }])
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start resume does not duplicate an already running node", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-resume-running-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add workflow gates",
+        request: "# Request\n\nAdd workflow gates.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-main",
+      })
+      store.addNodeRun({
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        session_id: "session-design",
+        task_markdown: "# Design task",
+      })
+      const start = createStartTool(store, {
+        async dispatch() {
+          throw new Error("unexpected duplicate dispatch")
+        },
+      })
+
+      const output = await start.execute({ run_id: state.id }, toolContext)
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.dispatches).toEqual([])
+      expect(store.readCurrent()?.node_runs).toHaveLength(1)
+      expect(store.readCurrent()?.node_runs[0]?.session_id).toBe("session-design")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start resume does not restart a canceled workflow from entrypoint", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-resume-canceled-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add workflow gates",
+        request: "# Request\n\nAdd workflow gates.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-main",
+      })
+      await createCancelTool(store).execute({ workflow_id: state.id, reason: "Stop this workflow." }, toolContext)
+      const start = createStartTool(store, {
+        async dispatch() {
+          throw new Error("canceled workflow should not dispatch")
+        },
+      })
+
+      const output = await start.execute({ run_id: state.id }, toolContext)
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.state.status).toBe("canceled")
+      expect(result.dispatches).toEqual([{ action: "blocked", reason: "workflow is canceled" }])
+      expect(store.readCurrent()?.node_runs).toEqual([])
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start resume dispatches finisher after all task checks pass", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-resume-finish-"))
+    try {
+      const store = createProjectStore(project)
+      const state = createCheckedFeatureTask(store)
+      const start = createStartTool(store, {
+        async dispatch(args) {
+          return {
+            action: args.decision.action,
+            session_id: "session-finish",
+            task_markdown: "# Finish task",
+          }
+        },
+      })
+
+      const output = await start.execute({ run_id: state.id }, toolContext)
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.dispatches).toEqual([
+        {
+          action: "create_session",
+          phase: "finish",
+          agent: "sp-finisher",
+          session_id: "session-finish",
+        },
+      ])
+      expect(store.readCurrent()?.node_runs.at(-1)).toMatchObject({
+        phase: "finish",
+        agent: "sp-finisher",
+        status: "running",
+      })
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start resume redispatches a blocked finish node instead of returning to entrypoint", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-resume-finish-blocked-"))
+    try {
+      const store = createProjectStore(project)
+      const state = createCheckedFeatureTask(store)
+      const finish = store.addNodeRun({
+        phase: "finish",
+        agent: "sp-finisher",
+        primary_skill: "superpowers-finishing-a-development-branch",
+        session_id: "session-finish-old",
+        task_markdown: "# Finish task",
+      })
+      store.cancel({ sessionID: finish.session_id, reason: "Finish session stalled." })
+      const start = createStartTool(store, {
+        async dispatch(args) {
+          return {
+            action: args.decision.action,
+            session_id: "session-finish-new",
+            task_markdown: "# Finish retry task",
+          }
+        },
+      })
+
+      const output = await start.execute({ run_id: state.id }, toolContext)
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.dispatches).toEqual([
+        {
+          action: "create_session",
+          phase: "finish",
+          agent: "sp-finisher",
+          session_id: "session-finish-new",
+        },
+      ])
+      expect(store.readCurrent()?.node_runs.map((run) => run.session_id)).toContain("session-finish-old")
+      expect(store.readCurrent()?.node_runs.at(-1)?.session_id).toBe("session-finish-new")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start resume redispatches a finish node reported as blocked", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-resume-finish-report-blocked-"))
+    try {
+      const store = createProjectStore(project)
+      const state = createCheckedFeatureTask(store)
+      const finish = store.addNodeRun({
+        phase: "finish",
+        agent: "sp-finisher",
+        primary_skill: "superpowers-finishing-a-development-branch",
+        session_id: "session-finish-old",
+        task_markdown: "# Finish task",
+      })
+      store.recordNodeResult({
+        nodeID: finish.id,
+        input: {
+          event: "finish",
+          status: "blocked",
+          summary: "Finish needs a retry.",
+        },
+      })
+      const start = createStartTool(store, {
+        async dispatch(args) {
+          return {
+            action: args.decision.action,
+            session_id: "session-finish-new",
+            task_markdown: "# Finish retry task",
+          }
+        },
+      })
+
+      const output = await start.execute({ run_id: state.id }, toolContext)
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.dispatches).toEqual([
+        {
+          action: "create_session",
+          phase: "finish",
+          agent: "sp-finisher",
+          session_id: "session-finish-new",
+        },
+      ])
+      expect(store.readCurrent()?.status).toBe("running")
+      expect(store.readCurrent()?.node_runs.at(-1)?.session_id).toBe("session-finish-new")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
 })
+
+function createCheckedFeatureTask(store: ReturnType<typeof createProjectStore>) {
+  const state = store.startRun({
+    workflow: "feature",
+    entrypoint: "feature",
+    goal: "Add workflow gates",
+    request: "# Request\n\nAdd workflow gates.",
+    proposal: "# Proposal\n\nRun feature workflow.",
+    parentSessionID: "session-main",
+  })
+  store.recordNodeResult({
+    input: {
+      event: "plan",
+      status: "passed",
+      summary: "Plan ready.",
+      artifacts: { plan: "# Plan" },
+      gates: { plan_written: true },
+      task_graph: {
+        tasks: [{ id: "T1", title: "Gate types", summary: "Add gate types", depends_on: [] }],
+      },
+    },
+  })
+  recordTaskNode(store, "implement", "sp-implementer", "session-impl", {
+    event: "implementation",
+    status: "passed",
+    summary: "Implemented T1.",
+    artifacts: { patch_summary: "Patch summary." },
+    gates: { implementation_done: true },
+  })
+  recordTaskNode(store, "acceptance", "sp-acceptance-reviewer", "session-acceptance", {
+    event: "acceptance",
+    status: "passed",
+    summary: "Acceptance passed.",
+    artifacts: { acceptance: "Accepted." },
+    gates: { acceptance_passed: true },
+  })
+  recordTaskNode(store, "verification", "sp-verifier", "session-verification", {
+    event: "verification",
+    status: "passed",
+    summary: "Verification passed.",
+    artifacts: { verification_log: "Tests passed." },
+    gates: { verification_fresh: true },
+  })
+  recordTaskNode(store, "code-review", "sp-code-reviewer", "session-review", {
+    event: "code-review",
+    status: "passed",
+    summary: "Code review passed.",
+    artifacts: { code_review: "No issues." },
+    gates: { code_review_passed: true },
+  })
+  return state
+}
+
+function recordTaskNode(
+  store: ReturnType<typeof createProjectStore>,
+  phase: string,
+  agent: string,
+  sessionID: string,
+  input: Parameters<ReturnType<typeof createProjectStore>["recordNodeResult"]>[0]["input"],
+) {
+  const node = store.addNodeRun({
+    phase,
+    agent,
+    primary_skill: "primary-skill",
+    session_id: sessionID,
+    task_id: "T1",
+    task_markdown: `# ${phase}`,
+  })
+  store.recordNodeResult({ nodeID: node.id, input })
+}
 
 function toolOutput(value: unknown): string {
   if (typeof value === "string") return value

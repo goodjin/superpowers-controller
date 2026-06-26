@@ -205,6 +205,26 @@ describe("decideNextDispatches", () => {
             started_at: "2026-06-14T00:00:00.000Z",
           },
           {
+            id: "004-acceptance-T1",
+            task_id: "T1",
+            phase: "acceptance",
+            agent: "sp-acceptance-reviewer",
+            session_id: "session-acceptance",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-06-14T00:00:00.000Z",
+          },
+          {
+            id: "005-verification-T1",
+            task_id: "T1",
+            phase: "verification",
+            agent: "sp-verifier",
+            session_id: "session-verification",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-06-14T00:00:00.000Z",
+          },
+          {
             id: "006-code-review-T1",
             task_id: "T1",
             phase: "code-review",
@@ -227,6 +247,40 @@ describe("decideNextDispatches", () => {
 
     expect(decisions).toHaveLength(1)
     expect(decisions[0]).toMatchObject({ agent: "sp-implementer", phase: "implement", task_id: "T2" })
+  })
+
+  test("implementation-only task does not unlock dependent tasks", () => {
+    const decisions = decideNextDispatches(
+      state({
+        task_graph: {
+          tasks: [
+            { id: "T1", title: "Types", summary: "Add types", depends_on: [] },
+            { id: "T2", title: "Store", summary: "Add store", depends_on: ["T1"] },
+          ],
+        },
+        node_runs: [
+          {
+            id: "003-implement-T1",
+            task_id: "T1",
+            phase: "implement",
+            agent: "sp-implementer",
+            session_id: "session-impl",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-06-14T00:00:00.000Z",
+          },
+        ],
+      }),
+      {
+        event: "code-review",
+        status: "passed",
+        summary: "Code review passed without the required check chain in state.",
+        artifacts: { code_review: "No issues." },
+        gates: { code_review_passed: true },
+      },
+    )
+
+    expect(decisions).toEqual([])
   })
 
   test("investigation passed dispatches finisher", () => {

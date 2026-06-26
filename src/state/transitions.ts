@@ -1,4 +1,5 @@
 import type { WorkflowArtifact, WorkflowGate, WorkflowKind, WorkflowMode, WorkflowRecord, WorkflowState } from "./types"
+import { incompleteTaskIDs } from "./task-status"
 
 const GATE_ARTIFACTS: Partial<Record<WorkflowGate, WorkflowArtifact>> = {
   spec_written: "spec",
@@ -98,12 +99,6 @@ export function applyRecord(state: WorkflowState, record: WorkflowRecord): Workf
       },
     ],
   }
-}
-
-function incompleteTaskIDs(state: WorkflowState): string[] {
-  if (!state.task_graph?.tasks.length) return []
-  const passed = new Set(state.node_runs.filter((run) => run.task_id && run.status === "passed").map((run) => run.task_id as string))
-  return state.task_graph.tasks.map((task) => task.id).filter((taskID) => !passed.has(taskID))
 }
 
 function workflowForMode(mode: WorkflowMode): WorkflowKind {

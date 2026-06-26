@@ -128,15 +128,16 @@ export function createProjectStore(project: string): ProjectStore {
       if (!current) {
         throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
       }
+      const wasDraft = current.activation === "draft"
       const next: WorkflowState = {
         ...current,
         activation: "active",
         session: args.parentSessionID,
         parent_session_id: args.parentSessionID,
-        phase: current.phase === "awaiting-plan-approval" ? "plan-complete" : current.phase,
-        current_phase: current.current_phase === "awaiting-plan-approval" ? "plan-complete" : current.current_phase,
-        status: current.status === "waiting_user" ? "running" : current.status,
-        pending_question: undefined,
+        phase: wasDraft && current.phase === "awaiting-plan-approval" ? "plan-complete" : current.phase,
+        current_phase: wasDraft && current.current_phase === "awaiting-plan-approval" ? "plan-complete" : current.current_phase,
+        status: wasDraft && current.status === "waiting_user" ? "running" : current.status,
+        pending_question: wasDraft ? undefined : current.pending_question,
         updated_at: new Date().toISOString(),
       }
       writeState(root, next)

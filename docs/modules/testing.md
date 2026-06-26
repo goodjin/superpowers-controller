@@ -34,6 +34,20 @@ workflow progress 是 side-channel 行为，用单元测试验证，不要求 e2
 - `test/session-orchestrator.test.ts` 断言 dispatch 先发送 `dispatch_started`，成功创建 session 后发送 `node_running`。
 - `test/sp-record-dispatch.test.ts` 断言节点记录后发送 `node_recorded`，`needs_user` 决策额外发送 `waiting_user_input`。
 
+## Control-Plane Regression Expectations
+
+控制面测试需要覆盖 public loop 的状态语义，而不只覆盖 happy path：
+
+- 新 run 启动和已有 run 恢复应分别覆盖；已有 active run 的恢复应从 durable state 计算下一步。
+- `sp_start(run_id)` 激活 prepared run 时，如果已有 `task_graph` 且 phase 为 plan 完成态，应派发 runnable implementer；如果所有 graph task 已完成检查，应进入 finish/recovery，而不是重新派 designer/planner。
+- `sp_report(status: "progress")` 只更新记录和 progress，不触发 downstream dispatch。
+- `needs_user` 必须写入 `pending_question` 并停止派发。
+- 检查失败应优先复用对应 task 的 implementer session；无法复用时才创建新的 implementer。
+- `sp_cancel(session_id)` 后恢复时应读取 canceled/blocked node run，不应把整个 workflow 当成全新 run。
+- finish node 空跑、blocked 或 canceled 后，恢复测试应断言 runtime 重新派发 finish 或进入明确 blocked recovery。
+
+这些用例优先放在 `test/dispatch-transition.test.ts`、`test/controller-intake.test.ts` 和 `test/sp-record-dispatch.test.ts`。需要真实 OpenCode session 顺序时，再提升到 `test/e2e/opencode-workflow.test.ts`。
+
 child session live progress 走事件归档，不靠 toast 断言：
 
 - `test/node-progress.test.ts` 覆盖 `message.part.updated`、`session.status`、`session.error` 等事件的归档形状。
@@ -138,7 +152,7 @@ await createOpencodeE2EHarness({
 - debug happy path：workflow 创建后通过 `sp_report` 写入 root cause。
 - debug repair full chain：debugger 记录根因后，runtime 派发 implementer、acceptance、verification、code review 和 finisher，最终进入 `passed`。
 - strict debug gate：缺少 `root_cause_found` 时阻断修复写入。
-- feature lifecycle：一条长链路覆盖 proposal、start、design、plan、两个 implementer dispatch、acceptance、verification、code review、finish 和历史 run 保留。
+- feature lifecycle：一条父会话长链路覆盖 proposal、start、design、plan、implementation、acceptance、verification、code review、finish 和历史 run 保留。
 - plan-only full chain：planner 写入计划和 task graph 后 workflow 直接通过，不启动 implementer。
 - review full chain：独立 review workflow 依次执行 acceptance、verification、code review 和 finish。
 - parallel-investigate full chain：investigator 写入调查报告后由 finisher 汇总，非编程流程不要求 `verification_fresh`。
@@ -146,7 +160,7 @@ await createOpencodeE2EHarness({
 - completion verification gate：fresh verification 前拒绝 `done`，验证后接受。
 - active waiting reroute：等待态 workflow 保持当前 mode，不被新意图覆盖。
 - execute gate order：strict execute 下依次验证 plan gate 和 red-test gate。
-- prepare-review-start chain：先由 `sp_prepare` 创建 prepared run，用户确认后 `sp_start` 进入 implement -> acceptance -> verification -> code review -> finish 的完整节点链路。
+- prepare-review-start chain：先由 `sp_prepare` 创建 prepared run，用户确认后 `sp_start` 从 durable state 恢复，进入 task-scoped implement -> acceptance -> verification -> code review -> finish 的完整节点链路，并断言检查节点 request_id 携带 task id。
 
 ## E2E Logging Contract
 

@@ -88,11 +88,11 @@ describe("OpenCode 工作流 e2e", () => {
         expect(await harness.mock.pending()).toEqual([])
         log.verify("mock LLM 已消费 debug 主链路的全部预设响应")
 
-        log.step("验证工作流状态和产物", "debug 模式应该持久化 root_cause_found 和 root_cause.md")
+        log.step("验证工作流状态和产物", "debug 模式应该持久化 root_cause_found，并在根因记录后进入实现阶段")
         const state = readLoggedWorkflowState(log, harness, "debug 响应处理完成后")
         logArtifactSnapshots(log, harness, ["root_cause"])
         expect(state?.mode).toBe("debug")
-        expect(state?.phase).toBe("root-cause-found")
+        expect(state?.phase).toBe("implement")
         expect(state?.gates.root_cause_found).toBe(true)
         expect(state?.artifacts.root_cause).toBe("root_cause.md")
         expect(harness.readArtifact("root_cause")).toContain("uninitialized route state")
@@ -362,7 +362,7 @@ describe("OpenCode 工作流 e2e", () => {
         harness = await createOpencodeE2EHarness()
         const requestId = "feature-full-lifecycle"
 
-        log.step("注册生命周期 mock 响应", "模型请求应该完成 start、两个 implementer、acceptance、verification、code review 和 finish")
+        log.step("注册生命周期 mock 响应", "模型请求应该完成 start、design、plan、implementation、acceptance、verification、code review 和 finish")
         await harness.mock.expect([
           startCall(requestId, {
             request: "/sp-design 增加批量任务运行视图",
@@ -400,12 +400,6 @@ describe("OpenCode 工作流 e2e", () => {
                 "2. Render status sections with stable keys.",
                 "3. Add retry and cancel action tests.",
               ].join("\n"),
-            },
-            task_graph: {
-              tasks: [
-                { id: "task-state", title: "State loading", summary: "Load task run state.", depends_on: [], files: ["src/task-run-state.ts"] },
-                { id: "task-actions", title: "Retry actions", summary: "Add retry and cancel actions.", depends_on: [], files: ["src/task-run-actions.ts"] },
-              ],
             },
           }),
           toolCall(requestId, "sp_report", {
@@ -1276,7 +1270,7 @@ describe("OpenCode 工作流 e2e", () => {
             },
           }),
           textResponse("node-003-implement-T1", "implementation recorded"),
-          toolCall("node-004-acceptance", "sp_report", {
+          toolCall("node-004-acceptance-T1", "sp_report", {
             event: "acceptance",
             status: "passed",
             summary: "The implementation satisfies the requested status filter and retry confirmation behavior.",
@@ -1287,8 +1281,8 @@ describe("OpenCode 工作流 e2e", () => {
               acceptance: "Reviewed the task panel behavior against the request and plan; no acceptance gaps remain.",
             },
           }),
-          textResponse("node-004-acceptance", "acceptance recorded"),
-          toolCall("node-005-verification", "sp_report", {
+          textResponse("node-004-acceptance-T1", "acceptance recorded"),
+          toolCall("node-005-verification-T1", "sp_report", {
             event: "verification",
             status: "passed",
             summary: "Fresh verification passed after the final implementation change.",
@@ -1299,8 +1293,8 @@ describe("OpenCode 工作流 e2e", () => {
               verification_log: "bun test test/task-run-panel.test.tsx && bun run test:e2e:opencode passed.",
             },
           }),
-          textResponse("node-005-verification", "verification recorded"),
-          toolCall("node-006-code-review", "sp_report", {
+          textResponse("node-005-verification-T1", "verification recorded"),
+          toolCall("node-006-code-review-T1", "sp_report", {
             event: "code-review",
             status: "passed",
             summary: "No blocking code quality issues remain in the filter state or retry confirmation flow.",
@@ -1311,7 +1305,7 @@ describe("OpenCode 工作流 e2e", () => {
               code_review: "Checked state transitions, dialog confirmation behavior, and regression coverage. No blockers.",
             },
           }),
-          textResponse("node-006-code-review", "code review recorded"),
+          textResponse("node-006-code-review-T1", "code review recorded"),
           toolCall("node-007-finish", "sp_report", {
             event: "finish",
             status: "passed",
@@ -1339,14 +1333,14 @@ describe("OpenCode 工作流 e2e", () => {
           "node-001-design",
           "node-002-plan",
           "node-003-implement-T1",
-          "node-004-acceptance",
-          "node-005-verification",
-          "node-006-code-review",
+          "node-004-acceptance-T1",
+          "node-005-verification-T1",
+          "node-006-code-review-T1",
           "node-007-finish",
           "node-007-finish",
-          "node-006-code-review",
-          "node-005-verification",
-          "node-004-acceptance",
+          "node-006-code-review-T1",
+          "node-005-verification-T1",
+          "node-004-acceptance-T1",
           "node-003-implement-T1",
           "node-002-plan",
           "node-001-design",
@@ -1376,9 +1370,9 @@ describe("OpenCode 工作流 e2e", () => {
           "001-design",
           "002-plan",
           "003-implement-T1",
-          "004-acceptance",
-          "005-verification",
-          "006-code-review",
+          "004-acceptance-T1",
+          "005-verification-T1",
+          "006-code-review-T1",
           "007-finish",
         ])
         expect(startedNodeHarness.readNodeTask("003-implement-T1")).toContain("Execute task T1.")
@@ -1387,7 +1381,7 @@ describe("OpenCode 工作流 e2e", () => {
           event: "implementation",
           status: "passed",
         })
-        expect(startedNodeHarness.readNodeRecord("005-verification")).toMatchObject({
+        expect(startedNodeHarness.readNodeRecord("005-verification-T1")).toMatchObject({
           event: "verification",
           status: "passed",
         })

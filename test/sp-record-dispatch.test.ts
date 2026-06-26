@@ -141,6 +141,71 @@ describe("sp_report dispatch integration", () => {
     }
   })
 
+  test("progress report updates the running node without downstream dispatch", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-record-progress-"))
+    try {
+      const store = createProjectStore(project)
+      store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add gates",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+      })
+      const node = store.addNodeRun({
+        phase: "plan",
+        agent: "sp-planner",
+        primary_skill: "superpowers-writing-plans",
+        session_id: "session-planner",
+        task_markdown: "# Plan task",
+      })
+
+      const progress: Array<{ stage: string; message: string }> = []
+      const handler = createReportHandler({
+        store,
+        orchestrator: {
+          async dispatch() {
+            throw new Error("progress reports must not dispatch")
+          },
+        },
+        progress: {
+          async report(input) {
+            progress.push({ stage: input.stage, message: input.message })
+          },
+        },
+      })
+
+      const output = await handler(
+        {
+          event: "plan",
+          status: "progress",
+          summary: "Drafting the task graph.",
+          artifacts: { plan: "# Draft plan" },
+        },
+        { sessionID: "session-planner", agent: "sp-planner" },
+      )
+
+      const result = JSON.parse(output)
+      const state = store.readCurrent()
+      expect(result.dispatches).toEqual([])
+      expect(result.decisions).toEqual([])
+      expect(state?.node_runs.find((run) => run.id === node.id)).toMatchObject({
+        status: "running",
+        record_path: `nodes/${node.id}/record.json`,
+      })
+      expect(state?.artifacts.plan).toBe("plan.md")
+      expect(progress).toEqual([
+        {
+          stage: "node_recorded",
+          message: "plan reported as progress; workflow is at plan-retry.",
+        },
+      ])
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("implementation report dispatches task-scoped acceptance with task and report context", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-record-acceptance-"))
     try {
