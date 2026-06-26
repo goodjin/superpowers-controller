@@ -8,6 +8,7 @@ export type AgentConfigOptions = {
 
 const RECORD_RULE = [
   "Before ending the node, call sp_report with event, status, summary, artifacts, gates, checks, findings, question, or task_graph as relevant.",
+  "If user input is needed, use sp_report with status needs_user and question; do not call the native question tool.",
   "Do not include next_action, target_session_id, child_session_id, reuse_session_id, create_sessions, or skills_used.",
   "The plugin owns workflow routing, session creation, session reuse, and retry decisions.",
 ].join(" ")
@@ -69,7 +70,7 @@ function nodeAgent(agentName: NodeAgentName, primarySkill: string, inheritGlobal
     description: AGENT_PURPOSES[agentName],
     mode: "subagent",
     permission: inheritGlobalAllow
-      ? allowWorkflowPermission({ task: "deny" })
+      ? allowWorkflowPermission({ task: "deny", question: "deny" })
       : {
           edit:
             agentName === "sp-investigator" || agentName.endsWith("reviewer") || agentName === "sp-verifier"
@@ -77,6 +78,7 @@ function nodeAgent(agentName: NodeAgentName, primarySkill: string, inheritGlobal
               : "ask",
           bash: "ask",
           task: "deny",
+          question: "deny",
           skill: {
             "*": "deny",
             [primarySkill]: "allow",
@@ -84,6 +86,7 @@ function nodeAgent(agentName: NodeAgentName, primarySkill: string, inheritGlobal
         },
     tools: {
       task: false,
+      question: false,
     },
     prompt: [
       AGENT_PURPOSES[agentName],
@@ -95,7 +98,7 @@ function nodeAgent(agentName: NodeAgentName, primarySkill: string, inheritGlobal
   }
 }
 
-function allowWorkflowPermission(overrides: { task?: "allow" | "deny"; skill?: "allow" | "deny" } = {}): Record<string, unknown> {
+function allowWorkflowPermission(overrides: { task?: "allow" | "deny"; skill?: "allow" | "deny"; question?: "allow" | "deny" } = {}): Record<string, unknown> {
   return {
     read: {
       "*": "allow",
@@ -115,7 +118,7 @@ function allowWorkflowPermission(overrides: { task?: "allow" | "deny"; skill?: "
     skill: overrides.skill ?? "allow",
     todowrite: "allow",
     external_directory: "allow",
-    question: "allow",
+    question: overrides.question ?? "allow",
     plan_enter: "allow",
     plan_exit: "allow",
     doom_loop: "allow",

@@ -98,6 +98,15 @@ describe("Superpowers TUI plugin", () => {
         { refreshMs: 0, renderer: "workflow-status" },
       )
       expect(workflowStatusSlot()).toBeNull()
+      const globalWorkflowStatusSlot = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "workflow-status", allowGlobal: true },
+      )
+      expect(globalWorkflowStatusSlot()).toEqual({
+        type: "text",
+        value: "SP: feature running@implement | tasks 0/1 done | sessions 1 running",
+      })
       expect(workflowStatusSlot(undefined, { session_id: "session-main" })).toEqual({
         type: "text",
         value: "SP: feature running@implement | tasks 0/1 done | sessions 1 running",

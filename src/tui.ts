@@ -174,7 +174,7 @@ function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions,
   switch (slotName) {
     case "app_bottom":
     case "sidebar_footer":
-      return { renderer: "workflow-status", maxChars: 100 }
+      return { renderer: "workflow-status", maxChars: 100, allowGlobal: true }
     case "sidebar_content":
       return { renderer: "sidebar", allowGlobal: true }
     case "session_prompt_right":

@@ -69,9 +69,9 @@ child question bridge route 名为 `superpowers-questions`，命令值为 `super
 主会话常驻进度通过 TUI slot 展示。不同 slot 不再复用同一条 compact 文本，而是按可用空间分工：
 
 - `session_prompt_right`：主会话 prompt 附近的短进度锚点，展示 compact progress，例如当前运行中的 agent、task、session live status 和最新 activity。
-- `app_bottom`：主会话底部常驻 surface，承载整体 workflow 状态，例如 workflow/status/current phase、任务完成数、运行中 session 数。没有 session props 时不渲染。
+- `app_bottom`：主会话底部常驻 surface，承载整体 workflow 状态，例如 workflow/status/current phase、任务完成数、运行中 session 数。允许没有 session props 时显示 current workflow，避免 host 未传 props 时主会话区域空白。
 - `sidebar_content`：右侧栏主体。展示 workflow 总览、运行中 child session 列表；当 OpenCode pending question API 返回 child session question 时，优先展示问题正文和选项摘要。
-- `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。没有 session props 时不渲染。
+- `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。允许没有 session props 时显示 current workflow。
 - `home_prompt`、`home_prompt_right`、`home_bottom`、`home_footer`：不注册 Superpowers resident progress。`home_*` 是首页区域，不作为主会话运行态展示入口。
 
 详细过程仍通过 `superpowers-progress` route 查看；子会话问题的完整交互仍通过 `superpowers-questions` route 完成。
@@ -89,7 +89,7 @@ TUI 读取 workflow/progress 时先使用 host 提供的 `api.state.path.directo
 
 这个 resolver 只处理已知 SuperAgent/插件运行根，不扫描用户磁盘。找到 fallback workflow 时，进度 route 会附带一行 `SP: using workflow state from ...` 诊断；没有找到 workflow 时，compact/global 可见 surface 显示 `SP: no workflow state in ...`，避免工作流仍在运行但 UI 静默空白。
 
-常驻 slot 不能依赖父会话消息流触发刷新。child session 写入 `progress.jsonl` 时，parent session 的 `time_updated` 可能不变，因此 resident surface 需要自己定时重读 workflow/progress。`sidebar_content` 允许没有 session props 时读取 current workflow，以兼容 host 没有传入 session props 的主会话 sidebar；compact surface 允许无 session props 时显示当前 workflow；其他非 compact resident slot 仍需要传入 session props，并且只在当前 session 属于 active workflow 时展示，包括 parent session 和 `node_runs[].session_id` 中登记过的 child session。无关 session 继续隐藏。
+常驻 slot 不能依赖父会话消息流触发刷新。child session 写入 `progress.jsonl` 时，parent session 的 `time_updated` 可能不变，因此 resident surface 需要自己定时重读 workflow/progress。`session_prompt_right`、`app_bottom`、`sidebar_content` 和 `sidebar_footer` 都允许没有 session props 时读取 current workflow，以兼容 host 没有传入 session props 的主会话区域。只要 host 传入具体 session props，仍然只在该 session 属于 active workflow 时展示，包括 parent session 和 `node_runs[].session_id` 中登记过的 child session。无关 session 继续隐藏。
 
 当 OpenCode pending question API 返回 child session question 时，`sidebar_content` 优先显示多行问题摘要和选项；没有 pending question 时再显示普通 child progress。确认/取消动作在 `superpowers-questions` route 中完成。
 
