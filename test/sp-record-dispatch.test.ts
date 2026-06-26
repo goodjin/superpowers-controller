@@ -2,9 +2,26 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createSessionOrchestrator } from "../src/session/orchestrator"
 import { buildNodeTaskPrompt } from "../src/session/templates"
 import { createProjectStore } from "../src/state/store"
 import { createReportHandler } from "../src/tools/report-handler"
+
+function withTimeout<T>(promise: Promise<T>, ms = 50): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("timed out waiting for nonblocking report")), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timeout)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timeout)
+        reject(error)
+      },
+    )
+  })
+}
 
 describe("sp_report dispatch integration", () => {
   test("plan passed with runnable tasks dispatches implementer sessions and records node_runs", async () => {
@@ -70,6 +87,77 @@ describe("sp_report dispatch integration", () => {
           message: "plan reported as passed; workflow is at plan-complete.",
         },
       ])
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("plan passed returns after scheduling downstream child prompts that have not completed", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-record-dispatch-nonblocking-"))
+    try {
+      const store = createProjectStore(project)
+      store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add gates",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+      })
+
+      let nextSession = 0
+      const prompts: string[] = []
+      const orchestrator = createSessionOrchestrator({
+        async createNodeSession() {
+          nextSession += 1
+          return `session-impl-${nextSession}`
+        },
+        async continueNodeSession(input) {
+          prompts.push(input.sessionID)
+          return new Promise<void>(() => {})
+        },
+        async showProgress() {},
+      })
+      const handler = createReportHandler({
+        store,
+        orchestrator,
+      })
+
+      const output = await withTimeout(handler(
+        {
+          event: "plan",
+          status: "passed",
+          summary: "Plan ready.",
+          artifacts: { plan: "# Plan" },
+          gates: { plan_written: true },
+          task_graph: {
+            tasks: [
+              { id: "T1", title: "Types", summary: "Add types", depends_on: [], files: ["src/types.ts"] },
+            ],
+          },
+        },
+        { sessionID: "session-planner", agent: "sp-planner" },
+      ))
+
+      const result = JSON.parse(output)
+      const state = store.readCurrent()
+      expect(result.dispatches).toEqual([
+        {
+          action: "create_session",
+          agent: "sp-implementer",
+          phase: "implement",
+          task_id: "T1",
+          session_id: "session-impl-1",
+        },
+      ])
+      expect(state?.node_runs).toHaveLength(1)
+      expect(state?.node_runs[0]).toMatchObject({
+        phase: "implement",
+        session_id: "session-impl-1",
+        task_id: "T1",
+        status: "running",
+      })
+      expect(prompts).toEqual(["session-impl-1"])
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

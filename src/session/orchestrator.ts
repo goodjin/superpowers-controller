@@ -34,15 +34,27 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
         variant: "info",
       })
       if (args.decision.action === "reuse_session") {
-        await adapter.continueNodeSession({
+        if (args.onSessionCreated) {
+          await args.onSessionCreated({
+            sessionID: args.decision.session_id,
+            taskMarkdown,
+          })
+        }
+        scheduleNodePrompt(adapter, {
           sessionID: args.decision.session_id,
           agent: args.decision.agent,
           prompt: taskMarkdown,
+          failure: {
+            stage: "dispatch_failed",
+            title: "Superpowers dispatch",
+            message: `Failed to prompt ${args.decision.agent} for ${args.packet.node_id}.`,
+            variant: "error",
+          },
         })
         await adapter.showProgress({
           stage: "node_running",
           title: "Superpowers dispatch",
-          message: `Reused ${args.decision.agent} for ${args.packet.node_id}.`,
+          message: `Scheduled ${args.decision.agent} for ${args.packet.node_id}.`,
           variant: "info",
         })
         return {
@@ -63,15 +75,21 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
           taskMarkdown,
         })
       }
-      await adapter.continueNodeSession({
+      scheduleNodePrompt(adapter, {
         sessionID,
         agent: args.decision.agent,
         prompt: taskMarkdown,
+        failure: {
+          stage: "dispatch_failed",
+          title: "Superpowers dispatch",
+          message: `Failed to prompt ${args.decision.agent} for ${args.packet.node_id}.`,
+          variant: "error",
+        },
       })
       await adapter.showProgress({
         stage: "node_running",
         title: "Superpowers dispatch",
-        message: `Created ${args.decision.agent} for ${args.packet.node_id}.`,
+        message: `Scheduled ${args.decision.agent} for ${args.packet.node_id}.`,
         variant: "success",
       })
       return {
@@ -85,15 +103,21 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
       agent: string
       prompt: string
     }): Promise<SessionResumeResult> {
-      await adapter.continueNodeSession({
+      scheduleNodePrompt(adapter, {
         sessionID: args.sessionID,
         agent: args.agent,
         prompt: args.prompt,
+        failure: {
+          stage: "dispatch_failed",
+          title: "Superpowers dispatch",
+          message: `Failed to resume ${args.agent} in ${args.sessionID}.`,
+          variant: "error",
+        },
       })
       await adapter.showProgress({
         stage: "node_resumed",
         title: "Superpowers dispatch",
-        message: `Resumed ${args.agent} in ${args.sessionID}.`,
+        message: `Scheduled resume for ${args.agent} in ${args.sessionID}.`,
         variant: "info",
       })
       return {
@@ -106,17 +130,59 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
       agent: string
       prompt: string
     }): Promise<void> {
+      scheduleNodePrompt(adapter, {
+        sessionID: args.sessionID,
+        agent: args.agent,
+        prompt: args.prompt,
+        failure: {
+          stage: "dispatch_failed",
+          title: "Superpowers workflow",
+          message: "Failed to notify controller session about pending user input.",
+          variant: "error",
+        },
+      })
+      await adapter.showProgress({
+        stage: "parent_notified",
+        title: "Superpowers workflow",
+        message: "Scheduled controller session notification about pending user input.",
+        variant: "warning",
+      })
+    },
+  }
+}
+
+function scheduleNodePrompt(
+  adapter: SessionAdapter,
+  args: {
+    sessionID: string
+    agent: string
+    prompt: string
+    failure: {
+      stage: "dispatch_failed"
+      title: string
+      message: string
+      variant: "info" | "success" | "warning" | "error"
+    }
+  },
+) {
+  void (async () => {
+    try {
       await adapter.continueNodeSession({
         sessionID: args.sessionID,
         agent: args.agent,
         prompt: args.prompt,
       })
+    } catch (error) {
       await adapter.showProgress({
-        stage: "parent_notified",
-        title: "Superpowers workflow",
-        message: "Notified controller session about pending user input.",
-        variant: "warning",
+        ...args.failure,
+        message: `${args.failure.message} ${errorMessage(error)}`,
       })
-    },
-  }
+    }
+  })().catch(() => {})
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === "string" && error) return error
+  return "Unknown error."
 }

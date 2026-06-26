@@ -2,6 +2,22 @@ import { describe, expect, test } from "bun:test"
 import { createSessionOrchestrator } from "../src/session/orchestrator"
 import { buildChildRequestId, buildNodeTaskPrompt } from "../src/session/templates"
 
+function withTimeout<T>(promise: Promise<T>, ms = 50): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("timed out waiting for nonblocking dispatch")), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timeout)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timeout)
+        reject(error)
+      },
+    )
+  })
+}
+
 describe("buildNodeTaskPrompt", () => {
   test("builds implement task prompt with one primary skill and record contract", () => {
     const prompt = buildNodeTaskPrompt({
@@ -106,7 +122,61 @@ describe("createSessionOrchestrator", () => {
       },
       {
         stage: "node_running",
-        message: "Created sp-designer for 001-design.",
+        message: "Scheduled sp-designer for 001-design.",
+      },
+    ])
+  })
+
+  test("returns after scheduling a child prompt that has not completed", async () => {
+    const prompts: string[] = []
+    const progress: Array<{ stage: string; message: string }> = []
+    const orchestrator = createSessionOrchestrator({
+      async createNodeSession() {
+        return "session-node"
+      },
+      async continueNodeSession(input) {
+        prompts.push(input.sessionID)
+        return new Promise<void>(() => {})
+      },
+      async showProgress(input) {
+        progress.push({ stage: input.stage, message: input.message })
+      },
+    })
+
+    const result = await withTimeout(orchestrator.dispatch({
+      project: "/repo",
+      runID: "run-1",
+      parentSessionID: "session-main",
+      decision: {
+        action: "create_session",
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        reason: "design next",
+      },
+      packet: {
+        run_id: "run-1",
+        node_id: "001-design",
+        workflow: "feature",
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        objective: "Create design.",
+        required_artifacts: [],
+        record_contract: { event: "design", expected_artifacts: ["spec"], allowed_gates: ["spec_written"] },
+      },
+    }))
+
+    expect(result).toMatchObject({ action: "create_session", session_id: "session-node" })
+    expect(prompts).toEqual(["session-node"])
+    expect(progress).toEqual([
+      {
+        stage: "dispatch_started",
+        message: "Starting sp-designer for 001-design.",
+      },
+      {
+        stage: "node_running",
+        message: "Scheduled sp-designer for 001-design.",
       },
     ])
   })
@@ -196,5 +266,53 @@ describe("createSessionOrchestrator", () => {
 
     expect(result).toMatchObject({ action: "reuse_session", session_id: "session-impl" })
     expect(continued).toEqual(["session-impl"])
+  })
+
+  test("resumeNode returns after scheduling a prompt that has not completed", async () => {
+    const prompts: string[] = []
+    const orchestrator = createSessionOrchestrator({
+      async createNodeSession() {
+        throw new Error("unexpected create")
+      },
+      async continueNodeSession(input) {
+        prompts.push(input.sessionID)
+        return new Promise<void>(() => {})
+      },
+      async showProgress() {},
+    })
+
+    const result = await withTimeout(orchestrator.resumeNode({
+      sessionID: "session-design",
+      agent: "sp-designer",
+      prompt: "User answered the pending question.",
+    }))
+
+    expect(result).toEqual({
+      action: "resume_session",
+      session_id: "session-design",
+    })
+    expect(prompts).toEqual(["session-design"])
+  })
+
+  test("notifyParent returns after scheduling a parent prompt that has not completed", async () => {
+    const prompts: string[] = []
+    const orchestrator = createSessionOrchestrator({
+      async createNodeSession() {
+        throw new Error("unexpected create")
+      },
+      async continueNodeSession(input) {
+        prompts.push(input.sessionID)
+        return new Promise<void>(() => {})
+      },
+      async showProgress() {},
+    })
+
+    await withTimeout(orchestrator.notifyParent({
+      sessionID: "session-main",
+      agent: "super-agent",
+      prompt: "Workflow is waiting for user input.",
+    }))
+
+    expect(prompts).toEqual(["session-main"])
   })
 })

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { buildWorkflowProposal } from "../src/controller/proposal"
 import { prepareStartRun } from "../src/controller/intake"
+import { createSessionOrchestrator } from "../src/session/orchestrator"
 import { createProjectStore } from "../src/state/store"
 import { createPrepareTool } from "../src/tools/sp-prepare"
 import { createStartTool } from "../src/tools/sp-start"
@@ -18,6 +19,22 @@ const toolContext = {
   abort: new AbortController().signal,
   metadata() {},
   async ask() {},
+}
+
+function withTimeout<T>(promise: Promise<T>, ms = 50): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("timed out waiting for nonblocking tool result")), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timeout)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timeout)
+        reject(error)
+      },
+    )
+  })
 }
 
 describe("workflow proposal", () => {
@@ -482,6 +499,79 @@ describe("sp_prepare and sp_start tools", () => {
       expect(resumed[0].prompt).toContain("Use strict gates?")
       expect(resumed[0].prompt).toContain("Use strict gates, but keep write prompts visible.")
       expect(resumed[0].prompt).toContain("sp_report")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start resume_input returns while the resumed child prompt is still running", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-resume-input-nonblocking-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add workflow gates",
+        request: "# Request\n\nAdd workflow gates.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-main",
+      })
+      const node = store.addNodeRun({
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        session_id: "session-design",
+        task_markdown: "# Design task",
+      })
+      store.recordNodeResult({
+        input: {
+          event: "design",
+          status: "needs_user",
+          summary: "Need user choice.",
+          question: { prompt: "Use strict gates?" },
+        },
+        sessionID: "session-design",
+        agent: "sp-designer",
+      })
+      const prompts: Array<{ sessionID: string; agent: string; prompt: string }> = []
+      const orchestrator = createSessionOrchestrator({
+        async createNodeSession() {
+          throw new Error("unexpected create")
+        },
+        async continueNodeSession(input) {
+          prompts.push(input)
+          return new Promise<void>(() => {})
+        },
+        async showProgress() {},
+      })
+      const start = createStartTool(store, orchestrator)
+
+      const output = await withTimeout(start.execute(
+        {
+          run_id: state.id,
+          resume_input: {
+            source_node_id: node.id,
+            answer_text: "Use strict gates.",
+          },
+        },
+        toolContext,
+      ))
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.state.status).toBe("running")
+      expect(result.state.pending_question).toBeUndefined()
+      expect(result.dispatches).toEqual([
+        {
+          action: "resume_session",
+          phase: "design",
+          agent: "sp-designer",
+          task_id: undefined,
+          session_id: "session-design",
+        },
+      ])
+      expect(prompts).toHaveLength(1)
+      expect(prompts[0].sessionID).toBe("session-design")
+      expect(prompts[0].prompt).toContain("Use strict gates.")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

@@ -11,7 +11,7 @@
 - `test/support/opencode-e2e/harness.ts`：真实 OpenCode e2e 的隔离环境、临时配置、mock LLM、child process 和 workflow state 读取工具。
 - `test/support/opencode-e2e/logging.ts`：e2e 场景日志 helper，统一输出 suite goal、scenario description、step、verification 和 summary。
 - `test/support/opencode-e2e/harness.test.ts`：harness smoke，以及 `node_runs` / `nodes/*` 读取能力验证。
-- `test/controller-intake.test.ts`：proposal 生成、resume proposal、`sp_prepare` 创建 prepared run、source workflow 导入、`sp_start` 激活 prepared run 或直接创建 run、`sp_start(run_id, resume_input)` 恢复 waiting-user child session，以及 `entrypoint=execute` 的实现入口派发。
+- `test/controller-intake.test.ts`：proposal 生成、resume proposal、`sp_prepare` 创建 prepared run、source workflow 导入、`sp_start` 激活 prepared run 或直接创建 run、`sp_start(run_id, resume_input)` 恢复 waiting-user child session 且不等待 child prompt 完成，以及 `entrypoint=execute` 的实现入口派发。
 - `test/dispatch-transition.test.ts`：intake、plan、task-scoped implementation acceptance、串行 review、code-review 后回到 task graph、retry 和 needs_user 的 dispatch decision。
 - `test/session-orchestrator.test.ts`：node task markdown 模板、session create/reuse adapter 调用。
 - `test/store-node-runs.test.ts`：`node_runs` 创建、`nodes/*/task.md`、`nodes/*/record.json` 和完成状态更新。
@@ -31,6 +31,8 @@ workflow progress 是 side-channel 行为，用单元测试验证，不要求 e2
 
 - `test/tools.test.ts` 断言 public tool registry 只暴露 `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
 - `test/controller-intake.test.ts` 断言 `sp_prepare` / `sp_start` 发送 `run_started`。
+- `test/session-orchestrator.test.ts` 断言 `dispatch()`、`resumeNode()` 和 `notifyParent()` 在底层 `continueNodeSession()` 不 resolve 时仍会返回。
+- `test/sp-record-dispatch.test.ts` 断言 `sp_report` 在后续 child prompt 不 resolve 时仍会返回，并且 dispatch 前已登记 `node_runs`。
 - `test/session-orchestrator.test.ts` 断言 dispatch 先发送 `dispatch_started`，成功创建 session 后发送 `node_running`。
 - `test/sp-record-dispatch.test.ts` 断言节点记录后发送 `node_recorded`，`needs_user` 决策额外发送 `waiting_user_input` 并调用 parent notification。
 
