@@ -33,6 +33,7 @@ export function buildNodeTaskPrompt(packet: NodeTaskPacket): string {
     `- allowed_gates: ${packet.record_contract.allowed_gates.join(", ") || "none"}`,
     "- Required fields: event, status, summary",
     "- Optional fields: artifacts, gates, checks, findings, question, task_graph",
+    '- question.options uses objects: [{ "label": "...", "description": "..." }].',
     "- Do not include next_action, target_session_id, child_session_id, reuse_session_id, create_sessions, or skills_used.",
   ]
     .filter(Boolean)

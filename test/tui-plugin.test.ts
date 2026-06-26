@@ -152,4 +152,69 @@ describe("Superpowers TUI plugin", () => {
       rmSync(project, { recursive: true, force: true })
     }
   })
+
+  test("resolves workflow progress from the configured Superagent project directory", () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-project-"))
+    const tuiDirectory = mkdtempSync(join(tmpdir(), "sp-tui-directory-"))
+    const previousProject = process.env.SUPERAGENT_PROJECT_DIR
+    try {
+      process.env.SUPERAGENT_PROJECT_DIR = project
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "execute",
+        goal: "Ship fallback progress",
+        request: "Ship fallback progress",
+        proposal: "Show progress from configured project",
+        parentSessionID: "session-main",
+      })
+      const node = store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        session_id: "session-child",
+        task_id: "T1",
+        task_markdown: "Implement task",
+      })
+      createNodeProgressStore(project).append(state.id, {
+        at: new Date().toISOString(),
+        kind: "text",
+        session_id: "session-child",
+        node_id: node.id,
+        agent: "sp-implementer",
+        phase: "implement",
+        task_id: "T1",
+        summary: "assistant text updated",
+        detail: "Working from the configured project",
+      })
+      const api = {
+        state: {
+          path: { directory: tuiDirectory },
+          session: {
+            status(sessionID: string) {
+              expect(sessionID).toBe("session-child")
+              return { type: "busy" }
+            },
+          },
+        },
+      } as never
+      const compactSlot = createCompactProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0 },
+      )
+
+      expect(compactSlot()).toEqual({
+        type: "text",
+        value: "SP: sp-implementer T1 running/busy - assistant text updated",
+      })
+    } finally {
+      if (previousProject === undefined) {
+        delete process.env.SUPERAGENT_PROJECT_DIR
+      } else {
+        process.env.SUPERAGENT_PROJECT_DIR = previousProject
+      }
+      rmSync(project, { recursive: true, force: true })
+      rmSync(tuiDirectory, { recursive: true, force: true })
+    }
+  })
 })

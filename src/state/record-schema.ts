@@ -75,6 +75,17 @@ const taskGraphSchema = z
   })
   .strict()
 
+const questionOptionSchema = z
+  .union([
+    z.string().min(1).transform((label) => ({ label })),
+    z
+      .object({
+        label: z.string().min(1),
+        description: z.string().optional(),
+      })
+      .strict(),
+  ])
+
 export const spRecordInputSchema = z
   .object({
     event: nodeEventSchema,
@@ -87,7 +98,7 @@ export const spRecordInputSchema = z
     question: z
       .object({
         prompt: z.string().min(1),
-        options: z.array(z.string().min(1)).optional(),
+        options: z.array(questionOptionSchema).optional(),
       })
       .strict()
       .optional(),

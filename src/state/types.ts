@@ -99,6 +99,11 @@ export type NodeRun = {
   record_path?: string
 }
 
+export type QuestionOption = {
+  label: string
+  description?: string
+}
+
 export type SpRecordInput = {
   event: NodeEvent
   status: NodeStatus
@@ -109,7 +114,7 @@ export type SpRecordInput = {
   findings?: string
   question?: {
     prompt: string
-    options?: string[]
+    options?: QuestionOption[]
   }
   task_graph?: TaskGraph
 }

@@ -23,10 +23,17 @@ export function createReportTool(
       question: tool.schema
         .object({
           prompt: tool.schema.string(),
-          options: tool.schema.array(tool.schema.string()).optional(),
+          options: tool.schema
+            .array(
+              tool.schema.object({
+                label: tool.schema.string(),
+                description: tool.schema.string().optional(),
+              }),
+            )
+            .optional(),
         })
         .optional()
-        .describe("Question for the user when status is needs_user"),
+        .describe("Question for the user when status is needs_user. options must be [{ label, description? }]."),
       task_graph: tool.schema
         .object({
           tasks: tool.schema.array(

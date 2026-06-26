@@ -46,7 +46,7 @@ const requests: QuestionRequest[] = [
       {
         header: "Other",
         question: "Unrelated session question",
-        options: [{ label: "Ignore", description: "Ignore" }],
+        options: [{ label: "Ignore" }],
       },
     ],
   },

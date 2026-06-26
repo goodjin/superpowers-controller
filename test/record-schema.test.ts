@@ -23,11 +23,32 @@ describe("parseSpRecordInput", () => {
       summary: "Need confirmation.",
       question: {
         prompt: "Use strict gates?",
-        options: ["guided", "strict"],
+        options: [
+          { label: "guided", description: "Continue with guided gates." },
+          { label: "strict" },
+        ],
       },
     })
 
     expect(record.question?.prompt).toContain("strict")
+    expect(record.question?.options).toEqual([
+      { label: "guided", description: "Continue with guided gates." },
+      { label: "strict" },
+    ])
+  })
+
+  test("normalizes legacy string question options", () => {
+    const record = parseSpRecordInput({
+      event: "question",
+      status: "needs_user",
+      summary: "Need confirmation.",
+      question: {
+        prompt: "Use strict gates?",
+        options: ["guided", "strict"],
+      },
+    })
+
+    expect(record.question?.options).toEqual([{ label: "guided" }, { label: "strict" }])
   })
 
   test("accepts a simple task graph where depends_on expresses parallelism", () => {

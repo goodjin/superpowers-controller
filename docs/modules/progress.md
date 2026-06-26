@@ -80,6 +80,15 @@ running node 的最新 progress 如果超过显示阈值没有更新，会在 co
 
 slot render 必须返回 OpenTUI/Solid element，而不是裸字符串。TUI 入口会加载 `@opentui/solid/runtime-plugin-support`，再使用 `@opentui/solid` 创建 `text` element，并对 workflow/progress 读取异常做 fail-closed 处理；读取失败时只显示 `SP: progress unavailable`，避免异常进入 host TUI 渲染器。
 
+TUI 读取 workflow/progress 时先使用 host 提供的 `api.state.path.directory`。如果该目录没有 `.opencode/superpowers/current.json`，会依次尝试明确配置的 workflow project：
+
+- `SUPERAGENT_PROJECT_DIR`
+- `OPENCODE_SUPERPOWERS_PROJECT_DIR`
+- `SUPERAGENT_ROOT/project`
+- 隔离运行时 `HOME` 的相邻 `project` 目录
+
+这个 resolver 只处理已知 SuperAgent/插件运行根，不扫描用户磁盘。找到 fallback workflow 时，进度 route 会附带一行 `SP: using workflow state from ...` 诊断；没有找到 workflow 时，compact/global 可见 surface 显示 `SP: no workflow state in ...`，避免工作流仍在运行但 UI 静默空白。
+
 常驻 slot 不能依赖父会话消息流触发刷新。child session 写入 `progress.jsonl` 时，parent session 的 `time_updated` 可能不变，因此 resident surface 需要自己定时重读 workflow/progress。`sidebar_content` 允许没有 session props 时读取 current workflow，以兼容 host 没有传入 session props 的主会话 sidebar；compact surface 允许无 session props 时显示当前 workflow；其他非 compact resident slot 仍需要传入 session props，并且只在当前 session 属于 active workflow 时展示，包括 parent session 和 `node_runs[].session_id` 中登记过的 child session。无关 session 继续隐藏。
 
 当 OpenCode pending question API 返回 child session question 时，`sidebar_content` 优先显示多行问题摘要和选项；没有 pending question 时再显示普通 child progress。确认/取消动作在 `superpowers-questions` route 中完成。

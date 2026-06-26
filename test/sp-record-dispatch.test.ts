@@ -108,7 +108,13 @@ describe("sp_report dispatch integration", () => {
           event: "question",
           status: "needs_user",
           summary: "Need user input.",
-          question: { prompt: "Use strict gates?", options: ["yes", "no"] },
+          question: {
+            prompt: "Use strict gates?",
+            options: [
+              { label: "yes", description: "Use strict gates." },
+              { label: "no", description: "Keep the current gate policy." },
+            ],
+          },
         },
         { sessionID: "session-node", agent: "sp-designer" },
       )
@@ -116,6 +122,10 @@ describe("sp_report dispatch integration", () => {
       const state = store.readCurrent()
       expect(state?.status).toBe("waiting_user")
       expect(state?.pending_question?.prompt).toContain("strict")
+      expect(state?.pending_question?.options).toEqual([
+        { label: "yes", description: "Use strict gates." },
+        { label: "no", description: "Keep the current gate policy." },
+      ])
       expect(progress).toEqual([
         {
           stage: "node_recorded",

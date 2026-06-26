@@ -1,4 +1,6 @@
 import "@opentui/solid/runtime-plugin-support"
+import { existsSync } from "node:fs"
+import { dirname, join, relative } from "node:path"
 import { createElement, insert, setProp } from "@opentui/solid"
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js"
 import { createNodeProgressStore } from "./progress/node-progress"
@@ -34,6 +36,12 @@ export const RESIDENT_PROGRESS_SLOT_NAMES = [
 
 type ProgressSlotRenderer = "compact" | "workflow-status" | "running-sessions" | "sidebar"
 
+type WorkflowContext = {
+  project: string
+  state: WorkflowState | null
+  diagnostic?: string
+}
+
 type TuiApi = {
   route: {
     register(routes: Array<{ name: string; render(input?: { params?: Record<string, unknown> }): unknown }>): () => void
@@ -68,11 +76,12 @@ export function createTuiPluginModule() {
         {
           name: "superpowers-progress",
           render() {
-            const state = currentWorkflowState(api)
-            const progress = state ? createNodeProgressStore(api.state.path.directory).readRun(state) : {}
-            return renderProgressPanelText(
-              buildProgressPanelViewModel(state, progress, liveStatusBySession(api, state)),
+            const context = currentWorkflowContext(api)
+            const progress = context.state ? createNodeProgressStore(context.project).readRun(context.state) : {}
+            const text = renderProgressPanelText(
+              buildProgressPanelViewModel(context.state, progress, liveStatusBySession(api, context.state)),
             )
+            return context.diagnostic ? `${text}\n\n${context.diagnostic}` : text
           },
         },
         {
@@ -188,9 +197,13 @@ function safeProgressSlotText(
   allowGlobal = false,
 ): string {
   try {
-    const state = currentWorkflowState(api)
-    const progress = state ? createNodeProgressStore(api.state.path.directory).readRun(state) : {}
-    const model = progressModel(api, state, progress, sessionID)
+    const context = currentWorkflowContext(api)
+    if (!context.state) {
+      if (!allowGlobal && renderer !== "compact" && typeof slotSessionID(props) !== "string") return ""
+      return truncateSlotText(context.diagnostic ?? "SP: no active workflow", maxChars)
+    }
+    const progress = createNodeProgressStore(context.project).readRun(context.state)
+    const model = progressModel(api, context.state, progress, sessionID)
     if (!allowGlobal && renderer !== "compact" && typeof slotSessionID(props) !== "string") return ""
     if (renderer === "workflow-status") return renderWorkflowStatusText(model, maxChars)
     if (renderer === "running-sessions") return renderRunningSessionsText(model)
@@ -216,8 +229,8 @@ async function refreshProgressSlotText(
       setText(safeProgressSlotText(api, sessionID, props, renderer, maxChars, allowGlobal))
       return
     }
-    const state = currentWorkflowState(api)
-    const questions = filterWorkflowQuestionRequests(state, await client.list(api.state.path.directory))
+    const context = currentWorkflowContext(api)
+    const questions = filterWorkflowQuestionRequests(context.state, await client.list(context.project))
     const questionText = renderer === "sidebar" ? renderSidebarQuestionText(questions) : renderer === "compact" ? renderCompactQuestionText(questions) : ""
     setText(questionText || safeProgressSlotText(api, sessionID, props, renderer, maxChars, allowGlobal))
   } catch {
@@ -232,14 +245,57 @@ function createTextElement(value: TextSource): unknown {
 }
 
 function currentProgressModel(api: TuiApi, sessionID?: unknown) {
-  const state = currentWorkflowState(api)
-  const progress = state ? createNodeProgressStore(api.state.path.directory).readRun(state) : {}
-  return progressModel(api, state, progress, sessionID)
+  const context = currentWorkflowContext(api)
+  const progress = context.state ? createNodeProgressStore(context.project).readRun(context.state) : {}
+  return progressModel(api, context.state, progress, sessionID)
 }
 
-function currentWorkflowState(api: TuiApi): WorkflowState | null {
-  const workflow = createProjectStore(api.state.path.directory)
-  return workflow.readCurrent()
+function currentWorkflowContext(api: TuiApi): WorkflowContext {
+  const directory = api.state.path.directory
+  const direct = readWorkflowState(directory)
+  if (direct) return { project: directory, state: direct }
+
+  for (const project of workflowProjectCandidates(directory)) {
+    const state = readWorkflowState(project)
+    if (state) {
+      return {
+        project,
+        state,
+        diagnostic: `SP: using workflow state from ${formatProjectPath(project, directory)}`,
+      }
+    }
+  }
+
+  return {
+    project: directory,
+    state: null,
+    diagnostic: `SP: no workflow state in ${formatProjectPath(directory, directory)}`,
+  }
+}
+
+function readWorkflowState(project: string): WorkflowState | null {
+  if (!existsSync(join(project, ".opencode", "superpowers", "current.json"))) return null
+  return createProjectStore(project).readCurrent()
+}
+
+function workflowProjectCandidates(directory: string): string[] {
+  const candidates = [
+    process.env.SUPERAGENT_PROJECT_DIR,
+    process.env.OPENCODE_SUPERPOWERS_PROJECT_DIR,
+    process.env.SUPERAGENT_ROOT ? join(process.env.SUPERAGENT_ROOT, "project") : undefined,
+    process.env.HOME ? join(dirname(process.env.HOME), "project") : undefined,
+  ]
+  return [...new Set(candidates.filter((candidate): candidate is string => Boolean(candidate && candidate !== directory)))]
+}
+
+function formatProjectPath(project: string, directory: string): string {
+  const rel = relative(directory, project)
+  return rel && !rel.startsWith("..") ? rel : project
+}
+
+function truncateSlotText(value: string, maxChars?: number): string {
+  if (!maxChars || value.length <= maxChars) return value
+  return `${value.slice(0, Math.max(0, maxChars - 3))}...`
 }
 
 function progressModel(
@@ -283,8 +339,8 @@ function createQuestionBridgePanel(
 
   const refresh = async () => {
     try {
-      const state = currentWorkflowState(api)
-      const nextRequests = filterWorkflowQuestionRequests(state, await client.list(api.state.path.directory))
+      const context = currentWorkflowContext(api)
+      const nextRequests = filterWorkflowQuestionRequests(context.state, await client.list(context.project))
       setRequests(nextRequests)
       setActions(buildQuestionActions(nextRequests))
       setStatus(renderQuestionBridgeText(nextRequests))

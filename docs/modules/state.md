@@ -82,6 +82,21 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 
 `addNodeRun()` 是 runtime 确认派发新节点后的恢复点。只要 workflow 还没有 `passed` 或 `canceled`，新增 node run 会把 workflow `status` 设回 `running`，并把 `phase/current_phase` 更新为新节点 phase。这样 acceptance、verification 或 code review 失败后触发 retry implementer 时，UI 不会继续停留在 failed 状态。
 
+## Question Contract
+
+`sp_report.question.options` 的 canonical 形状是对象数组：
+
+```ts
+type QuestionOption = {
+  label: string
+  description?: string
+}
+```
+
+模型可见的 tool schema 和 node prompt 都只展示这个对象形状，避免和 OpenCode/TUI question bridge 的 `{ label, description? }` 契约分裂。`record-schema` 仍接受历史字符串数组并归一化为 `{ label }`，只作为兼容旧调用和旧状态的解析路径，不作为新的模型提示契约。
+
+draft plan 完成后自动生成的 `pending_question.options` 也使用同一个对象形状，避免 state 内出现第二套问题选项结构。
+
 ## Task Graph
 
 `normalizeTaskGraph()` 会拒绝未知依赖，并为共享可写文件增加隐式依赖。`getRunnableTasks()` 只返回依赖已 passed、未 running、未 failed 的任务；失败任务不会启动依赖它的任务。

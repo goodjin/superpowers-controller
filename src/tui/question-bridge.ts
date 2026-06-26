@@ -2,7 +2,7 @@ import type { WorkflowState } from "../state/types"
 
 export type QuestionOption = {
   label: string
-  description: string
+  description?: string
 }
 
 export type QuestionInfo = {

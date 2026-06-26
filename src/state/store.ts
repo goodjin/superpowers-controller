@@ -552,7 +552,10 @@ function buildPendingQuestion(args: {
   if (args.current.activation === "draft" && args.input.event === "plan" && args.input.status === "passed") {
     return {
       prompt: "Plan and task graph are ready. Review the artifacts, decide whether changes are needed, and confirm before calling sp_start.",
-      options: ["start", "revise"],
+      options: [
+        { label: "start", description: "Start execution with the current plan." },
+        { label: "revise", description: "Revise the plan before execution." },
+      ],
       source_node_id: args.nodeID,
     }
   }
