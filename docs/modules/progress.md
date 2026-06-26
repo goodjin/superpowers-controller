@@ -81,9 +81,9 @@ workflow 用户输入不再通过独立 TUI question route 处理。节点需要
 
 主会话常驻进度通过 TUI slot 展示。不同 slot 不再复用同一条 compact 文本，而是按可用空间分工：
 
-- `app_bottom`：主会话底部常驻 surface，承载整体 workflow 状态，例如 workflow/status/current phase、任务完成数、运行中 session 数。允许没有 session props 时显示 current workflow，避免 host 未传 props 时主会话区域空白。
-- `sidebar_content`：右侧栏主体，是 workflow 会话运行信息的主展示区域。展示 workflow 总览、运行中 child session 列表和 waiting_user 状态提示；它不收集用户答案。
-- `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。允许没有 session props 时显示 current workflow。
+- `app_bottom`：主会话底部常驻 surface，承载整体 workflow 状态，例如 workflow/status/current phase、任务完成数、运行中 session 数。它是 global slot，没有 `session_id` props，因此 TUI resolver 会在已知 workflow project 中选择最近更新的未结束 workflow。
+- `sidebar_content`：右侧栏主体，是 workflow 会话运行信息的主展示区域。OpenCode host 会传入当前 `session_id`；插件只在该 session 属于某个 workflow 的 parent session 或 child node session 时展示 workflow 总览、运行中 child session 列表和 waiting_user 状态提示。它不收集用户答案，也不替换 host 原生摘要。
+- `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。和 `sidebar_content` 一样按 `session_id` 绑定到对应 workflow。
 - `session_prompt_right`、`home_prompt`、`home_prompt_right`、`home_bottom`、`home_footer`：不注册 Superpowers resident progress。workflow 会话运行信息不放在 prompt/right 区域；`home_*` 是首页区域，不作为主会话运行态展示入口。
 
 详细过程仍通过 `superpowers-progress` route 查看；用户输入通过主会话完成，不存在 `superpowers-questions` route。
@@ -92,16 +92,22 @@ running node 的最新 progress 如果超过显示阈值没有更新，会在 co
 
 slot render 必须返回 OpenTUI/Solid element，而不是裸字符串。TUI 入口会加载 `@opentui/solid/runtime-plugin-support`，再使用 `@opentui/solid` 创建 `text` element，并对 workflow/progress 读取异常做 fail-closed 处理；读取失败时只显示 `SP: progress unavailable`，避免异常进入 host TUI 渲染器。
 
-TUI 读取 workflow/progress 时先使用 host 提供的 `api.state.path.directory`。如果该目录没有 `.opencode/superpowers/current.json`，会依次尝试明确配置的 workflow project：
+TUI 读取 workflow/progress 时只在 host 当前目录和明确配置的 workflow project 中查找，不扫描用户磁盘。候选 project 包括：
 
 - `SUPERAGENT_PROJECT_DIR`
 - `OPENCODE_SUPERPOWERS_PROJECT_DIR`
 - `SUPERAGENT_ROOT/project`
 - 隔离运行时 `HOME` 的相邻 `project` 目录
 
-这个 resolver 只处理已知 SuperAgent/插件运行根，不扫描用户磁盘。找到 fallback workflow 时，进度 route 会附带一行 `SP: using workflow state from ...` 诊断；没有找到 workflow 时，compact/global 可见 surface 显示 `SP: no workflow state in ...`，避免工作流仍在运行但 UI 静默空白。
+resolver 不再简单返回第一个 `current.json`。选择规则是：
 
-常驻 slot 不能依赖父会话消息流触发刷新。child session 写入 `progress.jsonl` 时，parent session 的 `time_updated` 可能不变，因此 resident surface 需要自己定时重读 workflow/progress。`app_bottom`、`sidebar_content` 和 `sidebar_footer` 都允许没有 session props 时读取 current workflow，以兼容 host 没有传入 session props 的主会话区域。只要 host 传入具体 session props，仍然只在该 session 属于 active workflow 时展示，包括 parent session 和 `node_runs[].session_id` 中登记过的 child session。无关 session 继续隐藏。
+1. 如果 slot 传入 `session_id`，优先选择包含该 session 的 workflow。匹配范围包括 `parent_session_id` 和 `node_runs[].session_id`。
+2. 如果没有 session 匹配，选择候选 project 中 `updated_at` 最新的未结束 workflow。未结束状态包括 `intake`、`running`、`waiting_user`、`blocked` 和 `recovered_unknown`。
+3. 如果没有未结束 workflow，选择 `updated_at` 最新的历史 workflow，用于 route/诊断展示。
+
+找到 fallback workflow 时，进度 route 会附带一行 `SP: using workflow state from ...` 诊断；没有找到 workflow 时，compact/global 可见 surface 显示 `SP: no workflow state in ...`，避免工作流仍在运行但 UI 静默空白。
+
+常驻 slot 不能依赖父会话消息流触发刷新。child session 写入 `progress.jsonl` 时，parent session 的 `time_updated` 可能不变，因此 resident surface 需要自己定时重读 workflow/progress。`app_bottom` 作为 global slot 显示最近活跃 workflow；`sidebar_content` 和 `sidebar_footer` 作为 session slot 绑定到 host 传入的 `session_id`。无关 session 继续隐藏。
 
 当 workflow 进入 `waiting_user` 时，常驻 slot 只显示状态和进展摘要。问题正文和用户回答由 runtime 投递给 parent controller session 后在主会话处理，TUI slot 不承担选择框或自由输入框职责。
 

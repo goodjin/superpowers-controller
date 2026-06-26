@@ -30,6 +30,12 @@ type WorkflowContext = {
   diagnostic?: string
 }
 
+type WorkflowCandidate = {
+  project: string
+  state: WorkflowState
+  source: "current" | "run"
+}
+
 type TuiApi = {
   route: {
     register(routes: Array<{ name: string; render(input?: { params?: Record<string, unknown> }): unknown }>): () => void
@@ -167,7 +173,7 @@ function safeProgressSlotText(
   allowGlobal = false,
 ): string {
   try {
-    const context = currentWorkflowContext(api)
+    const context = currentWorkflowContext(api, sessionID)
     if (!context.state) {
       if (!allowGlobal && renderer !== "compact" && typeof slotSessionID(props) !== "string") return ""
       return truncateSlotText(context.diagnostic ?? "SP: no active workflow", maxChars)
@@ -191,24 +197,19 @@ function createTextElement(value: TextSource): unknown {
 }
 
 function currentProgressModel(api: TuiApi, sessionID?: unknown) {
-  const context = currentWorkflowContext(api)
+  const context = currentWorkflowContext(api, sessionID)
   const progress = context.state ? createNodeProgressStore(context.project).readRun(context.state) : {}
   return progressModel(api, context.state, progress, sessionID)
 }
 
-function currentWorkflowContext(api: TuiApi): WorkflowContext {
+function currentWorkflowContext(api: TuiApi, sessionID?: unknown): WorkflowContext {
   const directory = api.state.path.directory
-  const direct = readWorkflowState(directory)
-  if (direct) return { project: directory, state: direct }
-
-  for (const project of workflowProjectCandidates(directory)) {
-    const state = readWorkflowState(project)
-    if (state) {
-      return {
-        project,
-        state,
-        diagnostic: `SP: using workflow state from ${formatProjectPath(project, directory)}`,
-      }
+  const candidate = selectWorkflowCandidate(directory, sessionID)
+  if (candidate) {
+    return {
+      project: candidate.project,
+      state: candidate.state,
+      diagnostic: workflowContextDiagnostic(candidate, directory),
     }
   }
 
@@ -219,9 +220,78 @@ function currentWorkflowContext(api: TuiApi): WorkflowContext {
   }
 }
 
+function selectWorkflowCandidate(directory: string, sessionID?: unknown): WorkflowCandidate | null {
+  const candidates = workflowCandidates(directory)
+  const session = typeof sessionID === "string" ? sessionID : undefined
+  if (session) {
+    const matched = latestWorkflowCandidate(candidates.filter((candidate) => isWorkflowSession(candidate.state, session)))
+    if (matched) return matched
+  }
+
+  const unfinished = latestWorkflowCandidate(candidates.filter((candidate) => isUnfinishedWorkflow(candidate.state)))
+  if (unfinished) return unfinished
+
+  return latestWorkflowCandidate(candidates)
+}
+
+function workflowCandidates(directory: string): WorkflowCandidate[] {
+  const seen = new Set<string>()
+  const result: WorkflowCandidate[] = []
+  for (const project of [directory, ...workflowProjectCandidates(directory)]) {
+    for (const candidate of workflowCandidatesForProject(project)) {
+      const key = `${candidate.project}:${candidate.state.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      result.push(candidate)
+    }
+  }
+  return result
+}
+
+function workflowCandidatesForProject(project: string): WorkflowCandidate[] {
+  const store = createProjectStore(project)
+  const candidates: WorkflowCandidate[] = []
+  const current = readWorkflowState(project)
+  if (current) candidates.push({ project, state: current, source: "current" })
+  for (const state of store.listRuns()) {
+    candidates.push({ project, state, source: "run" })
+  }
+  return candidates
+}
+
 function readWorkflowState(project: string): WorkflowState | null {
   if (!existsSync(join(project, ".opencode", "superpowers", "current.json"))) return null
   return createProjectStore(project).readCurrent()
+}
+
+function latestWorkflowCandidate(candidates: WorkflowCandidate[]): WorkflowCandidate | null {
+  return [...candidates].sort(compareWorkflowCandidate).at(0) ?? null
+}
+
+function compareWorkflowCandidate(left: WorkflowCandidate, right: WorkflowCandidate): number {
+  const updated = workflowTimestamp(right.state) - workflowTimestamp(left.state)
+  if (updated !== 0) return updated
+  if (left.source !== right.source) return left.source === "current" ? -1 : 1
+  return left.state.id.localeCompare(right.state.id)
+}
+
+function workflowTimestamp(state: WorkflowState): number {
+  const parsed = Date.parse(state.updated_at)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function isUnfinishedWorkflow(state: WorkflowState): boolean {
+  return ["intake", "running", "waiting_user", "blocked", "recovered_unknown"].includes(state.status)
+}
+
+function workflowContextDiagnostic(candidate: WorkflowCandidate, directory: string): string | undefined {
+  if (candidate.project !== directory) {
+    return `SP: using workflow state from ${formatProjectPath(candidate.project, directory)}`
+  }
+  if (candidate.source !== "current") {
+    return `SP: using latest workflow run ${candidate.state.id}`
+  }
+  return undefined
 }
 
 function workflowProjectCandidates(directory: string): string[] {
