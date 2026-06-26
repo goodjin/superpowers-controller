@@ -8,7 +8,7 @@
 
 检查环节失败后，runtime 会计算 retry dispatch，但 workflow state 仍停留在 `failed`。用户界面因此看起来像流程卡住了，即使 implementer retry 已经被派发。
 
-同时，TUI 没有注册主会话 prompt 附近的 `session_prompt_right`，主会话区域看不到 Superpowers workflow 的运行信息，只能依赖 sidebar 或 progress route。
+同时，workflow 会话运行信息需要集中展示在 `sidebar_content`，不能放在 prompt/right 或首页区域。
 
 ## 根因分析
 
@@ -18,14 +18,14 @@
 - 原因:
   - `recordNodeResult()` 把 failed check 应用到 workflow 后，`statusForRecord()` 会把 workflow 设为 `failed`。
   - 后续 `addNodeRun()` 只追加 retry node run，不恢复 workflow `status/current_phase`。
-  - TUI resident slot 列表没有包含 `session_prompt_right`。
+  - TUI resident slot 分工没有明确 `sidebar_content` 是 workflow 会话运行信息主展示区域。
 
 ## 修复方案
 
 - `addNodeRun()` 在新增 node run 时，如果 workflow 不是 `passed` 或 `canceled`，恢复为 `running`，并把 `phase/current_phase` 更新为新 node phase。
-- 注册 `session_prompt_right` resident slot，使用 compact progress renderer。
-- 保持 `home_prompt` 和 `home_prompt_right` 不注册；它们属于首页区域，不是主会话运行态展示入口。
-- 增加测试覆盖 failed acceptance 回派 implementer、workflow 恢复 running、retry prompt 携带失败上下文，以及 home prompt slots 注册。
+- 保持 `sidebar_content` resident slot，展示 workflow 总览、运行中 child session 和 pending question。
+- 保持 `session_prompt_right`、`home_prompt` 和 `home_prompt_right` 不注册；prompt/right 与首页区域不作为 workflow 会话运行态展示入口。
+- 增加测试覆盖 failed acceptance 回派 implementer、workflow 恢复 running、retry prompt 携带失败上下文，以及 prompt/home slots 不注册约束。
 
 ## 验证步骤
 

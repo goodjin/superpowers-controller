@@ -89,7 +89,7 @@ describe("Superpowers TUI plugin", () => {
       expect(typeof slots.sidebar_content).toBe("function")
       expect(slots.home_bottom).toBeUndefined()
       expect(typeof slots.app_bottom).toBe("function")
-      expect(typeof slots.session_prompt_right).toBe("function")
+      expect(slots.session_prompt_right).toBeUndefined()
       expect(slots.home_prompt).toBeUndefined()
       expect(slots.home_prompt_right).toBeUndefined()
       const workflowStatusSlot = createProgressSlot(
