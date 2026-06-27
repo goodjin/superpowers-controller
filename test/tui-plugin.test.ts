@@ -106,27 +106,30 @@ describe("Superpowers TUI plugin", () => {
         (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
         { refreshMs: 0, renderer: "workflow-status", allowGlobal: true },
       )
-      expect(globalWorkflowStatusSlot()).toEqual({
-        type: "text",
-        value: "SP: feature running@implement | tasks 0/1 done | sessions 1 running",
-      })
-      expect(workflowStatusSlot(undefined, { session_id: "session-main" })).toEqual({
-        type: "text",
-        value: "SP: feature running@implement | tasks 0/1 done | sessions 1 running",
-      })
+      const globalWorkflowStatus = globalWorkflowStatusSlot() as { type: string; value: string }
+      expect(globalWorkflowStatus.type).toBe("text")
+      expect(globalWorkflowStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(globalWorkflowStatus.value).toContain("sp-implementer T1 running")
+      const sessionWorkflowStatus = workflowStatusSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
+      expect(sessionWorkflowStatus.type).toBe("text")
+      expect(sessionWorkflowStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(sessionWorkflowStatus.value).toContain("sp-implementer T1 running")
+      expect(sessionWorkflowStatus.value).toContain("bash running")
       const sidebarSlot = createProgressSlot(
         api,
         (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
         { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
       )
-      expect(sidebarSlot()).toEqual({
-        type: "text",
-        value: "SP: feature running@implement | tasks 0/1 done | sessions 1 running\nrunning\nsp-implementer T1: running - bash running",
-      })
-      expect(sidebarSlot(undefined, { session_id: "session-main" })).toEqual({
-        type: "text",
-        value: "SP: feature running@implement | tasks 0/1 done | sessions 1 running\nrunning\nsp-implementer T1: running - bash running",
-      })
+      const globalSidebar = sidebarSlot() as { type: string; value: string }
+      expect(globalSidebar.type).toBe("text")
+      expect(globalSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(globalSidebar.value).toContain("sp-implementer T1: running - bash running")
+      expect(globalSidebar.value).toContain("bun run test")
+      const sessionSidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
+      expect(sessionSidebar.type).toBe("text")
+      expect(sessionSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(sessionSidebar.value).toContain("sp-implementer T1: running - bash running")
+      expect(sessionSidebar.value).toContain("bun run test")
       const compactSlot = createCompactProgressSlot(
         api,
         (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
@@ -321,18 +324,16 @@ describe("Superpowers TUI plugin", () => {
         { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
       )
 
-      expect(sidebarSlot(undefined, { session_id: "session-current-main" })).toEqual({
-        type: "text",
-        value: "SP: feature running@implement | tasks 0/1 done | sessions 1 running\nrunning\nsp-implementer T1: running - session owned progress",
-      })
-      expect(sidebarSlot({ session_id: "session-current-main" })).toEqual({
-        type: "text",
-        value: "SP: feature running@implement | tasks 0/1 done | sessions 1 running\nrunning\nsp-implementer T1: running - session owned progress",
-      })
-      expect(sidebarSlot({ session: { id: "session-current-main" } })).toEqual({
-        type: "text",
-        value: "SP: feature running@implement | tasks 0/1 done | sessions 1 running\nrunning\nsp-implementer T1: running - session owned progress",
-      })
+      for (const rendered of [
+        sidebarSlot(undefined, { session_id: "session-current-main" }),
+        sidebarSlot({ session_id: "session-current-main" }),
+        sidebarSlot({ session: { id: "session-current-main" } }),
+      ] as Array<{ type: string; value: string }>) {
+        expect(rendered.type).toBe("text")
+        expect(rendered.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+        expect(rendered.value).toContain("sp-implementer T1 running - session owned progress")
+        expect(rendered.value).toContain("sp-implementer T1: running - session owned progress")
+      }
       expect(sidebarSlot(undefined, { session_id: "session-other" })).toBeNull()
     } finally {
       restoreEnv("SUPERAGENT_PROJECT_DIR", previousSuperagentProject)

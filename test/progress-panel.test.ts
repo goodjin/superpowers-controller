@@ -128,6 +128,7 @@ describe("progress panel view model", () => {
           live_status: "busy",
           latest_summary: "bash running",
           latest_detail: "bun run test",
+          observed_age: "5s ago",
         },
       ],
     })
@@ -137,13 +138,85 @@ describe("progress panel view model", () => {
     expect(text).toContain("bash running")
     expect(renderCompactProgressText(model)).toBe("SP: sp-implementer T1 running - bash running")
     expect(renderCompactProgressText(model, 44)).toBe("SP: sp-implementer T1 running - bash running")
-    expect(renderWorkflowStatusText(model)).toBe("SP: feature running@implement | tasks 0/2 done | sessions 1 running")
+    expect(renderWorkflowStatusText(model, 160)).toBe("SP: feature running@implement | tasks 0/2 done | sessions 1 running | sp-implementer T1 running - bash running (5s ago)")
     expect(renderRunningSessionsText(model)).toContain("sp-implementer T1: running - bash running")
     expect(renderSidebarProgressText(model)).toBe([
-      "SP: feature running@implement | tasks 0/2 done | sessions 1 running",
+      "SP: feature running@implement | tasks 0/2 done | sessions 1 running | sp-implementer T1 running - bash running (5s ago)",
       "running",
-      "sp-implementer T1: running - bash running",
+      "sp-implementer T1: running - bash running (5s ago)\n  bun run test",
     ].join("\n"))
+  })
+
+  test("session idle does not hide the latest meaningful child activity", () => {
+    const state: WorkflowState = {
+      id: "run-1",
+      project: "/repo",
+      session: "session-main",
+      parent_session_id: "session-main",
+      activation: "active",
+      workflow: "feature",
+      entrypoint: "execute",
+      limited_context: true,
+      mode: "execute",
+      phase: "implement",
+      current_phase: "implement",
+      status: "running",
+      goal: "Implement feature",
+      created_at: "2026-06-19T00:00:00.000Z",
+      updated_at: "2026-06-19T00:00:00.000Z",
+      gates: {},
+      artifacts: {},
+      node_runs: [
+        {
+          id: "001-implement-T1",
+          task_id: "T1",
+          phase: "implement",
+          agent: "sp-implementer",
+          session_id: "session-child",
+          status: "running",
+          attempts: 1,
+          started_at: "2026-06-19T00:00:00.000Z",
+        },
+      ],
+      history: [{ at: "2026-06-19T00:00:00.000Z", event: "created", to: "feature" }],
+    }
+    const progress: NodeProgressEntry[] = [
+      {
+        at: "2026-06-19T00:00:10.000Z",
+        kind: "text",
+        session_id: "session-child",
+        node_id: "001-implement-T1",
+        agent: "sp-implementer",
+        phase: "implement",
+        task_id: "T1",
+        summary: "assistant text updated",
+        detail: "Working on database migration.",
+      },
+      {
+        at: "2026-06-19T00:00:15.000Z",
+        kind: "session_idle",
+        session_id: "session-child",
+        node_id: "001-implement-T1",
+        agent: "sp-implementer",
+        phase: "implement",
+        task_id: "T1",
+        summary: "session idle",
+      },
+    ]
+
+    const model = buildProgressPanelViewModel(
+      state,
+      { "001-implement-T1": progress },
+      { "session-child": "idle" },
+      new Date("2026-06-19T00:00:20.000Z"),
+    )
+
+    expect(model.rows[0]?.latest_summary).toBe("assistant text updated")
+    expect(model.rows[0]?.latest_detail).toBe("Working on database migration.")
+    expect(model.rows[0]?.observed_age).toBe("5s ago")
+    expect(renderWorkflowStatusText(model, 160)).toContain("assistant text updated (5s ago)")
+    expect(renderSidebarProgressText(model)).toContain("Working on database migration.")
+    expect(renderSidebarProgressText(model)).not.toContain("session idle")
   })
 
   test("marks stale running child progress as stalled", () => {
@@ -199,7 +272,75 @@ describe("progress panel view model", () => {
     expect(renderProgressPanelText(model)).toContain("status: stalled")
     expect(renderProgressPanelText(model)).toContain("live: busy")
     expect(renderCompactProgressText(model)).toBe("SP: sp-acceptance-reviewer stalled - write pending")
-    expect(renderWorkflowStatusText(model)).toBe("SP: feature running@implement | nodes 1 | sessions 1 stalled")
+    expect(renderWorkflowStatusText(model, 140)).toBe("SP: feature running@implement | nodes 1 | sessions 1 stalled | sp-acceptance-reviewer stalled - write pending (40s ago)")
+  })
+
+  test("sidebar progress surfaces waiting-user questions and options", () => {
+    const state: WorkflowState = {
+      id: "run-1",
+      project: "/repo",
+      session: "session-main",
+      parent_session_id: "session-main",
+      activation: "active",
+      workflow: "feature",
+      entrypoint: "design",
+      limited_context: false,
+      mode: "design",
+      phase: "waiting-user",
+      current_phase: "waiting-user",
+      status: "waiting_user",
+      goal: "Design auth",
+      created_at: "2026-06-19T00:00:00.000Z",
+      updated_at: "2026-06-19T00:01:00.000Z",
+      gates: {},
+      artifacts: {},
+      pending_question: {
+        prompt: "确认 Section 3 后端端点设计？",
+        source_node_id: "001-design",
+        options: [
+          { label: "认可 Section 3", description: "继续 Section 4" },
+          { label: "认可但调整", description: "修改端点细节" },
+        ],
+      },
+      node_runs: [
+        {
+          id: "001-design",
+          phase: "design",
+          agent: "sp-designer",
+          session_id: "session-design",
+          status: "needs_user",
+          attempts: 1,
+          started_at: "2026-06-19T00:00:00.000Z",
+          reported_at: "2026-06-19T00:01:00.000Z",
+        },
+      ],
+      history: [{ at: "2026-06-19T00:00:00.000Z", event: "created", to: "feature" }],
+    }
+    const model = buildProgressPanelViewModel(
+      state,
+      {
+        "001-design": [{
+          at: "2026-06-19T00:01:05.000Z",
+          kind: "text",
+          session_id: "session-design",
+          node_id: "001-design",
+          agent: "sp-designer",
+          phase: "design",
+          summary: "assistant text updated",
+          detail: "Report accepted. Waiting for Section 3 confirmation.",
+        }],
+      },
+      { "session-design": "idle" },
+      new Date("2026-06-19T00:01:10.000Z"),
+    )
+
+    const sidebar = renderSidebarProgressText(model)
+    expect(renderWorkflowStatusText(model, 160)).toContain("waiting user")
+    expect(sidebar).toContain("waiting user")
+    expect(sidebar).toContain("source: 001-design")
+    expect(sidebar).toContain("question: 确认 Section 3 后端端点设计？")
+    expect(sidebar).toContain("- 认可 Section 3: 继续 Section 4")
+    expect(sidebar).toContain("Report accepted. Waiting for Section 3 confirmation.")
   })
 
   test("sidebar progress explains an active workflow before node dispatch", () => {
