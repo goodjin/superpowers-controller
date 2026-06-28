@@ -10,7 +10,11 @@ v3 已经统一了 public tool loop、task-scoped 检查链、runtime memory 优
 
 进一步模拟各类运行场景后，发现 v3 对部分异常状态的退出条件写得不够硬：
 
-- `sp_prepare` 的 draft planning 路径容易只生成 draft，不生成可批准的 task graph。
+- `sp_prepare` 的 draft preparation 路径容易只生成 draft，不生成可批准的 design 或 task graph。
+- feature workflow 在 `start` 后才进入 design，designer 仍可能回问用户，用户体验像“已经开始执行又被拉回澄清”。
+- controller intake 没有明确要求先问清用户侧问题，designer 容易承担本应由 controller 完成的澄清。
+- controller 自主决策原则不够清楚，异常状态下容易在问用户、retry、cancel、continue 之间摇摆。
+- 插件控制运行，但返回给 controller 的反馈结构不够稳定，controller 可能需要从状态和 progress 文本中反推下一步。
 - 单个 implement session 被 cancel 后，workflow 可能保持 running，但调度器没有下一步。
 - `waiting_user` 状态下收到 progress report，可能错误清空 `pending_question`。
 - child prompt 后台派发失败时，node 可能长期停在 running。
@@ -23,6 +27,10 @@ v3 已经统一了 public tool loop、task-scoped 检查链、runtime memory 优
 - 新增 `docs/superpowers/specs/2026-06-27-controller-prd-v4.md`。
 - 将 v4 定位为 v3 之后的实现前设计稿。
 - 明确所有非终态 workflow 都要有可解释的下一步决策。
+- 将 feature 准备阶段调整为 `sp_prepare(managed_design) -> designer draft -> awaiting_design_approval -> sp_start -> planner draft -> awaiting_plan_approval`。
+- 约束 controller intake 在 `sp_prepare` 前尽量问清用户侧问题。
+- 约束 designer 只通过 prompt contract 询问设计阻塞问题，不做程序硬拒绝。
+- 增加 controller autonomy principles 和 plugin `controller_feedback` contract。
 - 明确异常场景下的状态落盘、用户可见性、恢复动作和验收用例。
 - 更新 `docs/modules/product-docs.md`，把当前 PRD 源指向 v4。
 
@@ -30,7 +38,9 @@ v3 已经统一了 public tool loop、task-scoped 检查链、runtime memory 优
 
 - v4 不新增 public tool。仍沿用 `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
 - v4 增加状态不变量：未结束 workflow 不能出现“没有 running node、没有 pending user input、没有 retry/cancel/finish 建议”的空转状态。
-- v4 将 `sp_prepare` 收紧为 proposal-only 或 managed draft planning 两种可辨识模式，避免 draft 状态看起来已准备好但没有计划产物。
+- v4 将 `sp_prepare` 收紧为 `proposal_only`、`managed_design`、`managed_planning` 三种可辨识模式，避免 draft 状态看起来已准备好但没有设计或计划产物。
+- v4 把 feature design 前移到 `sp_prepare` 阶段，`sp_start` 先批准 design 进入 plan，再批准 plan 进入 implementation。
+- v4 允许 controller 在原则约束下自主决策，插件通过 `controller_feedback` 给出事实、可选动作和阻塞原因。
 - v4 要求 `waiting_user` 的问题只能由用户回答路径清空，progress report 不改变等待用户的事实。
 - v4 要求 prompt scheduling failure 进入可恢复状态，并在 `sp_status` / TUI 中给出 retry 或 cancel 建议。
 - v4 要求 `sp_start` 返回派发后的 fresh state。
@@ -38,7 +48,8 @@ v3 已经统一了 public tool loop、task-scoped 检查链、runtime memory 优
 
 ## Acceptance
 
-- v4 PRD 覆盖 draft planning、cancel、waiting user、dispatch failure、parent notification failure、stale return state、missing task graph 和 stalled running 等场景。
+- v4 PRD 覆盖 draft preparation、cancel、waiting user、dispatch failure、parent notification failure、stale return state、missing task graph 和 stalled running 等场景。
+- v4 PRD 覆盖 controller intake、designer question boundary、controller autonomy 和 plugin feedback contract。
 - v4 PRD 提供状态决策表，能判断每类非终态 workflow 的下一步。
 - v4 PRD 提供可测试的验收场景，后续实现可以直接转成测试用例。
 - 文档保持产品设计口径，不在本次改动中修改 runtime 代码。

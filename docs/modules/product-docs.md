@@ -30,7 +30,9 @@ v4 PRD 在 v3 基础上补齐异常路径闭合设计：
 
 - 保持 public tool loop 为 `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
 - 增加非终态 workflow 闭合规则：未结束 workflow 必须能解释等待、用户输入、计划批准、重试、取消、阻塞或结束。
-- 将 `sp_prepare` 区分为 `proposal_only` 和 `managed_draft_planning`，避免 draft planning 路径缺少可批准计划。
+- 将 `sp_prepare` 区分为 `proposal_only`、`managed_design` 和 `managed_planning`，避免 draft 路径缺少可批准设计或计划。
+- 将 feature design 前移到 `sp_prepare(managed_design)`，`sp_start` 批准 design 后进入 planning，批准 plan 后进入 implementation。
+- 增加 controller intake、designer question boundary、controller autonomy principles 和 plugin `controller_feedback` contract。
 - 明确 progress report 不清空 `pending_question`，也不把 `waiting_user` 改回 `running`。
 - 明确 dispatch failure、notification failure、canceled node、missing task graph 等异常状态的落盘和可见性。
 - 要求 `sp_start` 返回派发后的 fresh state。
