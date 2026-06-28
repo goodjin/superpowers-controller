@@ -30,6 +30,8 @@
 workflow progress 是 side-channel 行为，用单元测试验证，不要求 e2e 解析 OpenCode TUI toast：
 
 - `test/tools.test.ts` 断言 public tool registry 只暴露 `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
+- `test/tools.test.ts` 断言 `sp_status(include_progress=true)` 返回面向主会话灰色工具结果的 `progress_digest`，包含当前 child activity、最近 progress 和按需展示策略。
+- `test/agents.test.ts` 断言 `super-agent` 在用户询问进展时应调用 `sp_status` 并使用 `include_progress`，而不是向主会话注入高频进度叙述。
 - `test/controller-intake.test.ts` 断言 `sp_prepare` / `sp_start` 发送 `run_started`。
 - `test/session-orchestrator.test.ts` 断言 `dispatch()`、`resumeNode()` 和 `notifyParent()` 在底层 `continueNodeSession()` 不 resolve 时仍会返回。
 - `test/sp-record-dispatch.test.ts` 断言 `sp_report` 在后续 child prompt 不 resolve 时仍会返回，并且 dispatch 前已登记 `node_runs`。

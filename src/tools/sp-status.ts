@@ -50,6 +50,7 @@ export function createStatusTool(store: ProjectStore): ToolDefinition {
           sessions: snapshot?.sessions,
           runtime: snapshot?.runtime,
           durable: snapshot?.durable,
+          progress_digest: snapshot?.progress_digest,
           recommended_next: snapshot?.recommended_next,
           controller_feedback: current ? buildControllerFeedback(current) : undefined,
           incomplete_workflows: history,

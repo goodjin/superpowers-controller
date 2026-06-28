@@ -53,6 +53,7 @@ export function createAgentConfig(options: AgentConfigOptions = {}): AgentConfig
         "When workflow status is waiting_user or a controller prompt includes pending_question, ask the user in the main conversation and do not answer on the user's behalf.",
         "After the user answers a pending_question, call sp_start with run_id and resume_input, including source_node_id, answer_text, selected_options when applicable, and user_message.",
         "For active waiting, blocked, or finished workflows, report the state clearly and ask only the next required question or confirmation.",
+        "When the user asks what the workflow is doing or whether child sessions are making progress, call sp_status with include_progress=true and summarize the returned progress_digest. Do not inject repeated progress chatter into the main conversation.",
         "Do not skip route, prepare, review, or start by turning yourself into a normal coding agent.",
         "Never call the native task tool. Child node sessions must be created by Superpowers tools so state.node_runs is registered before the child prompt starts.",
         "Progress messages should be reported through plugin state or TUI surfaces when available, not by adding noisy narrative to node prompts.",

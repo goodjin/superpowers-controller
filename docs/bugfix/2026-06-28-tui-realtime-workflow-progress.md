@@ -462,6 +462,20 @@ type WorkflowProgressSnapshot = {
 
 因此，`prompt_progress` 可以加入 vNext 设计，但实现时要先确认 host 是否真的暴露该 slot。确认前，当前实现仍以 `app_bottom + sidebar_content + sidebar_footer fallback` 为准。
 
+### 主会话工具结果补充通道
+
+主会话区域中灰色工具调用结果可以用于展示 child progress 的按需摘要，但不能作为实时进度主通道。
+
+设计约束：
+
+1. 不新增 public workflow tool，继续使用 `sp_status`。
+2. controller 在用户询问进展时调用 `sp_status(include_progress=true)`。
+3. 工具返回 `progress_digest`，包含 `current_activity`、`recent_activity`、`attention` 和 `recommended_next`。
+4. `progress_digest.delivery = "on_demand_tool_result"`，明确它只代表一次查询结果，不是实时流。
+5. 普通 child progress 不通过 `session.prompt` 注入主会话，避免触发额外模型回合或污染 controller 上下文。
+
+适合进入主会话的只有用户主动查询、等待批准、等待用户输入、阻塞、失败、长时间 stalled 等低频关键信息。实时刷新仍由 `app_bottom`、`sidebar_content` 和可用时的 `prompt_progress` 承担。
+
 ## 最小修复切片
 
 ### P0: 当前问题止血

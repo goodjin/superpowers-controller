@@ -55,6 +55,7 @@ describe("createAgentConfig", () => {
       expect(String(controller?.prompt ?? "")).toContain("ask the user")
       expect(String(controller?.prompt ?? "")).toContain("sp_start")
       expect(String(controller?.prompt ?? "")).toContain("resume_input")
+      expect(String(controller?.prompt ?? "")).toContain("sp_status with include_progress")
       expect(String(controller?.prompt ?? "")).toContain("Do not load business or development skills")
   })
 

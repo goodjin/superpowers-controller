@@ -1,5 +1,5 @@
 import { createNodeProgressStore, type NodeProgressEntry } from "../progress/node-progress"
-import type { NodeRun, WorkflowState } from "../state/types"
+import type { WorkflowState } from "../state/types"
 import { buildProgressPanelViewModel, STALLED_PROGRESS_AFTER_MS } from "../tui/progress-panel"
 
 export type WorkflowStatusDetail = "summary" | "task" | "sessions" | "full"
@@ -81,6 +81,101 @@ export function buildWorkflowStatusSnapshot(args: {
     task,
     sessions: detail === "sessions" || detail === "full" || args.sessionID ? sessions : undefined,
     recommended_next: recommendedNext(args.state, allSessions),
+    progress_digest: args.includeProgress ? buildProgressDigest(args.state, progressByNode, allSessions, now, args.progressTail) : undefined,
+  }
+}
+
+function buildProgressDigest(
+  state: WorkflowState,
+  progressByNode: Record<string, NodeProgressEntry[]>,
+  sessions: Array<{
+    node_id: string
+    task_id?: string
+    agent: string
+    phase: string
+    session_id: string
+    durable_status: string
+    activity_status: string
+    latest_progress: ReturnType<typeof latestProgressSummary>
+  }>,
+  now: Date,
+  progressTail: number | undefined,
+) {
+  const recommended = recommendedNext(state, sessions)
+  const recent = recentProgressEntries(progressByNode, safeProgressTail(progressTail))
+  const latest = recent.at(-1)
+  return {
+    delivery: "on_demand_tool_result",
+    display_policy: "main_session_summary",
+    note: "Progress digest is for on demand main-session tool results; realtime progress belongs in TUI surfaces.",
+    run_id: state.id,
+    workflow: state.workflow,
+    status: state.status,
+    phase: state.current_phase,
+    updated_at: state.updated_at,
+    recommended_next: recommended.action,
+    attention: attentionSummary(state, recommended),
+    current_activity: latest ? progressDigestEntry(latest, now) : undefined,
+    recent_activity: recent.map((entry) => progressDigestEntry(entry, now)),
+  }
+}
+
+function recentProgressEntries(progressByNode: Record<string, NodeProgressEntry[]>, limit: number): NodeProgressEntry[] {
+  return Object.values(progressByNode)
+    .flat()
+    .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
+    .slice(-limit)
+}
+
+function progressDigestEntry(entry: NodeProgressEntry, now: Date) {
+  const ageMs = now.getTime() - Date.parse(entry.at)
+  return {
+    at: entry.at,
+    age_ms: Number.isFinite(ageMs) ? Math.max(0, ageMs) : undefined,
+    node_id: entry.node_id,
+    session_id: entry.session_id,
+    agent: entry.agent,
+    phase: entry.phase,
+    task_id: entry.task_id,
+    kind: entry.kind,
+    summary: entry.summary,
+    detail: entry.detail,
+  }
+}
+
+function attentionSummary(state: WorkflowState, recommended: ReturnType<typeof recommendedNext>) {
+  if (state.status === "waiting_user" && state.pending_question) {
+    return {
+      kind: "question",
+      summary: state.pending_question.prompt,
+      next_action: recommended.action,
+    }
+  }
+  if (state.status === "awaiting_design_approval" || state.status === "awaiting_plan_approval") {
+    return {
+      kind: "approval",
+      summary: recommended.reason,
+      next_action: recommended.action,
+    }
+  }
+  if (["blocked", "failed", "waiting_user_decision", "recovered_unknown"].includes(state.status)) {
+    return {
+      kind: state.status === "failed" ? "failed" : "blocked",
+      summary: recommended.reason,
+      next_action: recommended.action,
+    }
+  }
+  if (recommended.action === "inspect_or_cancel_stalled_node") {
+    return {
+      kind: "stalled",
+      summary: recommended.reason,
+      next_action: recommended.action,
+    }
+  }
+  return {
+    kind: "none",
+    summary: recommended.reason,
+    next_action: recommended.action,
   }
 }
 

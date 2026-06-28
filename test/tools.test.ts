@@ -156,6 +156,96 @@ describe("sp_status tool", () => {
     }
   })
 
+  test("returns an on-demand progress digest for main-session tool results", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-status-progress-digest-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "execute",
+        goal: "Show child progress in the main session",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+      })
+      const node = store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        session_id: "session-child",
+        task_id: "T2",
+        task_markdown: "Implement T2",
+      })
+      const progress = createNodeProgressStore(project)
+      progress.append(state.id, {
+        at: "2026-06-28T10:00:00.000Z",
+        kind: "tool_running",
+        session_id: "session-child",
+        node_id: node.id,
+        agent: "sp-implementer",
+        phase: "implement",
+        task_id: "T2",
+        summary: "bash running",
+        detail: "bun test test/tools.test.ts",
+      })
+      progress.append(state.id, {
+        at: "2026-06-28T10:00:01.000Z",
+        kind: "text",
+        session_id: "session-child",
+        node_id: node.id,
+        agent: "sp-implementer",
+        phase: "implement",
+        task_id: "T2",
+        summary: "assistant text updated",
+        detail: "Investigating failing assertion.",
+      })
+      const status = createStatusTool(store)
+
+      const output = await status.execute(
+        {
+          include_progress: true,
+          progress_tail: 2,
+        },
+        {
+          sessionID: "session-main",
+          messageID: "message-1",
+          agent: "super-agent",
+          directory: project,
+          worktree: project,
+          abort: new AbortController().signal,
+          metadata() {},
+          async ask() {},
+        },
+      )
+
+      const result = JSON.parse(toolOutput(output))
+      expect(result.progress_digest).toMatchObject({
+        delivery: "on_demand_tool_result",
+        display_policy: "main_session_summary",
+        workflow: "feature",
+        status: "running",
+        phase: "implement",
+        recommended_next: "wait_running_node",
+        current_activity: {
+          node_id: node.id,
+          session_id: "session-child",
+          agent: "sp-implementer",
+          task_id: "T2",
+          kind: "text",
+          summary: "assistant text updated",
+          detail: "Investigating failing assertion.",
+        },
+      })
+      expect(result.progress_digest.recent_activity).toHaveLength(2)
+      expect(result.progress_digest.recent_activity[0]).toMatchObject({
+        kind: "tool_running",
+        summary: "bash running",
+      })
+      expect(result.progress_digest.note).toContain("on demand")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("does not recommend retrying an interrupted attempt after a newer retry exists", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-status-interrupted-retry-"))
     try {
