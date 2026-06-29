@@ -67,6 +67,24 @@ export type StartAction =
   | "approve_plan"
   | "resume_user_input"
   | "retry_node"
+  | "resolve_controller_decision"
+
+export type ControllerDecisionKind =
+  | "continue_existing_graph"
+  | "retry_node"
+  | "accept_partial_result"
+  | "mark_blocked"
+  | "request_reprepare"
+
+export type ControllerDecision = {
+  kind: ControllerDecisionKind
+  node_id?: string
+  task_id?: string
+  reason?: string
+  evidence_refs?: string[]
+  required_user_action?: string
+  reuse_session?: boolean
+}
 
 export type CheckKind = "acceptance" | "verification" | "code_review"
 

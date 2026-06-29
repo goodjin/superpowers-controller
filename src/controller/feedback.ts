@@ -1,4 +1,4 @@
-import type { StartAction, WorkflowState } from "../state/types"
+import type { ControllerDecision, ControllerDecisionKind, NodeRun, StartAction, WorkflowState } from "../state/types"
 
 export type RecommendedNext =
   | { action: "wait_running_node"; run_id: string; node_id: string; session_id: string }
@@ -23,6 +23,7 @@ export type ControllerFeedback = {
   current_status: WorkflowState["status"]
   current_phase: string
   recommended_next: RecommendedNext[]
+  allowed_controller_decisions: AllowedControllerDecision[]
   allowed_tool_calls: Array<"sp_status" | "sp_prepare" | "sp_start" | "sp_cancel" | "sp_report">
   requires_user?: {
     reason: string
@@ -37,6 +38,15 @@ export type ControllerFeedback = {
   }>
   blocking_reason?: string
   artifact_mode?: "candidate" | "canonical" | "none"
+}
+
+export type AllowedControllerDecision = {
+  kind: ControllerDecisionKind
+  reason: string
+  risk: "low" | "medium" | "high"
+  tool: "sp_status" | "sp_prepare" | "sp_start" | "sp_cancel"
+  payload: Record<string, unknown>
+  requires_user_confirmation?: boolean
 }
 
 export function buildRecommendedNext(state: WorkflowState): RecommendedNext[] {
@@ -80,6 +90,80 @@ export function buildRecommendedNext(state: WorkflowState): RecommendedNext[] {
   return [{ action: "blocked", reason: "no runnable node or approval decision is available" }]
 }
 
+export function buildAllowedControllerDecisions(state: WorkflowState): AllowedControllerDecision[] {
+  if (state.status === "running" || state.status === "intake") return []
+  if (state.status === "waiting_user") return []
+  if (state.status === "awaiting_design_approval" || state.status === "awaiting_plan_approval") return []
+  if (state.status === "passed" || state.status === "canceled") return []
+
+  const decisions: AllowedControllerDecision[] = []
+  const failedNode = latestDecisionNode(state)
+  if (failedNode) {
+    decisions.push(decisionOption(state, {
+      kind: "retry_node",
+      node_id: failedNode.id,
+      task_id: failedNode.task_id,
+      reason: `Retry ${failedNode.phase} node ${failedNode.id}.`,
+    }, {
+      reason: `Retry the latest ${failedNode.status} node with a fresh child session.`,
+      risk: failedNode.status === "interrupted" || failedNode.status === "dispatch_failed" ? "medium" : "high",
+      tool: "sp_start",
+      requiresUserConfirmation: true,
+    }))
+  }
+
+  if (state.status === "waiting_user_decision") {
+    decisions.push(decisionOption(state, {
+      kind: "continue_existing_graph",
+      reason: "Continue by recalculating runnable nodes from the current graph.",
+    }, {
+      reason: "Ask runtime to continue from current structured state without changing scope.",
+      risk: "medium",
+      tool: "sp_start",
+      requiresUserConfirmation: true,
+    }))
+  }
+
+  const evidenceRefs = partialEvidenceRefs(failedNode)
+  if (evidenceRefs.length > 0) {
+    decisions.push(decisionOption(state, {
+      kind: "accept_partial_result",
+      node_id: failedNode?.id,
+      task_id: failedNode?.task_id,
+      evidence_refs: evidenceRefs,
+      reason: "Accept available reported output as the final partial result.",
+    }, {
+      reason: "Finish the workflow with an explicit partial-result history entry.",
+      risk: "high",
+      tool: "sp_start",
+      requiresUserConfirmation: true,
+    }))
+  }
+
+  decisions.push(decisionOption(state, {
+    kind: "mark_blocked",
+    reason: `Controller decided not to continue while workflow is ${state.status}.`,
+    required_user_action: "Review the blocked workflow state and provide a revised instruction.",
+  }, {
+    reason: "Stop automatic progress and persist the workflow as blocked.",
+    risk: state.status === "blocked" ? "low" : "medium",
+    tool: "sp_start",
+    requiresUserConfirmation: true,
+  }))
+
+  decisions.push(decisionOption(state, {
+    kind: "request_reprepare",
+    reason: "The existing workflow cannot safely continue; prepare a revised task before restarting.",
+  }, {
+    reason: "Persist that the controller should return to sp_prepare for a revised task.",
+    risk: "medium",
+    tool: "sp_start",
+    requiresUserConfirmation: true,
+  }))
+
+  return decisions
+}
+
 export function buildControllerFeedback(state: WorkflowState, override?: Partial<ControllerFeedback>): ControllerFeedback {
   const recommendedNext = override?.recommended_next ?? buildRecommendedNext(state)
   const needsApproval = state.status === "awaiting_design_approval" || state.status === "awaiting_plan_approval"
@@ -100,6 +184,7 @@ export function buildControllerFeedback(state: WorkflowState, override?: Partial
     current_status: state.status,
     current_phase: state.current_phase,
     recommended_next: recommendedNext,
+    allowed_controller_decisions: override?.allowed_controller_decisions ?? buildAllowedControllerDecisions(state),
     allowed_tool_calls: override?.allowed_tool_calls ?? ["sp_status", "sp_prepare", "sp_start", "sp_cancel", "sp_report"],
     requires_user: override?.requires_user ?? userRequirementForState(state),
     approval_target: override?.approval_target ?? approvalTargetForState(state),
@@ -117,7 +202,7 @@ export function staleStateFeedback(state: WorkflowState, expected: string): Cont
   })
 }
 
-function stateVersion(state: WorkflowState): string {
+export function stateVersion(state: WorkflowState): string {
   return state.state_version ?? `${state.updated_at}:legacy`
 }
 
@@ -155,4 +240,41 @@ function artifactModeForState(state: WorkflowState): ControllerFeedback["artifac
   if (state.status === "awaiting_design_approval" || state.status === "awaiting_plan_approval") return "candidate"
   if (state.artifacts.spec || state.artifacts.plan || state.task_graph) return "canonical"
   return "none"
+}
+
+function latestDecisionNode(state: WorkflowState): NodeRun | undefined {
+  return [...state.node_runs].reverse().find((node) => {
+    if (node.status === "running") return false
+    return ["dispatch_failed", "interrupted", "failed", "blocked", "notification_failed", "needs_user"].includes(node.status)
+  })
+}
+
+function partialEvidenceRefs(node: NodeRun | undefined): string[] {
+  if (!node?.record_path) return []
+  return [node.record_path]
+}
+
+function decisionOption(
+  state: WorkflowState,
+  decision: ControllerDecision,
+  meta: {
+    reason: string
+    risk: AllowedControllerDecision["risk"]
+    tool: AllowedControllerDecision["tool"]
+    requiresUserConfirmation?: boolean
+  },
+): AllowedControllerDecision {
+  return {
+    kind: decision.kind,
+    reason: meta.reason,
+    risk: meta.risk,
+    tool: meta.tool,
+    payload: {
+      run_id: state.id,
+      start_action: "resolve_controller_decision",
+      expected_state_version: stateVersion(state),
+      controller_decision: decision,
+    },
+    requires_user_confirmation: meta.requiresUserConfirmation,
+  }
 }

@@ -156,6 +156,61 @@ describe("sp_status tool", () => {
     }
   })
 
+  test("returns allowed controller decisions for a dispatch failure", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-status-controller-decisions-"))
+    try {
+      const store = createProjectStore(project)
+      store.startRun({
+        workflow: "feature",
+        entrypoint: "execute",
+        goal: "Retry failed dispatch",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+      })
+      const failed = store.markDispatchFailed({
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        task_id: "T1",
+        error: new Error("child session unavailable"),
+      })
+      const status = createStatusTool(store)
+
+      const output = await status.execute(
+        {},
+        {
+          sessionID: "session-main",
+          messageID: "message-1",
+          agent: "super-agent",
+          directory: project,
+          worktree: project,
+          abort: new AbortController().signal,
+          metadata() {},
+          async ask() {},
+        },
+      )
+
+      const result = JSON.parse(toolOutput(output))
+      expect(result.allowed_controller_decisions.map((decision: { kind: string }) => decision.kind)).toContain("retry_node")
+      expect(result.controller_feedback.allowed_controller_decisions[0]).toMatchObject({
+        kind: "retry_node",
+        tool: "sp_start",
+        payload: {
+          run_id: result.current.id,
+          start_action: "resolve_controller_decision",
+          controller_decision: {
+            kind: "retry_node",
+            node_id: failed.id,
+            task_id: "T1",
+          },
+        },
+      })
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("returns an on-demand progress digest for main-session tool results", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-status-progress-digest-"))
     try {
@@ -176,8 +231,9 @@ describe("sp_status tool", () => {
         task_markdown: "Implement T2",
       })
       const progress = createNodeProgressStore(project)
+      const now = Date.now()
       progress.append(state.id, {
-        at: "2026-06-28T10:00:00.000Z",
+        at: new Date(now - 1_000).toISOString(),
         kind: "tool_running",
         session_id: "session-child",
         node_id: node.id,
@@ -188,7 +244,7 @@ describe("sp_status tool", () => {
         detail: "bun test test/tools.test.ts",
       })
       progress.append(state.id, {
-        at: "2026-06-28T10:00:01.000Z",
+        at: new Date(now).toISOString(),
         kind: "text",
         session_id: "session-child",
         node_id: node.id,

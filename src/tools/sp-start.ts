@@ -6,8 +6,8 @@ import { decideNextDispatches } from "../router/transition"
 import { buildChildResumePrompt, buildNodeTaskPacket } from "../session/templates"
 import type { SessionOrchestrator } from "../session/orchestrator"
 import type { ProjectStore } from "../state/store"
-import type { ResumeInput, StartAction, WorkflowEntrypoint, WorkflowKind, WorkflowState } from "../state/types"
-import { buildControllerFeedback, inferStartAction, staleStateFeedback } from "../controller/feedback"
+import type { ControllerDecision, ResumeInput, StartAction, WorkflowEntrypoint, WorkflowKind, WorkflowState } from "../state/types"
+import { buildAllowedControllerDecisions, buildControllerFeedback, inferStartAction, staleStateFeedback } from "../controller/feedback"
 
 type StartOrchestrator = Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "resumeNode">>
 
@@ -24,10 +24,22 @@ export function createStartTool(
       entrypoint: tool.schema.string().optional().describe("Confirmed entrypoint"),
       proposal: tool.schema.string().optional().describe("Proposal markdown that was confirmed by the user"),
       run_id: tool.schema.string().optional().describe("Prepared run id to activate after plan review"),
-      start_action: tool.schema.enum(["start_entrypoint", "approve_design", "approve_plan", "resume_user_input", "retry_node"]).optional().describe("Explicit v4 start action."),
+      start_action: tool.schema.enum(["start_entrypoint", "approve_design", "approve_plan", "resume_user_input", "retry_node", "resolve_controller_decision"]).optional().describe("Explicit start action."),
       expected_state_version: tool.schema.string().optional().describe("Optional optimistic concurrency guard for approval or retry actions."),
       task_id: tool.schema.string().optional().describe("Optional task id to resume when activating a prepared plan"),
       session: tool.schema.string().optional().describe("Controller session id"),
+      controller_decision: tool.schema
+        .object({
+          kind: tool.schema.enum(["continue_existing_graph", "retry_node", "accept_partial_result", "mark_blocked", "request_reprepare"]).describe("Controller decision kind"),
+          node_id: tool.schema.string().optional().describe("Node id the decision targets"),
+          task_id: tool.schema.string().optional().describe("Task id the decision targets"),
+          reason: tool.schema.string().optional().describe("Controller-facing reason for this decision"),
+          evidence_refs: tool.schema.array(tool.schema.string()).optional().describe("Durable evidence refs accepted by the controller"),
+          required_user_action: tool.schema.string().optional().describe("User action required after mark_blocked"),
+          reuse_session: tool.schema.boolean().optional().describe("Whether the controller expects session reuse"),
+        })
+        .optional()
+        .describe("Decision chosen by the controller from allowed_controller_decisions."),
       resume_input: tool.schema
         .object({
           source_node_id: tool.schema.string().describe("Node id that produced the current pending_question"),
@@ -58,6 +70,53 @@ export function createStartTool(
         resume_input: args.resume_input,
         task_id: args.task_id,
       }) : (args.start_action as StartAction | undefined) ?? "start_entrypoint"
+
+      if (startAction === "resolve_controller_decision") {
+        if (!args.run_id) throw new Error("sp_start resolve_controller_decision requires run_id.")
+        if (!args.controller_decision) throw new Error("sp_start resolve_controller_decision requires controller_decision.")
+        const current = store.readRun(args.run_id)
+        if (!current) throw new Error(`No Superpowers workflow found for run ${args.run_id}.`)
+        const decision = args.controller_decision as ControllerDecision
+        if (!isAllowedControllerDecision(current, decision)) {
+          return JSON.stringify(
+            {
+              state: current,
+              dispatches: [],
+              start_action: startAction,
+              controller_feedback: buildControllerFeedback(current, {
+                outcome: "blocked",
+                blocking_reason: `controller_decision ${decision.kind} is not allowed for status ${current.status}.`,
+              }),
+            },
+            null,
+            2,
+          )
+        }
+        const result = await resolveControllerDecision({
+          store,
+          orchestrator,
+          sessionID,
+          state: current,
+          decision,
+        })
+        await progress.report({
+          stage: "controller_decision_resolved",
+          title: "Superpowers workflow",
+          message: `${current.workflow} workflow resolved controller decision ${decision.kind}.`,
+          variant: result.dispatches.length > 0 ? "success" : "info",
+        })
+        const fresh = store.readCurrent() ?? result.state
+        return JSON.stringify(
+          {
+            state: fresh,
+            dispatches: result.dispatches,
+            start_action: startAction,
+            controller_feedback: buildControllerFeedback(fresh),
+          },
+          null,
+          2,
+        )
+      }
 
       if (startAction === "resume_user_input" || args.resume_input) {
         if (!args.run_id) throw new Error("sp_start resume_input requires run_id.")
@@ -267,6 +326,67 @@ export async function dispatchWorkflowDecisions(args: {
 
 const dispatchStart = dispatchWorkflowDecisions
 
+async function resolveControllerDecision(args: {
+  store: ProjectStore
+  orchestrator?: StartOrchestrator
+  sessionID: string
+  state: WorkflowState
+  decision: ControllerDecision
+}): Promise<{ state: WorkflowState; dispatches: Array<Record<string, string | undefined>> }> {
+  switch (args.decision.kind) {
+    case "retry_node": {
+      const state = args.store.resolveControllerDecision({
+        runID: args.state.id,
+        parentSessionID: args.sessionID,
+        decision: args.decision,
+      })
+      const dispatches = await dispatchStart({
+        store: args.store,
+        orchestrator: args.orchestrator,
+        state,
+        startMode: "resume",
+        decisions: [retryDecisionForNode(args.state, args.decision.node_id ?? args.decision.task_id)],
+      })
+      return { state: args.store.readCurrent() ?? state, dispatches }
+    }
+    case "continue_existing_graph": {
+      const state = args.store.resolveControllerDecision({
+        runID: args.state.id,
+        parentSessionID: args.sessionID,
+        decision: args.decision,
+      })
+      const dispatches = await dispatchStart({
+        store: args.store,
+        orchestrator: args.orchestrator,
+        state,
+        startMode: "resume",
+      })
+      return { state: args.store.readCurrent() ?? state, dispatches }
+    }
+    case "accept_partial_result":
+    case "mark_blocked":
+    case "request_reprepare": {
+      const state = args.store.resolveControllerDecision({
+        runID: args.state.id,
+        parentSessionID: args.sessionID,
+        decision: args.decision,
+      })
+      return { state, dispatches: [] }
+    }
+  }
+}
+
+function isAllowedControllerDecision(state: WorkflowState, decision: ControllerDecision): boolean {
+  const allowed = buildAllowedControllerDecisions(state)
+  return allowed.some((option) => {
+    if (option.kind !== decision.kind) return false
+    const payloadDecision = (option.payload.controller_decision ?? {}) as ControllerDecision
+    if (payloadDecision.node_id && decision.node_id && payloadDecision.node_id !== decision.node_id) return false
+    if (payloadDecision.task_id && decision.task_id && payloadDecision.task_id !== decision.task_id) return false
+    return true
+  })
+}
+
 function startDecisions(state: WorkflowState, startMode: "new" | "resume" = "new", taskID?: string) {
   if (startMode === "resume" && state.status === "recovered_unknown" && taskID) {
     return [interruptedRetryDecision(state, taskID)]
@@ -303,6 +423,31 @@ function interruptedRetryDecision(state: WorkflowState, taskID: string) {
     primary_skill: node.primary_skill ?? AGENT_SKILL_MAP[node.agent],
     task_id: node.task_id,
     reason: `retry interrupted node ${node.id}`,
+  }
+}
+
+function retryDecisionForNode(state: WorkflowState, nodeIDOrTaskID?: string) {
+  const retryableStatuses = new Set(["interrupted", "dispatch_failed", "failed", "blocked", "notification_failed", "needs_user"])
+  const node = [...state.node_runs]
+    .reverse()
+    .find((run) => {
+      if (!retryableStatuses.has(run.status)) return false
+      if (!nodeIDOrTaskID) return true
+      return run.id === nodeIDOrTaskID || run.task_id === nodeIDOrTaskID
+    })
+  if (!node) {
+    throw new Error(`No retryable node found for ${nodeIDOrTaskID ?? "latest failed node"}.`)
+  }
+  if (!isNodeAgentName(node.agent)) {
+    throw new Error(`Cannot retry node ${node.id}: unknown agent ${node.agent}.`)
+  }
+  return {
+    action: "create_session" as const,
+    phase: node.phase,
+    agent: node.agent,
+    primary_skill: node.primary_skill ?? AGENT_SKILL_MAP[node.agent],
+    task_id: node.task_id,
+    reason: `controller retry node ${node.id}`,
   }
 }
 

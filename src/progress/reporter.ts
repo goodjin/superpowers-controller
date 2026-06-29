@@ -13,6 +13,7 @@ export type ProgressStage =
   | "node_resumed"
   | "parent_notified"
   | "run_resumed"
+  | "controller_decision_resolved"
 
 export type ProgressUpdate = {
   stage: ProgressStage

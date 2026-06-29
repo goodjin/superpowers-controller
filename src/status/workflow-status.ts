@@ -1,4 +1,5 @@
 import { createNodeProgressStore, type NodeProgressEntry } from "../progress/node-progress"
+import { buildAllowedControllerDecisions } from "../controller/feedback"
 import type { WorkflowState } from "../state/types"
 import { buildProgressPanelViewModel, STALLED_PROGRESS_AFTER_MS } from "../tui/progress-panel"
 
@@ -81,6 +82,7 @@ export function buildWorkflowStatusSnapshot(args: {
     task,
     sessions: detail === "sessions" || detail === "full" || args.sessionID ? sessions : undefined,
     recommended_next: recommendedNext(args.state, allSessions),
+    allowed_controller_decisions: buildAllowedControllerDecisions(args.state),
     progress_digest: args.includeProgress ? buildProgressDigest(args.state, progressByNode, allSessions, now, args.progressTail) : undefined,
   }
 }

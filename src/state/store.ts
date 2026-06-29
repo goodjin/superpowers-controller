@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto"
 import { applyRecord, createInitialState } from "./transitions"
 import { normalizeTaskGraph } from "./task-graph"
 import type {
+  ControllerDecision,
   NodeRun,
   PrepareMode,
   ResumeInput,
@@ -68,6 +69,11 @@ export type ProjectStore = {
     parentSessionID?: string
     resumeInput: ResumeInput
   }): { state: WorkflowState; node: NodeRun }
+  resolveControllerDecision(args: {
+    runID: string
+    parentSessionID?: string
+    decision: ControllerDecision
+  }): WorkflowState
   record(record: WorkflowRecord): WorkflowState
   recordNodeResult(args: { nodeID?: string; sessionID?: string; agent?: string; input: WorkflowRecord }): WorkflowState
   cancel(args: { runID?: string; taskID?: string; sessionID?: string; reason?: string }): WorkflowState
@@ -405,6 +411,48 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       appendChangelog(root, next.id, `resumed ${sourceNode.id} with user input`)
       return { state: next, node: resumedNode }
     },
+    resolveControllerDecision(args) {
+      const current = this.readRun(args.runID)
+      if (!current) {
+        throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
+      }
+      const now = new Date().toISOString()
+      const status = statusForControllerDecision(current, args.decision)
+      const phase = phaseForControllerDecision(current, args.decision)
+      const summary = args.decision.reason ?? `Controller resolved workflow with ${args.decision.kind}.`
+      const next: WorkflowState = {
+        ...current,
+        session: args.parentSessionID ?? current.session,
+        parent_session_id: args.parentSessionID ?? current.parent_session_id,
+        status,
+        phase,
+        current_phase: phase,
+        pending_question: undefined,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...current.history,
+          {
+            at: now,
+            event: `controller_decision_${args.decision.kind}`,
+            from: current.phase,
+            to: phase,
+            summary,
+          },
+        ],
+        next: nextForControllerDecision(args.decision),
+      }
+      persistCurrent(next)
+      appendEvent(root, next.id, {
+        type: `controller_decision_${args.decision.kind}`,
+        decision: args.decision,
+        status,
+        phase,
+        state_version: next.state_version,
+      })
+      appendChangelog(root, next.id, `controller decision ${args.decision.kind}: ${summary}`)
+      return next
+    },
     record(record) {
       const current = this.readCurrent()
       if (!current) {
@@ -717,6 +765,44 @@ function appendStartupRecoveryEvidence(
 function resumableStatus(status: WorkflowState["status"]): WorkflowState["status"] {
   if (status === "passed" || status === "canceled") return status
   return "running"
+}
+
+function statusForControllerDecision(
+  current: WorkflowState,
+  decision: ControllerDecision,
+): WorkflowState["status"] {
+  switch (decision.kind) {
+    case "continue_existing_graph":
+    case "retry_node":
+      return resumableStatus(current.status)
+    case "accept_partial_result":
+      return "passed"
+    case "mark_blocked":
+    case "request_reprepare":
+      return "blocked"
+  }
+}
+
+function phaseForControllerDecision(current: WorkflowState, decision: ControllerDecision): string {
+  switch (decision.kind) {
+    case "continue_existing_graph":
+      return current.phase
+    case "retry_node":
+      return "retrying-node"
+    case "accept_partial_result":
+      return "partial-result-accepted"
+    case "mark_blocked":
+      return "controller-blocked"
+    case "request_reprepare":
+      return "reprepare-requested"
+  }
+}
+
+function nextForControllerDecision(decision: ControllerDecision): string | undefined {
+  if (decision.kind === "request_reprepare") return "Call sp_prepare with a revised task brief."
+  if (decision.kind === "mark_blocked") return decision.required_user_action
+  if (decision.kind === "accept_partial_result") return "Report the accepted partial result to the user."
+  return undefined
 }
 
 function nextStateVersion(): string {

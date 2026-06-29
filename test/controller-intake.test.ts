@@ -930,6 +930,76 @@ describe("sp_prepare and sp_start tools", () => {
     }
   })
 
+  test("sp_start resolves a controller retry decision for a failed dispatch", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-controller-retry-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "execute",
+        goal: "Retry dispatch failure",
+        request: "# Request\n\nRetry dispatch failure.",
+        proposal: "# Proposal\n\nRun execution workflow.",
+        parentSessionID: "session-main",
+      })
+      const failed = store.markDispatchFailed({
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        task_id: "T2",
+        error: new Error("child session unavailable"),
+      })
+      const failedState = store.readCurrent()
+      const start = createStartTool(store, {
+        async dispatch(args) {
+          return {
+            action: args.decision.action,
+            session_id: "session-impl-retry",
+            task_markdown: "# Retry T2",
+          }
+        },
+      })
+
+      const output = await start.execute({
+        run_id: state.id,
+        start_action: "resolve_controller_decision",
+        expected_state_version: failedState?.state_version,
+        controller_decision: {
+          kind: "retry_node",
+          node_id: failed.id,
+          task_id: "T2",
+          reason: "Retry the failed implementation dispatch.",
+        },
+      }, toolContext)
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.dispatches).toEqual([
+        {
+          action: "create_session",
+          phase: "implement",
+          agent: "sp-implementer",
+          task_id: "T2",
+          session_id: "session-impl-retry",
+        },
+      ])
+      const nodes = store.readCurrent()?.node_runs ?? []
+      expect(nodes[0]).toMatchObject({
+        id: failed.id,
+        status: "dispatch_failed",
+      })
+      expect(nodes[1]).toMatchObject({
+        id: "002-implement-T2-retry-2",
+        status: "running",
+        session_id: "session-impl-retry",
+        attempts: 2,
+      })
+      expect(store.readCurrent()?.status).toBe("running")
+      expect(readFileSync(join(store.root, "runs", state.id, "events.jsonl"), "utf8")).toContain("controller_decision_retry_node")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("sp_start resume does not restart a canceled workflow from entrypoint", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-start-resume-canceled-"))
     try {
