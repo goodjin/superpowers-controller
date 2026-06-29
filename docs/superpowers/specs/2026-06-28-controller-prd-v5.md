@@ -129,6 +129,7 @@ node agent 是 child session 中执行单个 node 的 agent。
 
 controller 应遵守：
 
+- 首次收到用户请求时，先输出一句固定欢迎语：`欢迎使用superpowers主控插件，我将按superpowers工作流程完成您的任务。`
 - 用户和项目指令优先。
 - 先理解用户侧问题，再进入 prepare。
 - 每个执行任务都必须先调用 `sp_prepare`；prepare 用于准备执行任务、生成既有任务 artifacts 和给用户最终确认。
@@ -226,18 +227,20 @@ controller 应先判断任务形态：
 
 controller 的行为规则按任务生命周期分层：
 
-1. Intake rule: 先在主会话问清用户侧问题，包括目标、范围、约束、验收标准、已有上下文、是否允许改代码、是否只做设计/计划/审查。用户侧问题没问清前，不进入 `sp_prepare`。
-2. Status rule: 如果存在未完成 workflow、用户询问进度、运行时状态和 controller 记忆不一致，先调用 `sp_status` 对齐事实，再决定后续工具调用。
-3. Prepare rule: 每个将由插件执行的任务都调用 `sp_prepare`。controller 负责给出清晰 task brief，并决定 `design_participation.mode` 是 `none`、`brainstorm` 还是 `design`。
-4. Designer rule: `sp-designer` 只在 prepare 阶段参与头脑风暴/设计。designer 可以问设计阻塞问题，但用户侧需求澄清应尽量由 controller intake 完成。
-5. Confirmation rule: `sp_prepare` 返回的 `confirmation_summary` 要在主会话给用户确认。用户要求修改时，controller 修改 task brief 后重新 `sp_prepare`；用户取消时调用 `sp_cancel` 或放弃该 prepared task。
-6. Start rule: 用户确认后才调用 `sp_start(action="start_prepared_task")`。`sp_start` 只表达启动配置，可以是内置 workflow id，也可以是自定义 orchestration；orchestration 可以只有一个 node。
-7. Expansion rule: 优先用内置 workflow 名称表达边界。`design-only`、`plan-only`、`review-only` 等 `*-only` 默认不自动扩展；`feature`、`bugfix` 等完整执行 workflow 默认允许 planner/report 在 guard 内自动扩展。需要偏离默认值时再传显式 override。
-8. Monitor rule: 运行中用 `sp_status(include_progress=true)` 或 TUI progress 看事实，不用自然语言猜测 node 是否完成。
-9. User input rule: node `needs_user` 时，controller 在主会话问用户；拿到答案后用 `sp_start(resume_input)` 恢复原 child session，不新建替代节点。
-10. Fallback rule: child session 没有 terminal `sp_report` 时，fallback summary 只能算部分证据。controller 根据风险选择 retry、inspect、接受 partial、重新 prepare/start 或 cancel。
-11. Cancel rule: 用户要求停止、任务边界错误、状态无法安全判断或旧 attempt 被取代时，用 `sp_cancel` 写入取消事实，不能只在自然语言里说停止。
-12. Completion rule: 完成声明必须基于 `sp_report`、checks、artifacts 或验证 evidence。progress digest 和 fallback summary 不能单独作为成功依据。
+1. First-response rule: 首次收到用户请求时，先输出固定欢迎语，然后进入 intake。欢迎语只在本轮任务首次进入 Superpowers controller 时输出一次，恢复、重试和状态查询不重复输出。
+2. Intake rule: 先在主会话问清用户侧问题，包括目标、范围、约束、验收标准、已有上下文、是否允许改代码、是否只做设计/计划/审查。用户侧问题没问清前，不进入 `sp_prepare`。
+3. Status rule: 如果存在未完成 workflow、用户询问进度、运行时状态和 controller 记忆不一致，先调用 `sp_status` 对齐事实，再决定后续工具调用。
+4. Prepare rule: 每个将由插件执行的任务都调用 `sp_prepare`。controller 负责给出清晰 task brief，并决定 `design_participation.mode` 是 `none`、`brainstorm` 还是 `design`。
+5. Designer rule: `sp-designer` 只在 prepare 阶段参与头脑风暴/设计。designer 可以问设计阻塞问题，但用户侧需求澄清应尽量由 controller intake 完成。
+6. Confirmation rule: `sp_prepare` 返回的 `confirmation_summary` 要在主会话给用户确认。用户要求修改时，controller 修改 task brief 后重新 `sp_prepare`；用户取消时调用 `sp_cancel` 或放弃该 prepared task。
+7. Start rule: 用户确认后才调用 `sp_start(action="start_prepared_task")`。`sp_start` 只表达启动配置，可以是内置 workflow id，也可以是自定义 orchestration；orchestration 可以只有一个 node。
+8. Expansion rule: 优先用内置 workflow 名称表达边界。`design-only`、`plan-only`、`review-only` 等 `*-only` 默认不自动扩展；`feature`、`bugfix` 等完整执行 workflow 默认允许 planner/report 在 guard 内自动扩展。需要偏离默认值时再传显式 override。
+9. Native child-session display rule: 插件创建的 node session 必须使用 OpenCode 原生 child session 机制，详细执行过程留在 child session timeline；主会话只展示确认、摘要、入口、关键 attention 和 `sp_status(include_progress=true)` digest，不镜像 child session 的全部 message parts。
+10. Monitor rule: 运行中用 `sp_status(include_progress=true)`、OpenCode 原生 child session timeline 或 TUI progress 看事实，不用自然语言猜测 node 是否完成。
+11. User input rule: node `needs_user` 时，controller 在主会话问用户；拿到答案后用 `sp_start(resume_input)` 恢复原 child session，不新建替代节点。
+12. Fallback rule: child session 没有 terminal `sp_report` 时，fallback summary 只能算部分证据。controller 根据风险选择 retry、inspect、接受 partial、重新 prepare/start 或 cancel。
+13. Cancel rule: 用户要求停止、任务边界错误、状态无法安全判断或旧 attempt 被取代时，用 `sp_cancel` 写入取消事实，不能只在自然语言里说停止。
+14. Completion rule: 完成声明必须基于 `sp_report`、checks、artifacts 或验证 evidence。progress digest 和 fallback summary 不能单独作为成功依据。
 
 ## 5. Public Tool Surface
 
@@ -853,6 +856,8 @@ progress 是用户可见性，不是状态机输入。
 
 显示原则：
 
+- 详细过程优先使用 OpenCode 原生 child session 展示。插件通过 `session.create(parentID)` 创建 node child session，用户可以进入 child session 查看完整 timeline、tool call、patch 和 reasoning。
+- 主会话区域不镜像 child session 的完整 message parts，只展示 `sp_prepare` / `sp_start` / `sp_status` 的确认、摘要、入口和 progress digest。
 - `app_bottom`: workflow title/status、running node、current activity、next controller action。
 - `sidebar_content`: prepared execution task、workflow-spec、node graph、running/reported/fallback nodes、attention。
 - `prompt_progress`: 当前上下文一行状态。
@@ -887,7 +892,29 @@ progress 不能替代：
 - late report 不覆盖 newer attempt 或 canceled/interrupted node。
 - `sp_status` 必须给 controller 明确 next decision。
 
-## 12. Acceptance Scenarios
+## 12. Abnormal Scenario Behavior Matrix
+
+v5 的异常处理原则是：plugin 保留事实和状态机，controller 保留自主决策权。插件不能替 controller 理解用户意图，但必须把当前事实、阻塞原因、可选动作和风险通过 `controller_feedback` / `sp_status` 明确返回。
+
+| 场景 | 插件行为 | controller 行为 | 是否可继续 |
+|---|---|---|---|
+| 系统重启时有 running node | 启动恢复读取 `state.json` / `events.jsonl` / `node_runs`，不假设旧 child session 仍 live；把无法确认的 running node 标为 interrupted 或进入 `recovered_unknown`。 | 先调用 `sp_status`，根据 `controller_feedback` 选择 inspect、retry interrupted node、cancel 或重新 prepare/start。 | 可继续，但默认需要 controller 决策。 |
+| 重启前 child session 已完成但未写 terminal `sp_report` | 插件检测到无 terminal report，收集 transcript/progress/tool/error evidence，生成 `fallback-summary.json`，进入 `waiting_controller_decision`。 | 判断 fallback 是否足够作为 partial evidence；高风险任务应 retry/inspect，低风险只读任务可接受 partial。 | 可继续，但 fallback 不默认成功。 |
+| prepare-phase designer 被中断 | prepare state 保留 designer node/session、candidate artifact 和 pending status；重启后进入 prepare decision。 | controller 可恢复 designer、重新 `sp_prepare`、跳过 designer 或取消。用户侧需求不清时优先补澄清再恢复。 | 可继续，仍停留 prepare 阶段。 |
+| planner 被中断 | 保留 planner node_run 和已有 candidate `plan.md` / `task_graph.json`；未 passed 时不 promotion，不自动扩展执行节点。 | controller 选择 retry planner、inspect candidate、改为 `plan-only` 收束，或重新 prepare/start。 | 可继续，但不会自动执行未确认 task graph。 |
+| implementer / reviewer / verifier 执行失败 | `sp_report(status="failed")` 关闭当前 node；只有 workflow 有明确 failure edge 时自动推进，否则进入 controller decision。 | controller 根据失败类型选择 retry、复用原 implementer session、派发调查/修复节点、修改 workflow 或 cancel。 | 可继续，失败不会变成死循环。 |
+| node `needs_user` | 写入 `pending_question`，workflow 进入 `waiting_user`，通知 parent controller session。 | 在主会话问用户；拿到回答后恢复原 child session，不创建新 node。 | 可继续，等待用户输入期间不会自动推进。 |
+| child session 长时间无 progress | progress layer 标记 stalled；状态机不因此自动失败。 | controller 可查看 child session 原生 timeline，或调用 `sp_status(include_progress=true)` 后选择 wait、inspect、cancel、retry。 | 可继续，默认不自动重派发。 |
+| child session 没有调用 `sp_report` | 插件生成 fallback summary 并进入 decision，不把自然语言完成当作成功。 | controller 根据证据选择 retry、accept partial、revise workflow 或 cancel。 | 可继续，需 controller 决策。 |
+| report-driven expansion 校验失败 | 保存 report/artifact，记录 schema/agent/edge/document/数量/深度错误，不追加节点。 | controller 可要求 planner 修正、手动给 `sp_start` 新 orchestration、关闭 auto expansion 或取消。 | 可继续，但不靠插件猜测补齐。 |
+| required artifact 缺失或未 canonical | transition 返回 blocked / controller decision，不让 node 自行搜索 run 目录外文件。 | controller 可恢复 producer node、批准 candidate、重新生成 artifact 或裁剪 workflow。 | 可继续，前提是补齐文档 contract。 |
+| late report 到达 | 如果 node 已 canceled/superseded 或 newer attempt 已存在，late report 只做审计，不覆盖 current state。 | controller 可查看 late evidence，但继续以最新 attempt 为准。 | 可继续，避免旧结果回滚状态。 |
+| 用户取消任务 | `sp_cancel` 写入 canceled 状态、原因、scope 和 state version；底层 child session 无法强杀时也标记 superseded。 | controller 告知取消结果；后续如需继续必须重新 prepare/start 或显式 retry。 | 不自动继续。 |
+| 状态与主控记忆不一致 | `sp_status` 返回 runtime fact、durable note、recommended_next 和 attention。 | controller 以 `sp_status` 为准，不用自然语言记忆覆盖 runtime fact。 | 可继续，先对齐事实。 |
+
+这些场景都不要求 plugin 具备语义智能。plugin 负责把状态闭合到 finite decision point；controller 根据用户目标和当前证据选择下一步。只要 `sp_status` 能返回明确 `recommended_next`，任务就不会卡在无解释状态；只要失败和无报告都不会自动视为成功，任务也不会跑偏到错误完成。
+
+## 13. Acceptance Scenarios
 
 1. controller 能读取 agent catalog、schema、built-in workflow templates 和 workflow examples。
 2. 每个交给插件执行的任务都先调用 `sp_prepare`。
@@ -910,8 +937,10 @@ progress 不能替代：
 19. TUI 能展示 prepared execution task、workflow-spec、动态 node graph、fallback、attention 和 progress digest。
 20. startup recovery 不把 durable running 当成 live running。
 21. public tool surface 不新增工具，仍是 `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
+22. controller 首次进入 Superpowers 工作流时输出固定欢迎语。
+23. 详细执行过程使用 OpenCode 原生 child session 展示；主会话只显示确认、摘要、入口、attention 和按需 progress digest。
 
-## 13. Migration Notes From V4
+## 14. Migration Notes From V4
 
 | V4 concept | V5 replacement |
 |---|---|
@@ -924,7 +953,7 @@ progress 不能替代：
 
 v5 不移除现有 agents 或 public tools。它改变的是 agents 被选择和排序的方式。
 
-## 14. Open Questions
+## 15. Open Questions
 
 - fallback summary 第一版由插件本地摘要逻辑生成，还是派发专用 summarizer node 生成。
 - workflow condition 第一版支持哪些 condition kind 的完整枚举。

@@ -30,6 +30,7 @@ product docs 记录 Superpowers Controller 的产品设计版本、PRD 来源和
 v5 PRD 将产品目标从固定 workflow definition 调整为 prepare-first task control 加 controller-selected start configuration：
 
 - 插件不再把 `feature`、`debug`、`plan-only`、`review`、`verify-finish`、`parallel-investigate` 等固定流程作为主决策来源。
+- controller 首次进入 Superpowers 工作流时先输出固定欢迎语：`欢迎使用superpowers主控插件，我将按superpowers工作流程完成您的任务。`
 - 每个交给插件执行的任务都先调用 `sp_prepare`，写入或更新既有 run-local artifacts，例如 `request.md`、`documents.json`、`state.json` 和 `events.jsonl`，并生成用户确认摘要。
 - 是否让 `sp-designer` 参与，由 controller 判断，并在 `sp_prepare` 阶段作为 brainstorming/design participation 触发；不是等 `sp_start` 后再启动设计节点。
 - 用户确认 prepared execution task 后，controller 调用 `sp_start` 启动。
@@ -41,6 +42,8 @@ v5 PRD 将产品目标从固定 workflow definition 调整为 prepare-first task
 - 插件不提供智能 workflow 规划；它只提供 agent catalog、workflow schema、built-in workflow templates、常用 workflow 示例、结构校验、状态机运行时、派发控制、`sp_report` 结果处理、恢复、取消和可见性。
 - 内置 workflow templates 和常用 workflow 示例只作为 controller prompt 的规划参考，不是固定流程，也不是插件根据用户请求生成的建议。
 - v5 增加 document contract：`request.md`、`spec.md`、`plan.md`、`task_graph.json`、`tasks.json`、task report 和 verification log 是 run 目录下的 workflow artifacts，由插件读取并内联传给后续 node。
+- v5 展示策略复用 OpenCode 原生 child session：详细执行过程留在 child session timeline，主会话只展示确认、摘要、入口、attention 和按需 progress digest。
+- v5 增加异常场景矩阵：系统重启、中断、失败、stalled、无 `sp_report`、`needs_user`、扩展校验失败、artifact 缺失和 late report 都要闭合到明确 controller decision。
 - 每个 agent 完成后应调用 `sp_report`。如果 agent 没有调用，插件生成 fallback summary result，反馈 controller 决定 retry、接受 partial、取消或修改 workflow。
 - v5 不新增 public tool，仍使用 `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
 - v5 是新的设计目标；当前模块文档仍描述已实现的 v4 runtime contract，直到后续实现落地后再同步更新。
