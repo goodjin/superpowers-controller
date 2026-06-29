@@ -33,7 +33,7 @@ v5 PRD 将产品目标从固定 workflow definition 调整为 controller-generat
 - controller 根据用户需求生成 `GeneratedWorkflowSpec`，其中包含 nodes、edges、agent、report contract、document contract、completion policy 和 fallback policy。
 - 插件不提供智能 workflow 规划；它只提供 agent catalog、workflow schema、常用 workflow 示例、结构校验、状态机运行时、派发控制、`sp_report` 结果处理、恢复、取消和可见性。
 - 常用 workflow 示例只作为 controller prompt 的规划参考，不是固定流程，也不是插件根据用户请求生成的建议。
-- v5 增加 document contract：`workflow-spec.json`、`documents.json` 和 node/task report 归插件生成；`docs/features/`、`docs/bugfix/`、`docs/spec.md`、`docs/plan.md`、`docs/modules/` 等 workspace 文档由指定 node 生成，并通过 candidate/canonical promotion 规则关联到后续节点。
+- v5 增加 document contract：`spec.md`、`plan.md`、`task_graph.json`、task report 和 verification log 是 run 目录下的 workflow artifacts，由插件读取并内联传给后续 node；`docs/features/`、`docs/bugfix/`、`docs/modules/` 等项目文件是 workspace outputs，默认不作为 node context，除非 workflow spec 显式要求导入为 source artifact。
 - 每个 agent 完成后应调用 `sp_report`。如果 agent 没有调用，插件生成 fallback summary result，反馈 controller 决定 retry、接受 partial、取消或修改 workflow。
 - v5 不新增 public tool，仍使用 `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
 - v5 是新的设计目标；当前模块文档仍描述已实现的 v4 runtime contract，直到后续实现落地后再同步更新。

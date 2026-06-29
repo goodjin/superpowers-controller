@@ -228,8 +228,8 @@ type WorkflowNodeSpec = {
 type WorkflowDocumentSpec = {
   id: string
   title: string
-  kind: "runtime_artifact" | "workspace_file"
-  path?: string
+  kind: "workflow_artifact" | "workspace_output"
+  path: string
   producer_node_id: string
   consumer_node_ids?: string[]
   promotion:
@@ -257,7 +257,8 @@ type WorkflowEdgeSpec = {
 - 每个 node 必须有 `report_contract`。
 - `nodes[].consumes` 和 `nodes[].produces` 只能引用 `documents[].id`。
 - `documents[].producer_node_id` 必须引用存在的 node。
-- `kind="workspace_file"` 的 document 必须声明 `path`。
+- `kind="workflow_artifact"` 的 `path` 相对 `.opencode/superpowers/runs/<run-id>/`，例如 `spec.md`、`plan.md`、`task_graph.json`、`reports/<task-id>/report.md`。
+- `kind="workspace_output"` 的 `path` 相对项目工作区，例如 `docs/features/<name>.md` 或 `docs/modules/<module>.md`。workspace output 默认不是 node context，除非 workflow spec 显式要求插件读取并作为 source artifact 传递。
 - edge 只能引用存在的 node。
 - graph 可以是 DAG；第一版不支持环，retry 通过新 attempt 记录实现。
 - 没有入边的 node 是 initial runnable node。
@@ -265,30 +266,30 @@ type WorkflowEdgeSpec = {
 
 ## 7. Workflow Document Lifecycle
 
-v5 把“文档”分成两类：
+v5 把“文档”分成三类：
 
-- runtime control documents: 插件为了调度、恢复和审计生成的文件，例如 `workflow-spec.json`、`state.json`、`events.jsonl`、`nodes/<node-id>/task.md`、`nodes/<node-id>/record.json`、`nodes/<node-id>/output.md`、`nodes/<node-id>/fallback-summary.json`。
-- workspace/user documents: node agent 根据项目规则或 workflow spec 写入工作区的文档，例如 `docs/features/*.md`、`docs/bugfix/*.md`、`docs/spec.md`、`docs/plan.md`、`docs/modules/*.md`。
+- runtime control documents: 插件为了调度、恢复和审计生成的内部文件，例如 `workflow-spec.json`、`state.json`、`events.jsonl`、`documents.json`、`nodes/<node-id>/task.md`、`nodes/<node-id>/record.json`、`nodes/<node-id>/fallback-summary.json`。这类文件不直接作为业务上下文让 node 自己查找。
+- workflow artifact documents: 放在 `.opencode/superpowers/runs/<run-id>/` 下、由插件读取并内联传给 node agent 的上下文文件，例如 `request.md`、`spec.md`、`plan.md`、`task_graph.json`、`tasks.json`、`reports/<task-id>/task.md`、`reports/<task-id>/report.md`、`reports/<task-id>/verification.md`。node 消费的 `spec.md`、`plan.md` 指的是这一层。
+- workspace output documents: node agent 根据项目规则或用户要求写入项目工作区的交付文档，例如 `docs/features/*.md`、`docs/bugfix/*.md`、`docs/modules/*.md`。它们默认不是下游 node 的消费材料；只有 workflow spec 显式声明时，插件才读取并作为 source artifact 传递。
 
 生成时机：
 
 1. controller intake 阶段只在主会话中澄清和展示草案；用户未批准前不需要写入 workspace document。
 2. `sp_prepare(mode="register_workflow")` 写入 runtime control documents，包括 `workflow-spec.json`、`documents.json`、draft state 和事件日志。
 3. `sp_start` 派发 node 前，插件生成 `nodes/<node-id>/task.md`。如果 node 绑定 `task_id`，同时生成 `reports/<task-id>/task.md`。
-4. node agent 执行时，如果 workflow spec 的 `documents` 要求 workspace 文件，它负责创建或修改对应文件，并在 `sp_report.artifacts`、`summary` 或 `findings` 中报告路径和内容摘要。
-5. node agent 调用 `sp_report(status="progress")` 时，产物只能作为 candidate/progress；不触发 promotion，也不解锁下游节点。
-6. node agent 调用 `sp_report(status="passed")` 后，插件按 `documents[].promotion` 决定是否把 runtime artifact 或 workspace file 标记为 canonical。
-7. `promotion="on_controller_approval"` 的文档必须等待 controller 通过 `sp_start` 提交批准动作后才能成为下游可消费文档。
-8. 下游 node 只能消费 `documents[].consumer_node_ids` 明确允许且已经 canonical 的文档；缺失或 stale 的文档会让 transition 返回 controller decision 或 blocked。
+4. designer/planner 等 node 通过 `sp_report.artifacts` 提交 `spec`、`plan`、`task_graph` 等结构化结果后，插件把它们写入 run 目录下的 workflow artifact candidate，例如 `nodes/<node-id>/output.md` 或 candidate record。
+5. controller 批准后，插件把 candidate promotion 为 canonical workflow artifact，例如 `spec.md`、`plan.md`、`task_graph.json`、`tasks.json`。
+6. 后续 node 派发前，插件读取 `documents[].consumer_node_ids` 允许且已经 canonical 的 workflow artifacts，内联进 node prompt 的 source artifacts。node 不应该自行去项目目录搜索 `spec.md` 或 `plan.md`。
+7. 如果 workflow spec 要求 workspace output，node agent 负责创建或修改项目工作区文件，并在 `sp_report` 中报告路径和摘要；workspace output 是否再被后续 node 消费，需要显式声明为 source artifact。
+8. `sp_report(status="progress")` 产生的 artifact 只能是 candidate/progress；不触发 promotion，也不解锁下游节点。
 
 常见文档关联：
 
-- feature 或 bugfix 范围文档：由 designer、planner 或专用 documentation node 生成，路径通常在 `docs/features/` 或 `docs/bugfix/`；在项目规则要求“先生成计划文档”时，它必须在 implementation node 之前 canonical。
-- spec 文档：通常由 `sp-designer` 生成；可以先作为 candidate 给用户审查，批准后成为 planner 的输入。
-- plan/task graph 文档：通常由 `sp-planner` 生成；批准后 `task_graph` 进入 runtime，`plan` 文档成为 implementer 和 reviewer 的输入。
+- spec 文档：通常由 `sp-designer` 生成，先作为 run 目录下的 candidate；批准后 promotion 为 canonical `spec.md`，由插件读取并传给 planner。
+- plan/task graph 文档：通常由 `sp-planner` 生成，批准后 promotion 为 canonical `plan.md`、`task_graph.json` 和 `tasks.json`，由插件读取并传给 implementer、reviewer 和 verifier。
 - task packet 文档：由插件在 dispatch 时生成，始终绑定具体 `node_id`，用于审计 child prompt。
 - implementation/report/check 文档：由 `sp_report` 写入 node record 和 task-scoped report；接受、验证、代码审查节点按同一 `task_id` 关联。
-- module/update 文档：如果实现改变模块契约，workflow spec 应包含收尾或文档节点，在 finish 前更新 `docs/modules/`。
+- workspace feature/bugfix/module 文档：如果项目规则要求写入 `docs/features/`、`docs/bugfix/` 或 `docs/modules/`，它们是 workspace output。它们可以由 designer、planner、finisher 或 documentation node 生成，但不是默认的 node 消费文档。
 
 ## 8. Runtime Decision Model
 
@@ -444,7 +445,8 @@ v5 需要持久化：
 
 - controller 生成的 workflow spec 必须落盘。
 - capability catalog 和 workflow examples 是静态能力说明；registered workflow spec 是本次运行的权威计划，两者必须分开。
-- workspace/user documents 必须通过 `documents.json` 记录 document id、path、producer node、consumer nodes、candidate/canonical 状态和 promotion 事件。
+- workflow artifacts 必须通过 `documents.json` 记录 document id、run-relative path、producer node、consumer nodes、candidate/canonical 状态和 promotion 事件。
+- workspace outputs 如果需要追踪，也通过 `documents.json` 记录 workspace-relative path、producer node 和是否需要作为 source artifact 传给后续节点。
 - fallback summary 必须落盘，不能只在 tool response 中出现。
 - sp_report result 和 fallback summary result 必须进入统一 node history。
 - late report 不能覆盖 fallback summary 后的新 attempt，除非 controller 显式选择采用。
@@ -473,7 +475,7 @@ fallback summary 必须在 `sidebar_content` 和 `sp_status` 中明显可见。
 7. fallback summary result 不会默认触发下一个 high-risk node。
 8. controller 可以选择 retry node、接受 partial result、取消 workflow 或修改 workflow spec。
 9. startup recovery 发现 running node 没有 terminal report 时，插件生成或恢复 fallback summary，并反馈 controller。
-10. workflow spec 声明 `docs/features/*.md` 或 `docs/bugfix/*.md` 时，对应文档必须在 implementation node 前由指定 node 产出并 canonical。
+10. workflow spec 声明 `spec.md` 或 `plan.md` 是 implementation node 的 required input 时，插件必须先在 run 目录下 materialize canonical workflow artifact，并在派发时内联给 implementation node。
 11. TUI 能显示动态 node graph，而不是固定 feature/debug 阶段。
 12. `sp_status(include_progress=true)` 能显示当前 node progress 和 fallback summary。
 13. capability catalog / workflow examples 和 controller registered workflow spec 分开落盘或分开暴露。
