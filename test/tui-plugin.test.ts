@@ -95,6 +95,7 @@ describe("Superpowers TUI plugin", () => {
       expect(slots.session_prompt_right).toBeUndefined()
       expect(slots.home_prompt).toBeUndefined()
       expect(slots.home_prompt_right).toBeUndefined()
+      expect(slots.app_bottom()).toBeNull()
       const workflowStatusSlot = createProgressSlot(
         api,
         (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
@@ -341,6 +342,43 @@ describe("Superpowers TUI plugin", () => {
       rmSync(newerUnrelatedProject, { recursive: true, force: true })
       rmSync(sessionProject, { recursive: true, force: true })
       rmSync(tuiDirectory, { recursive: true, force: true })
+    }
+  })
+
+  test("sidebar content shows active workflow progress for a new controller session", () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-controller-session-"))
+    try {
+      createWorkflowWithProgress({
+        project,
+        parentSessionID: "session-old-controller",
+        childSessionID: "session-child",
+        summary: "controller fallback progress",
+        updatedAt: "2026-06-30T02:00:00.000Z",
+      })
+      const api = {
+        state: {
+          path: { directory: project },
+          session: {
+            status() {
+              return { type: "busy" }
+            },
+          },
+        },
+      } as never
+      const sidebarSlot = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
+      )
+
+      const controllerSidebar = sidebarSlot({ session: { id: "session-new-controller", agent: "super-agent" } }) as { type: string; value: string }
+      expect(controllerSidebar.type).toBe("text")
+      expect(controllerSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(controllerSidebar.value).toContain("sp-implementer T1: running - controller fallback progress")
+      expect(sidebarSlot({ session: { id: "session-other", agent: "sp-implementer" } })).toBeNull()
+      expect(sidebarSlot(undefined, { session_id: "session-other" })).toBeNull()
+    } finally {
+      rmSync(project, { recursive: true, force: true })
     }
   })
 

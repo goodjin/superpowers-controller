@@ -132,18 +132,22 @@ export function createProgressSlot(
   options: CompactProgressSlotOptions = {},
 ): (_context?: unknown, props?: Record<string, unknown>) => unknown {
   return (context, props) => {
-    const sessionID = slotSessionIDFromArgs(context, props)
+    const slotContext = slotContextFromArgs(context, props)
+    const sessionID = slotContext.sessionID
     const hasSession = typeof sessionID === "string"
+    const isControllerSession = slotContext.agent === "super-agent"
     const refreshMs = options.refreshMs ?? 1000
     if (refreshMs <= 0) {
-      const text = safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal)
+      const text = safeProgressSlotText(api, sessionID, hasSession, isControllerSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal)
       return text ? renderText(text) : null
     }
-    const [text, setText] = createSignal(safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
+    const initialText = safeProgressSlotText(api, sessionID, hasSession, isControllerSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal)
+    if (!initialText && !hasSession && !options.allowGlobal) return null
+    const [text, setText] = createSignal(initialText)
     const timer = setInterval(() => {
-      setText(safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
+      setText(safeProgressSlotText(api, sessionID, hasSession, isControllerSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
     }, refreshMs)
-    setText(safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
+    setText(safeProgressSlotText(api, sessionID, hasSession, isControllerSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
     onCleanup(() => clearInterval(timer))
     return renderText(text)
   }
@@ -152,6 +156,7 @@ export function createProgressSlot(
 function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions, "renderer" | "maxChars" | "allowGlobal"> {
   switch (slotName) {
     case "app_bottom":
+      return { renderer: "workflow-status", maxChars: 180, allowGlobal: false }
     case "sidebar_footer":
       return { renderer: "workflow-status", maxChars: 180, allowGlobal: true }
     case "sidebar_content":
@@ -161,11 +166,14 @@ function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions,
   }
 }
 
-function slotSessionIDFromArgs(context?: unknown, props?: Record<string, unknown>): unknown {
-  return slotSessionID(props) ?? slotSessionID(context)
+function slotContextFromArgs(context?: unknown, props?: Record<string, unknown>): { sessionID?: string; agent?: string } {
+  return {
+    sessionID: slotSessionID(props) ?? slotSessionID(context),
+    agent: slotSessionAgent(props) ?? slotSessionAgent(context),
+  }
 }
 
-function slotSessionID(value?: unknown): unknown {
+function slotSessionID(value?: unknown): string | undefined {
   if (!isRecord(value)) return undefined
   if (typeof value.session_id === "string") return value.session_id
   if (typeof value.sessionID === "string") return value.sessionID
@@ -174,10 +182,19 @@ function slotSessionID(value?: unknown): unknown {
   return undefined
 }
 
+function slotSessionAgent(value?: unknown): string | undefined {
+  if (!isRecord(value)) return undefined
+  if (typeof value.agent === "string") return value.agent
+  const session = value.session
+  if (isRecord(session) && typeof session.agent === "string") return session.agent
+  return undefined
+}
+
 function safeProgressSlotText(
   api: TuiApi,
   sessionID: unknown,
   hasSession: boolean,
+  isControllerSession: boolean,
   renderer: ProgressSlotRenderer,
   maxChars?: number,
   allowGlobal = false,
@@ -189,7 +206,7 @@ function safeProgressSlotText(
       return truncateSlotText(context.diagnostic ?? "SP: no active workflow", maxChars)
     }
     const progress = createNodeProgressStore(context.project).readRun(context.state)
-    const model = progressModel(api, context.state, progress, sessionID)
+    const model = progressModel(api, context.state, progress, sessionID, allowGlobal && isControllerSession)
     if (!allowGlobal && renderer !== "compact" && !hasSession) return ""
     if (renderer === "workflow-status") return renderWorkflowStatusText(model, maxChars)
     if (renderer === "running-sessions") return renderRunningSessionsText(model)
@@ -291,7 +308,18 @@ function workflowTimestamp(state: WorkflowState): number {
 }
 
 function isUnfinishedWorkflow(state: WorkflowState): boolean {
-  return ["intake", "running", "waiting_user", "blocked", "recovered_unknown"].includes(state.status)
+  return [
+    "intake",
+    "running",
+    "awaiting_design_approval",
+    "awaiting_plan_approval",
+    "waiting_user",
+    "waiting_user_decision",
+    "waiting_controller_decision",
+    "blocked",
+    "failed",
+    "recovered_unknown",
+  ].includes(state.status)
 }
 
 function workflowContextDiagnostic(candidate: WorkflowCandidate, directory: string): string | undefined {
@@ -329,8 +357,9 @@ function progressModel(
   state: WorkflowState | null,
   progress: Record<string, NodeProgressEntry[]>,
   sessionID?: unknown,
+  allowControllerFallback = false,
 ) {
-  if (typeof sessionID === "string" && state && !isWorkflowSession(state, sessionID)) {
+  if (typeof sessionID === "string" && state && !isWorkflowSession(state, sessionID) && !allowControllerFallback) {
     return buildProgressPanelViewModel(null, {}, {})
   }
   return buildProgressPanelViewModel(state, progress, liveStatusBySession(api, state))
