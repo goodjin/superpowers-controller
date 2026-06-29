@@ -385,7 +385,7 @@ node 通过 `consumes` 和 `produces` 引用 document id。`kind="workflow_artif
 
 ### 6.2 生成时机
 
-- controller intake: 只在主会话中问清需求和展示草案。用户未批准前，可以只输出给用户查看，不必写入 workspace 文档。
+- controller intake: 只在主会话中问清需求和展示草案。用户未批准前，不需要 materialize run-local workflow artifacts。
 - `sp_prepare(register_workflow)`: 插件写入 `workflow-spec.json`、`documents.json`、draft state 和 `events.jsonl`。这是 runtime control documents。
 - `sp_start`: 插件派发 node 前生成 `nodes/<node-id>/task.md`；如果有 `task_id`，同时生成 `reports/<task-id>/task.md`。
 - designer/planner node: 通过 `sp_report.artifacts` 产出 `spec`、`plan`、`task_graph` 等 candidate；插件把它们保存在 run 目录下。
