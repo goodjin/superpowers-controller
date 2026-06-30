@@ -15,7 +15,7 @@ describe("package entrypoints", () => {
 
     expect(pkg.name).toBe("superpowers-controller")
     expect(pkg.bin).toEqual({
-      "superpowers-controller": "./dist/cli/index.js",
+      "superpowers-controller": "dist/cli/index.js",
     })
     expect(pkg.files).toContain("scripts/install.sh")
     expect(pkg.types).toBe("./dist/src/index.d.ts")
