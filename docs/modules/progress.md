@@ -102,9 +102,9 @@ workflow 用户输入不再通过独立 TUI question route 处理。节点需要
 
 主会话常驻进度通过 TUI slot 展示。不同 slot 不再复用同一条 compact 文本，而是按可用空间分工：
 
-- `app_bottom`：主会话底部常驻 surface，承载整体 workflow 状态，例如 workflow/status/current phase、任务完成数、运行中 session 数，并追加最近一个 child session 的可读活动摘要和相对更新时间。它是 session-bound slot；host 没有传入 `session_id` 时不渲染，避免首页底部显示 workflow 状态。
-- `sidebar_content`：右侧栏主体，是 workflow 会话运行信息的主展示区域。OpenCode host 会传入当前 `session_id`；插件优先在该 session 属于某个 workflow 的 parent session 或 child node session 时展示 workflow 总览、运行中 child session 列表、最近活动详情，以及 waiting_user 的问题正文和候选选项。如果当前 session 是新的 `super-agent` 主控会话，但不是旧 workflow 的 parent session，允许 fallback 到最新未结束 workflow，保证重启或新开主控会话后仍能看到子会话进度。普通无关 session 继续隐藏。它不收集用户答案，也不替换 host 原生摘要。
-- `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。和 `sidebar_content` 一样按 `session_id` 绑定到对应 workflow。
+- `app_bottom`：主会话底部常驻 surface，承载整体 workflow 状态，例如 workflow/status/current phase、任务完成数、运行中 session 数，并追加最近一个 child session 的可读活动摘要和相对更新时间。它要求 host 传入 `session_id` 才渲染，避免首页底部显示 workflow 状态；有 session 时如果该 session 不属于任何 workflow，则 fallback 到最新未结束 workflow，保证新开的主控会话仍能看到进度。
+- `sidebar_content`：右侧栏主体，是 workflow 会话运行信息的主展示区域。OpenCode host 会传入当前 `session_id`；插件优先在该 session 属于某个 workflow 的 parent session 或 child node session 时展示 workflow 总览、运行中 child session 列表、最近活动详情，以及 waiting_user 的问题正文和候选选项。如果没有 session 匹配，允许 fallback 到最新未结束 workflow。不能依赖 host 一定传 `agent` 字段；实际 host 可能只传 `session_id`。它不收集用户答案，也不替换 host 原生摘要。
+- `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。和 `sidebar_content` 一样优先按 `session_id` 绑定，找不到匹配时 fallback 到最新未结束 workflow。
 - `session_prompt_right`、`home_prompt`、`home_prompt_right`、`home_bottom`、`home_footer`：不注册 Superpowers resident progress。workflow 会话运行信息不放在 prompt/right 区域；`home_*` 是首页区域，不作为主会话运行态展示入口。
 
 详细过程仍通过 `superpowers-progress` route 查看；用户输入通过主会话完成，不存在 `superpowers-questions` route。
@@ -132,7 +132,7 @@ resolver 不再简单返回第一个 `current.json`。选择规则是：
 
 找到 fallback workflow 时，进度 route 会附带一行 `SP: using workflow state from ...` 诊断；没有找到 workflow 时，compact/global 可见 surface 显示 `SP: no workflow state in ...`，避免工作流仍在运行但 UI 静默空白。
 
-常驻 slot 不能依赖父会话消息流触发刷新。child session 写入 `progress.jsonl` 时，parent session 的 `time_updated` 可能不变，因此 resident surface 需要自己定时重读 workflow/progress。`app_bottom` 只在主会话页拿到 session props 后显示对应 workflow 状态；`sidebar_content` 和 `sidebar_footer` 作为 session slot 绑定到 host 传入的 session id，其中 `sidebar_content` 对 `super-agent` 主控会话允许 latest unfinished workflow fallback。无关 session 继续隐藏。
+常驻 slot 不能依赖父会话消息流触发刷新。child session 写入 `progress.jsonl` 时，parent session 的 `time_updated` 可能不变，因此 resident surface 需要自己定时重读 workflow/progress。`app_bottom` 只在拿到 session props 后显示，避免首页空上下文展示；`sidebar_content` 和 `sidebar_footer` 会优先绑定 host 传入的 session id，找不到匹配时 fallback 到 latest unfinished workflow。严格的无关 session 隐藏只适用于 compact/session-specific 渲染，不适用于这些 resident surface，否则新主控会话或 host 缺少 agent 字段时会完全空白。
 
 当 workflow 进入 `waiting_user` 时，`sidebar_content` 会显示 pending question 的来源节点、问题正文、最多三个候选选项，以及最近 child 活动。用户回答仍由 runtime 投递给 parent controller session 后在主会话处理，TUI slot 不承担选择框或自由输入框职责。
 

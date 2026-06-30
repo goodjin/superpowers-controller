@@ -111,6 +111,15 @@ describe("Superpowers TUI plugin", () => {
       expect(globalWorkflowStatus.type).toBe("text")
       expect(globalWorkflowStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
       expect(globalWorkflowStatus.value).toContain("sp-implementer T1 running")
+      const appBottomSlot = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "workflow-status", allowGlobal: true, requireSession: true },
+      )
+      expect(appBottomSlot()).toBeNull()
+      const appBottomStatus = appBottomSlot(undefined, { session_id: "session-new-main" }) as { type: string; value: string }
+      expect(appBottomStatus.type).toBe("text")
+      expect(appBottomStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
       const sessionWorkflowStatus = workflowStatusSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
       expect(sessionWorkflowStatus.type).toBe("text")
       expect(sessionWorkflowStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
@@ -335,7 +344,9 @@ describe("Superpowers TUI plugin", () => {
         expect(rendered.value).toContain("sp-implementer T1 running - session owned progress")
         expect(rendered.value).toContain("sp-implementer T1: running - session owned progress")
       }
-      expect(sidebarSlot(undefined, { session_id: "session-other" })).toBeNull()
+      const fallbackSidebar = sidebarSlot(undefined, { session_id: "session-other" }) as { type: string; value: string }
+      expect(fallbackSidebar.type).toBe("text")
+      expect(fallbackSidebar.value).toContain("sp-implementer T1: running - newer unrelated progress")
     } finally {
       restoreEnv("SUPERAGENT_PROJECT_DIR", previousSuperagentProject)
       restoreEnv("OPENCODE_SUPERPOWERS_PROJECT_DIR", previousOpencodeProject)
@@ -375,8 +386,9 @@ describe("Superpowers TUI plugin", () => {
       expect(controllerSidebar.type).toBe("text")
       expect(controllerSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
       expect(controllerSidebar.value).toContain("sp-implementer T1: running - controller fallback progress")
-      expect(sidebarSlot({ session: { id: "session-other", agent: "sp-implementer" } })).toBeNull()
-      expect(sidebarSlot(undefined, { session_id: "session-other" })).toBeNull()
+      const noAgentSidebar = sidebarSlot(undefined, { session_id: "session-new-controller" }) as { type: string; value: string }
+      expect(noAgentSidebar.type).toBe("text")
+      expect(noAgentSidebar.value).toContain("sp-implementer T1: running - controller fallback progress")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

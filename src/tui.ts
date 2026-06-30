@@ -116,6 +116,7 @@ type CompactProgressSlotOptions = {
   maxChars?: number
   renderer?: ProgressSlotRenderer
   allowGlobal?: boolean
+  requireSession?: boolean
 }
 
 export function createCompactProgressSlot(
@@ -135,28 +136,28 @@ export function createProgressSlot(
     const slotContext = slotContextFromArgs(context, props)
     const sessionID = slotContext.sessionID
     const hasSession = typeof sessionID === "string"
-    const isControllerSession = slotContext.agent === "super-agent"
+    if (options.requireSession && !hasSession) return null
     const refreshMs = options.refreshMs ?? 1000
     if (refreshMs <= 0) {
-      const text = safeProgressSlotText(api, sessionID, hasSession, isControllerSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal)
+      const text = safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal)
       return text ? renderText(text) : null
     }
-    const initialText = safeProgressSlotText(api, sessionID, hasSession, isControllerSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal)
+    const initialText = safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal)
     if (!initialText && !hasSession && !options.allowGlobal) return null
     const [text, setText] = createSignal(initialText)
     const timer = setInterval(() => {
-      setText(safeProgressSlotText(api, sessionID, hasSession, isControllerSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
+      setText(safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
     }, refreshMs)
-    setText(safeProgressSlotText(api, sessionID, hasSession, isControllerSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
+    setText(safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
     onCleanup(() => clearInterval(timer))
     return renderText(text)
   }
 }
 
-function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions, "renderer" | "maxChars" | "allowGlobal"> {
+function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions, "renderer" | "maxChars" | "allowGlobal" | "requireSession"> {
   switch (slotName) {
     case "app_bottom":
-      return { renderer: "workflow-status", maxChars: 180, allowGlobal: false }
+      return { renderer: "workflow-status", maxChars: 180, allowGlobal: true, requireSession: true }
     case "sidebar_footer":
       return { renderer: "workflow-status", maxChars: 180, allowGlobal: true }
     case "sidebar_content":
@@ -166,10 +167,9 @@ function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions,
   }
 }
 
-function slotContextFromArgs(context?: unknown, props?: Record<string, unknown>): { sessionID?: string; agent?: string } {
+function slotContextFromArgs(context?: unknown, props?: Record<string, unknown>): { sessionID?: string } {
   return {
     sessionID: slotSessionID(props) ?? slotSessionID(context),
-    agent: slotSessionAgent(props) ?? slotSessionAgent(context),
   }
 }
 
@@ -182,19 +182,10 @@ function slotSessionID(value?: unknown): string | undefined {
   return undefined
 }
 
-function slotSessionAgent(value?: unknown): string | undefined {
-  if (!isRecord(value)) return undefined
-  if (typeof value.agent === "string") return value.agent
-  const session = value.session
-  if (isRecord(session) && typeof session.agent === "string") return session.agent
-  return undefined
-}
-
 function safeProgressSlotText(
   api: TuiApi,
   sessionID: unknown,
   hasSession: boolean,
-  isControllerSession: boolean,
   renderer: ProgressSlotRenderer,
   maxChars?: number,
   allowGlobal = false,
@@ -206,7 +197,7 @@ function safeProgressSlotText(
       return truncateSlotText(context.diagnostic ?? "SP: no active workflow", maxChars)
     }
     const progress = createNodeProgressStore(context.project).readRun(context.state)
-    const model = progressModel(api, context.state, progress, sessionID, allowGlobal && isControllerSession)
+    const model = progressModel(api, context.state, progress, sessionID, allowGlobal)
     if (!allowGlobal && renderer !== "compact" && !hasSession) return ""
     if (renderer === "workflow-status") return renderWorkflowStatusText(model, maxChars)
     if (renderer === "running-sessions") return renderRunningSessionsText(model)
