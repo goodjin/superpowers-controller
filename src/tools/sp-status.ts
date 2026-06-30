@@ -49,6 +49,7 @@ export function createStatusTool(store: ProjectStore): ToolDefinition {
           source: snapshot?.source ?? "history_scan",
           current: snapshot?.current,
           summary: snapshot?.summary,
+          node_summary: snapshot?.node_summary,
           task: snapshot?.task,
           sessions: snapshot?.sessions,
           runtime: snapshot?.runtime,

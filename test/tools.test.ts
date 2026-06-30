@@ -107,6 +107,19 @@ describe("sp_status tool", () => {
       expect(result.current.task_graph.tasks[0].id).toBe("T1")
       expect(result.task.task.id).toBe("T1")
       expect(result.runtime.status_authority).toBe("runtime_memory")
+      expect(result.node_summary).toMatchObject({
+        total: 0,
+        counts: {},
+        unfinished_nodes: [],
+        task_completion: {
+          total: 1,
+          passed: 0,
+          unfinished: 0,
+          pending: 1,
+        },
+      })
+      expect(result.node_summary.last_node).toBeUndefined()
+      expect(result.node_summary.detail_hint).toContain('detail="sessions"')
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -166,6 +179,32 @@ describe("sp_status tool", () => {
       const result = JSON.parse(toolOutput(output))
       expect(result.source).toBe("runtime_memory")
       expect(result.summary.sessions.running).toBe(1)
+      expect(result.node_summary).toMatchObject({
+        total: 1,
+        counts: { running: 1 },
+        last_node: {
+          node_id: node.id,
+          task_id: "T1",
+          status: "running",
+          activity_status: "active",
+          latest_progress: {
+            kind: "tool_running",
+            summary: "bash running",
+          },
+        },
+        unfinished_nodes: [
+          {
+            node_id: node.id,
+            status: "running",
+          },
+        ],
+        running_nodes: [
+          {
+            node_id: node.id,
+            status: "running",
+          },
+        ],
+      })
       expect(result.sessions).toHaveLength(1)
       expect(result.sessions[0]).toMatchObject({
         node_id: node.id,
@@ -329,6 +368,13 @@ describe("sp_status tool", () => {
         summary: "bash running",
       })
       expect(result.progress_digest.note).toContain("on demand")
+      expect(result.node_summary.unfinished_nodes).toEqual([
+        expect.objectContaining({
+          node_id: node.id,
+          task_id: "T2",
+          status: "running",
+        }),
+      ])
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

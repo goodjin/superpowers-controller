@@ -31,8 +31,8 @@ workflow progress 是 side-channel 行为，用单元测试验证，不要求 e2
 
 - `test/tools.test.ts` 断言 public tool registry 只暴露 `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
 - `test/tools.test.ts` 断言 `sp_status(include_capabilities=true)` 返回 v5 agent catalog、workflow schema、built-in workflow templates 和 examples。
-- `test/tools.test.ts` 断言 `sp_status(include_progress=true)` 返回面向主会话灰色工具结果的 `progress_digest`，包含当前 child activity、最近 progress 和按需展示策略。
-- `test/agents.test.ts` 断言 `super-agent` 在用户询问进展时应调用 `sp_status` 并使用 `include_progress`，而不是向主会话注入高频进度叙述。
+- `test/tools.test.ts` 断言 `sp_status` 默认返回 `node_summary`，包含最后节点、未完成节点和 task completion；`sp_status(include_progress=true)` 返回面向主会话灰色工具结果的 `progress_digest`，包含当前 child activity、最近 progress 和按需展示策略。
+- `test/agents.test.ts` 断言 `super-agent` 在用户询问进展时应调用 `sp_status` 并使用 `include_progress`，需要完整节点/session 列表时可传 `detail="sessions"` 或 `detail="full"`，而不是向主会话注入高频进度叙述。
 - `test/agents.test.ts` 断言每个新 `super-agent` 会话第一轮固定欢迎语和 v5 prepare/start/controller-decision prompt 协议存在。
 - `test/controller-intake.test.ts` 断言 `sp_prepare` / `sp_start` 发送 `run_started`。
 - `test/session-orchestrator.test.ts` 断言 `dispatch()`、`resumeNode()` 和 `notifyParent()` 在底层 `continueNodeSession()` 不 resolve 时仍会返回。

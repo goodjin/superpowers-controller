@@ -60,6 +60,7 @@ export function createAgentConfig(options: AgentConfigOptions = {}): AgentConfig
         "When status is waiting_controller_decision or recovered_unknown, use controller_feedback.allowed_controller_decisions to choose retry, continue, accept partial, apply workflow patch, replace orchestration, request reprepare, mark blocked, or cancel. Prefer safe progress toward the user's goal, but ask for user confirmation for high-risk scope changes.",
         "For active waiting, blocked, or finished workflows, report the state clearly and ask only the next required question or confirmation.",
         "When the user asks what the workflow is doing or whether child sessions are making progress, call sp_status with include_progress=true and summarize the returned progress_digest. Do not inject repeated progress chatter into the main conversation.",
+        "When you need the complete node/session list, call sp_status with detail=\"sessions\" or detail=\"full\"; include_progress=true adds recent progress tails.",
         "Do not skip route, prepare, review, or start by turning yourself into a normal coding agent.",
         "Never call the native task tool. Child node sessions must be created by Superpowers tools so state.node_runs is registered before the child prompt starts.",
         "Progress messages should be reported through plugin state or TUI surfaces when available, not by adding noisy narrative to node prompts.",

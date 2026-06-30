@@ -78,6 +78,7 @@ export function buildWorkflowStatusSnapshot(args: {
         interrupted: allSessions.filter((session) => session.durable_status === "interrupted").length,
       },
     },
+    node_summary: buildNodeSummary(args.state, allSessions),
     current: args.state,
     task,
     sessions: detail === "sessions" || detail === "full" || args.sessionID ? sessions : undefined,
@@ -85,6 +86,87 @@ export function buildWorkflowStatusSnapshot(args: {
     allowed_controller_decisions: buildAllowedControllerDecisions(args.state),
     progress_digest: args.includeProgress ? buildProgressDigest(args.state, progressByNode, allSessions, now, args.progressTail) : undefined,
   }
+}
+
+function buildNodeSummary(
+  state: WorkflowState,
+  sessions: Array<{
+    node_id: string
+    task_id?: string
+    agent: string
+    phase: string
+    session_id: string
+    durable_status: string
+    activity_status: string
+    latest_progress: ReturnType<typeof latestProgressSummary>
+  }>,
+) {
+  const unfinishedStatuses = new Set(["running", "interrupted", "blocked", "failed", "needs_user", "dispatch_failed", "notification_failed"])
+  const nodes = sessions.map((session) => nodeSummaryEntry(session))
+  const unfinished = nodes.filter((node) => unfinishedStatuses.has(node.status))
+  const latestByTask = latestNodeByTask(nodes)
+  return {
+    total: nodes.length,
+    counts: countNodesByStatus(nodes),
+    last_node: nodes.at(-1),
+    unfinished_nodes: unfinished,
+    running_nodes: nodes.filter((node) => node.status === "running"),
+    blocked_nodes: nodes.filter((node) => ["blocked", "failed", "needs_user", "dispatch_failed", "notification_failed"].includes(node.status)),
+    interrupted_nodes: nodes.filter((node) => node.status === "interrupted"),
+    latest_by_task: latestByTask,
+    task_completion: state.task_graph?.tasks.length
+      ? {
+          total: state.task_graph.tasks.length,
+          passed: latestByTask.filter((node) => node.status === "passed").length,
+          unfinished: latestByTask.filter((node) => unfinishedStatuses.has(node.status)).length,
+          pending: state.task_graph.tasks.length - latestByTask.length,
+        }
+      : undefined,
+    detail_hint: "For complete per-session progress tails, call sp_status with detail=\"sessions\" or detail=\"full\" and include_progress=true.",
+  }
+}
+
+function nodeSummaryEntry(session: {
+  node_id: string
+  task_id?: string
+  agent: string
+  phase: string
+  session_id: string
+  durable_status: string
+  activity_status: string
+  latest_progress: ReturnType<typeof latestProgressSummary>
+}) {
+  return {
+    node_id: session.node_id,
+    task_id: session.task_id,
+    agent: session.agent,
+    phase: session.phase,
+    session_id: session.session_id,
+    status: session.durable_status,
+    activity_status: session.activity_status,
+    latest_progress: session.latest_progress.present
+      ? {
+          at: session.latest_progress.at,
+          kind: session.latest_progress.kind,
+          summary: session.latest_progress.summary,
+        }
+      : undefined,
+  }
+}
+
+function countNodesByStatus(nodes: Array<{ status: string }>): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const node of nodes) counts[node.status] = (counts[node.status] ?? 0) + 1
+  return counts
+}
+
+function latestNodeByTask<T extends { task_id?: string }>(nodes: T[]): T[] {
+  const latest = new Map<string, T>()
+  for (const node of nodes) {
+    if (!node.task_id) continue
+    latest.set(node.task_id, node)
+  }
+  return [...latest.values()]
 }
 
 function buildProgressDigest(
