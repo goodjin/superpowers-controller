@@ -2,7 +2,7 @@ import { accessSync, constants, existsSync, readdirSync, readFileSync } from "no
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { spawnSync } from "node:child_process"
-import { CONFIG_FILE_NAME, PACKAGE_NAME } from "./install"
+import { CONFIG_FILE_NAME, LEGACY_CONFIG_FILE_NAME, PACKAGE_NAME } from "./install"
 
 export type DoctorCheck = {
   name: string
@@ -16,6 +16,10 @@ export function doctor(configDir = join(homedir(), ".config", "opencode"), proje
   const configContent = existsSync(configPath) ? readFileSync(configPath, "utf8") : ""
   const skillsDir = join(configDir, "skills")
   const stateDir = join(projectDir, ".opencode", "superpowers")
+  const pluginConfigPath = join(configDir, CONFIG_FILE_NAME)
+  const legacyPluginConfigPath = join(configDir, LEGACY_CONFIG_FILE_NAME)
+  const hasPluginConfig = existsSync(pluginConfigPath)
+  const hasLegacyPluginConfig = existsSync(legacyPluginConfigPath)
 
   return [
     {
@@ -30,8 +34,8 @@ export function doctor(configDir = join(homedir(), ".config", "opencode"), proje
     },
     {
       name: "plugin-config",
-      ok: existsSync(join(configDir, CONFIG_FILE_NAME)),
-      detail: join(configDir, CONFIG_FILE_NAME),
+      ok: hasPluginConfig || hasLegacyPluginConfig,
+      detail: hasPluginConfig ? pluginConfigPath : legacyPluginConfigPath,
     },
     {
       name: "skills",

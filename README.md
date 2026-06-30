@@ -157,7 +157,7 @@ Commands 以动态注入为主，不再由 installer 复制 markdown command 文
 一键安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-controller/main/scripts/install.sh | bash
 ```
 
 手动安装：

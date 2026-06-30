@@ -6,7 +6,8 @@ import { modify, applyEdits, parse } from "jsonc-parser"
 import { DEFAULT_CONFIG } from "../config/defaults"
 
 export const PACKAGE_NAME = "superpowers-controller"
-export const CONFIG_FILE_NAME = "opencode-superpowers.jsonc"
+export const CONFIG_FILE_NAME = "superpowers-controller.jsonc"
+export const LEGACY_CONFIG_FILE_NAME = "opencode-superpowers.jsonc"
 const EXCLUDED_SKILL_DIRS = new Set([
   "superpowers-executing-plans",
   "superpowers-receiving-code-review",
@@ -35,8 +36,12 @@ export function install(configDir = join(homedir(), ".config", "opencode")): str
   writeFileSync(target, ensureTrailingNewline(mergePluginEntry(current)))
 
   const pluginConfigPath = join(configDir, CONFIG_FILE_NAME)
+  const legacyPluginConfigPath = join(configDir, LEGACY_CONFIG_FILE_NAME)
   if (!existsSync(pluginConfigPath)) {
-    writeFileSync(pluginConfigPath, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`)
+    const content = existsSync(legacyPluginConfigPath)
+      ? ensureTrailingNewline(readFileSync(legacyPluginConfigPath, "utf8"))
+      : `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`
+    writeFileSync(pluginConfigPath, content)
   }
 
   mkdirSync(join(configDir, "skills"), { recursive: true })

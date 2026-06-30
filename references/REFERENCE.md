@@ -1,6 +1,6 @@
 # References
 
-This directory contains external source references for designing `opencode-superpowers`.
+This directory contains external source references for designing `superpowers-controller`.
 
 ## oh-my-openagent
 

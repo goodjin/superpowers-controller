@@ -8,9 +8,9 @@ Local OpenCode installs can share the same user config and data directories. The
 
 - Provide a `superagent` command in `~/.local/bin`.
 - Run the isolated OpenCode 1.16.2 binary bundled under `tools/opencode-1.16.2/`.
-- Use a separate runtime root under `~/.local/share/opencode-superpowers-test`.
-- Keep the isolated config in `~/.local/share/opencode-superpowers-test/home/.config/opencode/opencode.json`.
-- Load the plugin from `file:///Users/jin/github/opencode-superpowers/dist/index.js`.
+- Use a separate runtime root under `~/.local/share/superpowers-controller-test`.
+- Keep the isolated config in `~/.local/share/superpowers-controller-test/home/.config/opencode/opencode.json`.
+- Load the plugin from `file:///Users/jin/github/superpowers-controller/dist/index.js`.
 - Use port `5096` for Web access by default.
 - Add a one-command deployment script that rebuilds the plugin, syncs skills and MiniMax auth, updates launchers, and restarts the Web server.
 

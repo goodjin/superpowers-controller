@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-RUNTIME_ROOT="${SUPERAGENT_ROOT:-$HOME/.local/share/opencode-superpowers-test}"
+RUNTIME_ROOT="${SUPERAGENT_ROOT:-$HOME/.local/share/superpowers-controller-test}"
 PORT="${SUPERAGENT_PORT:-5096}"
 HOSTNAME="${SUPERAGENT_HOSTNAME:-127.0.0.1}"
 BIN_DIR="$RUNTIME_ROOT/bin"

@@ -20,7 +20,7 @@ Provide a one-click installer for normal users that can be run from a shell, ins
 Recommended public command shape:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-controller/main/scripts/install.sh | bash
 ```
 
 For local development before a public URL is final:
@@ -85,7 +85,7 @@ Running the installer repeatedly should:
 
 - Not duplicate the plugin entry in `~/.config/opencode/opencode.jsonc` or `opencode.json`.
 - Preserve existing OpenCode config fields and JSONC comments.
-- Preserve an existing `opencode-superpowers.jsonc`.
+- Preserve and migrate an existing `opencode-superpowers.jsonc` into `superpowers-controller.jsonc`.
 - Refresh bundled skill files to the current package version.
 
 ### 5. Output
@@ -132,6 +132,6 @@ The first version does not need automatic rollback. The installer should avoid p
 
 ## Open Questions
 
-- Resolved: use the current repository raw URL, `https://raw.githubusercontent.com/goodjin/superpowers-agent/main/scripts/install.sh`.
+- Resolved: use the current repository raw URL, `https://raw.githubusercontent.com/goodjin/superpowers-controller/main/scripts/install.sh`.
 - Resolved: Bun remains an explicit prerequisite for the first installer.
 - Resolved: `scripts/install.sh` installs only the OpenCode plugin and does not create a normal-user `superagent` launcher.

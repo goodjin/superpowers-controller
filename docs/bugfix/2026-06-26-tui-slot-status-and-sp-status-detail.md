@@ -17,9 +17,9 @@
 
 当前隔离 runtime 配置：
 
-- server plugin: `/Users/jin/github/opencode-superpowers/dist/index.js`
-- TUI plugin: `/Users/jin/github/opencode-superpowers/dist/tui.js`
-- workflow project: `/Users/jin/.local/share/opencode-superpowers-test/project`
+- server plugin: `/Users/jin/github/superpowers-controller/dist/index.js`
+- TUI plugin: `/Users/jin/github/superpowers-controller/dist/tui.js`
+- workflow project: `/Users/jin/.local/share/superpowers-controller-test/project`
 
 当前 durable workflow 已经是最新状态：
 

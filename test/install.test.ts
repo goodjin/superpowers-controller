@@ -43,6 +43,7 @@ describe("mergePluginEntry", () => {
 
     install(configDir)
 
+    expect(existsSync(join(configDir, "superpowers-controller.jsonc"))).toBe(true)
     const skills = readdirSync(join(configDir, "skills")).filter((entry) => entry.startsWith("superpowers-"))
     const commandsDir = join(configDir, "commands")
     const commands = existsSync(commandsDir) ? readdirSync(commandsDir).filter((entry) => entry.startsWith("sp")) : []
@@ -98,7 +99,20 @@ describe("mergePluginEntry", () => {
     const config = readFileSync(join(home, ".config", "opencode", "opencode.jsonc"), "utf8")
     const matches = config.match(/superpowers-controller/g) ?? []
     expect(matches).toHaveLength(1)
-    expect(existsSync(join(home, ".config", "opencode", "opencode-superpowers.jsonc"))).toBe(true)
+    expect(existsSync(join(home, ".config", "opencode", "superpowers-controller.jsonc"))).toBe(true)
     expect(readdirSync(join(home, ".config", "opencode", "skills")).filter((entry) => entry.startsWith("superpowers-")).length).toBeGreaterThan(0)
   }, 30_000)
+
+  test("migrates the legacy plugin config path to the controller config path", () => {
+    const configDir = mkdtempSync(join(tmpdir(), "sp-install-legacy-"))
+    const legacyConfig = join(configDir, "opencode-superpowers.jsonc")
+    writeFileSync(legacyConfig, '{\n  "mode": "strict"\n}\n')
+
+    const paths = install(configDir)
+
+    const nextConfig = join(configDir, "superpowers-controller.jsonc")
+    expect(paths).toContain(nextConfig)
+    expect(readFileSync(nextConfig, "utf8")).toBe('{\n  "mode": "strict"\n}\n')
+    expect(existsSync(legacyConfig)).toBe(true)
+  })
 })

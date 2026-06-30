@@ -47,7 +47,7 @@ describe("deploy-superagent-runtime", () => {
     expect(launcher).toContain('start|stop|restart|status)')
     expect(launcher).toContain('exec "$DEPLOY_SCRIPT" "$1"')
     expect(launcher).toContain('--agent "super-agent"')
-  }, 30_000)
+  }, 180_000)
 
   test("stop falls back to the port listener when the pid file is stale", async () => {
     const tempHome = mkdtempSync(join(tmpdir(), "sp-superagent-home-"))

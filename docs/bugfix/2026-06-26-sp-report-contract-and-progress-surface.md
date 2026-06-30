@@ -14,7 +14,7 @@ Two issues were observed in the live isolated SuperAgent run:
 
 Current live workflow state:
 
-- Project: `/Users/jin/.local/share/opencode-superpowers-test/project`
+- Project: `/Users/jin/.local/share/superpowers-controller-test/project`
 - Run: `53099d79-8f20-4231-ab62-94364d41a8ad`
 - Current phase at investigation time: `implement`
 - Latest running node at investigation time: `017-implement-T4`

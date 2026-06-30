@@ -26,4 +26,4 @@
 - 产品名写 `Superpowers Controller`。
 - 当前实现环境写 `OpenCode adapter`，不要写成产品名的一部分。
 - 需要描述 npm/bin 现状时，写 `superpowers-controller`。
-- 需要描述 GitHub 仓库地址时，可以继续使用当前仓库 `goodjin/superpowers-agent`，但不要把仓库名写成产品名或包名。
+- 需要描述 GitHub 仓库地址时，使用当前仓库 `goodjin/superpowers-controller`。

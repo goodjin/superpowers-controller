@@ -1,6 +1,6 @@
 # Kickoff Prompt
 
-你现在要从零开始设计并实现一个 OpenCode 官方插件风格的项目。目标不是修改任何现有项目，而是在 `/Users/jin/github/opencode-superpowers` 下创建一个独立插件，暂定包名 `opencode-superpowers`。
+你现在要从零开始设计并实现一个 OpenCode 官方插件风格的项目。目标不是修改任何现有项目，而是在 `/Users/jin/github/superpowers-controller` 下创建一个独立插件，包名 `superpowers-controller`。
 
 ## 背景
 
@@ -98,7 +98,7 @@
 建议模块：
 
 ```text
-opencode-superpowers/
+superpowers-controller/
   package.json
   tsconfig.json
   src/
@@ -348,8 +348,8 @@ commands 可以由 installer 复制到：
 参考 OMO 的 installer 做一个最小 CLI：
 
 ```bash
-bunx opencode-superpowers install
-bunx opencode-superpowers doctor
+bunx superpowers-controller install
+bunx superpowers-controller doctor
 ```
 
 `install` 至少要：
@@ -361,7 +361,7 @@ bunx opencode-superpowers doctor
 5. 创建默认配置文件：
 
 ```text
-~/.config/opencode/opencode-superpowers.jsonc
+~/.config/opencode/superpowers-controller.jsonc
 ```
 
 `doctor` 至少检查：
@@ -379,7 +379,7 @@ bunx opencode-superpowers doctor
 
 ```jsonc
 {
-  "$schema": "https://example.invalid/opencode-superpowers.schema.json",
+  "$schema": "https://example.invalid/superpowers-controller.schema.json",
   "mode": "strict", // strict | guided | off
   "tdd": "strict", // strict | advisory | off
   "design_gate": "strict", // strict | advisory | off
@@ -425,7 +425,7 @@ bunx opencode-superpowers doctor
 
 在开始实现前，请向我确认这些点：
 
-1. 插件名称是否采用 `opencode-superpowers`？如果不采用，请给 2-3 个命名备选。
+1. 插件名称是否采用 `superpowers-controller`？如果不采用，请给 2-3 个命名备选。
 2. 第一版是否只支持 OpenCode，不支持 Codex / Claude Code？
 3. 默认 gate 模式是 `strict` 还是 `guided`？
 4. bundled skills 是否保留 Superpowers 原文，还是做 opencode 命名和内容适配？

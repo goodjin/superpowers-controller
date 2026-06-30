@@ -26,7 +26,7 @@ Rename the npm package and CLI from `opencode-superpowers-controller` to `superp
 ## Non-Goals
 
 - Do not change the plugin runtime id `superpowers-controller`; it already matches the target product name.
-- Do not change isolated runtime paths such as `~/.local/share/opencode-superpowers-test`.
+- Superseded by the repository rename follow-up: isolated runtime paths now use `~/.local/share/superpowers-controller-test`.
 - Do not submit or publish to npm in this task.
 - Do not edit unrelated historical docs that mention old design terms unless they are user-facing install/publish docs.
 - Do not touch the existing untracked `docs/features/2026-06-30-one-click-install-script.md` unless the user asks.

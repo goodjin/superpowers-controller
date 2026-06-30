@@ -9,7 +9,7 @@ The isolated runtime should also persist global OpenCode permissions as allowed 
 ## Scope
 
 - Update `scripts/deploy-superagent-runtime.sh`.
-- Keep the isolated runtime under `~/.local/share/opencode-superpowers-test`.
+- Keep the isolated runtime under `~/.local/share/superpowers-controller-test`.
 - Keep `start` and `restart` available for explicitly managing the Web server on `http://127.0.0.1:5096`.
 - Do not start the Web server from the default no-argument launcher path.
 - Default the no-argument launcher project directory to the runtime `$PWD`, with `SUPERAGENT_PROJECT_DIR` as an explicit override.

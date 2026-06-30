@@ -146,7 +146,7 @@ The npm package name and CLI command are both `superpowers-controller`.
 One-click install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-controller/main/scripts/install.sh | bash
 ```
 
 Manual install:

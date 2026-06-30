@@ -26,5 +26,5 @@ The requested chunk existed and `GET /assets/session-BXsNB1I-.js` returned the f
 
 1. Ran `scripts/deploy-superagent-runtime.sh restart`.
 2. Confirmed `http://127.0.0.1:5096` is running.
-3. Used Playwright to open the Web UI, click `/Users/jin/github/opencode-superpowers`, and wait on the project session page.
+3. Used Playwright to open the Web UI, click `/Users/jin/github/superpowers-controller`, and wait on the project session page.
 4. Verified no `pageerror` or failed asset requests were reported.
