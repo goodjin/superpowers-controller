@@ -1,31 +1,30 @@
 # Superpowers Controller
 
-Superpowers Controller is a stateful control plugin for coding agents.
+Superpowers Controller is a task control plugin for coding agents. It moves the Superpowers methodology from "skills remind the model how to work" toward "a plugin maintains state, dispatches nodes, and records results."
 
-It builds on the Superpowers methodology, but it is a separate project from the upstream Superpowers plugin. Upstream skills provide working methods. This plugin adds state, routing, gates, session control, and result recording so design, planning, debugging, TDD, review, and verification steps have project-local state, evidence, and enforcement.
+Many agent frameworks carry working methods through skills. That is lightweight and easy to extend, but long-running work exposes a practical cost: loading too many skills into one conversation makes context longer and noisier. Running different skills through subagents can isolate part of that context, but orchestration, next-step decisions, and recovery still tend to fall back to the main conversation.
 
-One-sentence positioning:
+Superpowers Controller lets the model understand the request, split the work, and produce node outputs. The plugin programmatically advances the workflow, persists execution state, and recovers after interruptions or restarts. The goal is simple: no missing nodes, no shuffled order, recorded results, and auditable logs.
 
-> Superpowers Controller adds state, routing, gates, session control, and result recording on top of the Superpowers methodology, so coding agents can follow disciplined development workflows without relying on prompt discipline alone.
+It builds on the Superpowers methodology as an independent project, separate from the upstream Superpowers plugin and unaffiliated with the upstream Superpowers project. Upstream skills provide working methods. This plugin adds state, routing, gates, session control, and result recording so design, planning, debugging, TDD, review, and verification steps have project-local state, evidence, and enforcement.
 
-## Boundaries
+## Usage
 
-- This project builds on the Superpowers methodology.
-- It is not the upstream Superpowers plugin.
-- It is not affiliated with the upstream Superpowers project.
-- Use upstream Superpowers if you only need skills; use this plugin if you want state, routing, gates, session control, and result recording.
+After installation, select `super-agent` in OpenCode. Requirement intake, design, planning, execution, verification, review, cancellation, and recovery are then driven by the `super-agent` through plugin tools.
 
-## Purpose
-
-Agent workflows often fail because the process only lives in prompts. Long context, interrupted work, and a vague "continue" can make a model skip design, start coding without a plan, fix a bug without a root cause, or claim completion without fresh verification.
-
-Final design document:
+The common path:
 
 ```text
-docs/superpowers/specs/2026-06-11-controller-final-design.md
+User selects super-agent
+  -> super-agent understands the request and calls sp_prepare
+  -> plugin prepares the task summary, documents, and executable workflow
+  -> user confirms and sp_start runs
+  -> plugin creates or reuses node sessions
+  -> node agent performs the current task and reports through sp_report
+  -> plugin records artifacts, updates gates, and schedules the next step
 ```
 
-The plugin stores workflow state in the project:
+The plugin stores execution state in the project:
 
 ```text
 .opencode/superpowers/current.json
@@ -35,15 +34,25 @@ The plugin stores workflow state in the project:
 
 It records:
 
-- Current workflow: `feature`, `debug`, `plan-only`, `review`, `verify-finish`, `parallel-investigate`
+- Current workflow and node graph
 - Current phase and routing state
 - Gates such as `design_approved`, `plan_written`, `root_cause_found`, `red_test_seen`, `verification_fresh`
 - Node artifacts such as spec, plan, root cause, red test log, review, and verification log
 - History for recovery and explanation
 
-## Design
+## Design Philosophy
 
-The workflow is split into layers:
+Superpowers skills are useful because they make proven working methods explicit: brainstorming, planning, systematic debugging, TDD, code review, and verification. The limitation is that a skill is still method text. It can guide a model, but it does not automatically store state, decide who should do the next step, know when to stop, or remember which evidence has already been accepted.
+
+This limitation grows with task length. If the main conversation loads multiple skills, the model has to carry the goal, context, process, prior decisions, and next action in the same window. Noise gradually competes with the important details. Subagents make individual nodes cleaner, but the main conversation still owns task splitting, dispatch, result collection, failure handling, and continuation. Over time, that conversation accumulates process pressure.
+
+Superpowers Controller moves that pressure into the plugin runtime. The model still does the work it is good at: understanding intent, writing designs, finding root causes, implementing code, and verifying results. The plugin connects those nodes: it saves workflow state, validates gates, records artifacts, recovers interrupted work, and passes results to the next node.
+
+Think of it as a dynamic workflow implementation. The controller can generate or trim the workflow for the request. Once execution starts, ordering, node status, result recording, and recovery are handled by the plugin.
+
+## Components
+
+The execution chain is split into layers:
 
 ```text
 super-agent -> Node Session -> Node Agent -> Primary Skill
@@ -54,14 +63,10 @@ State / Router / Gate / Session Control
 
 Layer responsibilities:
 
-- **super-agent**: the only user-facing entrypoint. It confirms intent, restores state, and creates or reuses child sessions. It does not write code.
+- **super-agent**: user entrypoint. It understands the request, prepares the task, restores state, and creates or reuses node sessions.
 - **Node agent**: focused role such as `sp-debugger` or `sp-implementer`.
 - **Skill**: node method, such as systematic debugging, TDD, or verification.
 - **Plugin state/gate/session control**: stores state, writes artifacts, validates gates, creates or reuses sessions, and intercepts unsafe tool calls.
-
-The model executes node work and submits normalized results through `sp_report`. The plugin owns state, routing, session creation, retry decisions, and persistence.
-
-## Agents and Skills
 
 The plugin dynamically injects these agents:
 
@@ -78,7 +83,7 @@ The plugin dynamically injects these agents:
 | `sp-verifier` | fresh verification node |
 | `sp-finisher` | finish / branch completion node |
 
-The runtime bundle includes only the 8 primary skills directly assigned to node agents:
+The runtime bundle includes the primary skills directly assigned to node agents:
 
 - `superpowers-brainstorming`
 - `superpowers-writing-plans`
@@ -89,35 +94,21 @@ The runtime bundle includes only the 8 primary skills directly assigned to node 
 - `superpowers-verification-before-completion`
 - `superpowers-finishing-a-development-branch`
 
-Agents and skills are separate layers. An agent is a role. A skill is the method used by that role.
+An agent is a role. A skill is a method. The plugin runtime is the advancement and recording mechanism. Agent prompts do not copy full skill bodies; they state the agent purpose, permissions, primary skill, and `sp_report` requirement. Detailed workflow behavior remains in the skill files.
 
-Agent prompts do not copy full skill bodies. They are lightweight role rules that state the agent purpose, permissions, primary skill, and `sp_report` requirement. Detailed workflow behavior remains in the skill files. The final design keeps one primary skill per node session; if another skill is needed, the plugin creates another node session.
+The final design keeps one primary skill per node session. If another skill is needed, the plugin creates another node session. This keeps node context focused while workflow state remains in the plugin.
 
-The plugin injects runtime skill context when a workflow is active. That context comes from the same node definition used by the router, agent prompts, node task packets, and `sp_next`, which avoids drift between routing and prompt text.
+The plugin injects runtime skill context when a workflow is active. That context comes from the same node definition used by the router, agent prompts, node task packets, and runtime system messages, which avoids drift between routing and prompt text.
 
-Example:
+The core tool loop stays compact:
 
-```text
-Select `super-agent`
-  -> super-agent confirms the debug workflow
-  -> plugin creates the workflow run
-  -> sp-debugger
-  -> primary skill: superpowers-systematic-debugging
-  -> sp_report submits the root_cause artifact
-  -> plugin writes the artifact, opens the root_cause_found gate, and schedules the next step
-```
+- `sp_status`: inspect current workflow, nodes, progress, and available capabilities.
+- `sp_prepare`: prepare the task, summary, and execution proposal.
+- `sp_start`: start, continue, or resolve a workflow.
+- `sp_cancel`: cancel the active workflow.
+- `sp_report`: let node agents submit structured results, evidence, and follow-up suggestions.
 
-If the user directly selects a node agent such as `sp-debugger`, the node agent still sees its role prompt and primary skill. Direct selection skips the controller's intent confirmation and recovery logic, so `super-agent` is the single supported user entrypoint.
-
-## Entrypoint
-
-The plugin does not register slash commands. After installation, select `super-agent` in OpenCode. Design, planning, execution, verification, review, cancel, and recovery flows are driven by the `super-agent` through `sp_status`, `sp_prepare`, `sp_start`, `sp_cancel`, and related tools.
-
-## Why use this instead of skills directly?
-
-Direct Superpowers skills are a good fit when you already know the process and only need method instructions.
-
-This plugin helps with longer, stateful, or interruptible work:
+Direct Superpowers skills are a good fit when you already know the process, the task is short, and state pressure is low. This plugin helps with longer, stateful, or interruptible work:
 
 - "Continue" resumes from workflow state instead of guessing intent again.
 - Writes, repair work, and completion claims go through gates.
@@ -195,3 +186,12 @@ tools/opencode-1.16.2/
 ```
 
 The smoke e2e uses temporary `HOME` and `XDG_CONFIG_HOME`, loads `file://dist/index.js`, and verifies that OpenCode 1.16.2 can see the 10 dynamically injected agents. It does not require a model account and does not modify the real OpenCode config.
+
+## Design Docs
+
+More design details:
+
+```text
+docs/superpowers/specs/2026-06-11-controller-final-design.md
+docs/superpowers/specs/2026-06-28-controller-prd-v5.md
+```

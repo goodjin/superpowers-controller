@@ -1,38 +1,30 @@
 # Superpowers Controller
 
-Superpowers Controller 是一个面向 coding agents 的状态控制插件。
+Superpowers Controller 是一个面向 coding agents 的任务控制插件。它把 Superpowers methodology 从“靠 skill 提醒模型怎么做”推进到“由插件维护状态、调度节点、记录结果”的运行方式。
 
-它基于 Superpowers methodology，但不等同于上游 Superpowers plugin。上游 skills 主要提供工作方法；这个插件在这些方法之上加了一层状态机、路由、门禁、会话控制和结果记录，让设计、计划、调试、TDD、审查、验证这些步骤有状态可查、有证据可追、有 gate 可拦。
+很多 agent 框架都把工作方法放在 skill 里。这个方式轻，也容易扩展，但长程任务会遇到几个现实问题：同一个会话加载太多 skill 后，上下文会变长，噪音会增多；把不同 skill 放到 subagent 里执行可以隔离一部分上下文，但任务编排、下一步判断和异常恢复通常还是落回主会话。
 
-一句话：
+Superpowers Controller 的做法是让大模型负责理解任务、拆分任务和完成节点产出；插件负责程序化推进 workflow，持久化执行状态，并在重启或中断后恢复。它的目标很直接：节点一个不少，顺序不乱，结果有记录，日志能审计。
 
-> Superpowers Controller adds state, routing, gates, session control, and result recording on top of the Superpowers methodology, so coding agents can follow disciplined development workflows without relying on prompt discipline alone.
+它基于 Superpowers methodology，是独立于上游 Superpowers plugin 的项目，也不隶属于上游 Superpowers 项目。上游 skills 主要提供工作方法；这个插件在这些方法之上加了一层状态机、路由、门禁、会话控制和结果记录，让设计、计划、调试、TDD、审查、验证这些步骤有状态可查、有证据可追、有 gate 可拦。
 
-## 边界
+## 怎么使用
 
-- This project builds on the Superpowers methodology.
-- It is not the upstream Superpowers plugin.
-- It is not affiliated with the upstream Superpowers project.
-- Use upstream Superpowers if you only need skills; use this plugin if you want state, routing, gates, session control, and result recording.
+安装后在 OpenCode 中选择 `super-agent` 作为入口。后续需求确认、设计、计划、执行、验证、review、取消和恢复都通过 `super-agent` 调用插件工具推进。
 
-对应到中文：
-
-- 它借鉴并打包 Superpowers 方法论。
-- 它是独立项目，不隶属于上游 Superpowers plugin。
-- 它没有上游 Superpowers 项目的官方背书。
-- 如果你只需要 skills，直接用上游 Superpowers 就够了；如果你希望 agent 记住流程状态、自动路由节点、在证据不足时拦住写入和完成声明，用这个插件更合适。
-
-## 用途
-
-很多 agent 工作流的问题不在于模型不知道流程，而在于流程只写在 prompt 里。上下文一长、任务一多、用户一句“继续”，模型就可能跳过设计、没写计划就动手、没 root cause 就修 bug、没 fresh verification 就说 done。
-
-最终设计文档见：
+最常见的使用路径：
 
 ```text
-docs/superpowers/specs/2026-06-11-controller-final-design.md
+用户选择 super-agent
+  -> super-agent 理解需求并调用 sp_prepare
+  -> 插件生成任务摘要、需要的文档和可执行 workflow
+  -> 用户确认后调用 sp_start
+  -> 插件创建或复用节点会话
+  -> 节点 agent 执行当前任务并通过 sp_report 汇报
+  -> 插件记录 artifact、更新 gate、调度下一步
 ```
 
-这个插件把这些流程信息放进项目本地状态：
+插件使用项目本地状态保存执行过程：
 
 ```text
 .opencode/superpowers/current.json
@@ -42,7 +34,7 @@ docs/superpowers/specs/2026-06-11-controller-final-design.md
 
 插件记录：
 
-- 当前 workflow：`feature`、`debug`、`plan-only`、`review`、`verify-finish`、`parallel-investigate`
+- 当前 workflow 和节点图
 - 当前 phase 和下一步
 - gate 状态，比如 `design_approved`、`plan_written`、`root_cause_found`、`red_test_seen`、`verification_fresh`
 - 节点产物，比如 spec、plan、root cause、red test log、review、verification log
@@ -50,7 +42,17 @@ docs/superpowers/specs/2026-06-11-controller-final-design.md
 
 ## 设计理念
 
-这个插件把工作拆成四层：
+Superpowers skills 的价值在于把成熟的工作方法写清楚，例如 brainstorming、planning、systematic debugging、TDD、code review 和 verification。问题在于，skill 本身只是方法文本。它能提醒模型，但不天然保存状态，也不会自动判断下一步该由谁做、什么时候该停、哪些证据已经满足。
+
+当任务变长时，这个限制会放大。主会话里加载多个 skill，模型要同时记住目标、上下文、流程、历史决策和下一步动作，噪音会慢慢压过关键信息。使用 subagent 后，单个节点的上下文会干净一些，但主会话仍要负责拆任务、派发、收结果、处理失败和继续推进。时间一长，主会话还是会背上越来越多的流程负担。
+
+Superpowers Controller 把这部分负担交给插件 runtime。模型继续做它擅长的事：理解用户意图、写设计、查 root cause、实现代码、做验证。插件负责把这些节点串起来：保存 workflow state，校验 gate，记录 artifacts，恢复中断任务，并把结果交给下一个节点。
+
+可以把它看作一种动态工作流实现方案。workflow 可以由主控根据任务生成或裁剪；一旦进入执行，推进顺序、节点状态、结果记录和异常处理由插件接管。
+
+## 组成部分
+
+这个插件把执行链路拆成四层：
 
 ```text
 super-agent -> Node Session -> Node Agent -> Primary Skill
@@ -61,16 +63,12 @@ State / Router / Gate / Session Control
 
 各层职责：
 
-- **super-agent**：唯一用户入口。主会话总控负责确认需求、恢复状态、创建/复用子会话，不直接写代码。
+- **super-agent**：用户入口。主会话总控负责理解需求、准备任务、恢复状态、创建或复用节点会话。
 - **Node agent**：`sp-debugger`、`sp-implementer` 这类专门角色，只处理当前节点。
 - **Skill**：节点的方法说明，比如 systematic debugging、TDD、verification。
 - **Plugin state/gate/session control**：负责存状态、写 artifact、校验 gate、创建/复用会话、拦截不合规工具调用。
 
-这套设计的关键点是：模型可以负责当前节点的思考和产出，但流程可信性由插件兜住。比如 debug 模式下，缺少 `root_cause` artifact 时，严格模式会阻止修复性写入；完成前没有 `verification_log`，就不能通过 `sp_report` 汇报完成。
-
-## Agents 和 Skills 的关系
-
-最终设计中插件动态注入这些 agents：
+插件动态注入这些 agents：
 
 | Agent | 角色 |
 |---|---|
@@ -85,7 +83,7 @@ State / Router / Gate / Session Control
 | `sp-verifier` | verification 节点 |
 | `sp-finisher` | finish / branch completion |
 
-运行时只打包节点 agent 直接使用的 8 个 primary skills：
+运行时打包节点 agent 直接使用的 primary skills：
 
 - `superpowers-brainstorming`
 - `superpowers-writing-plans`
@@ -96,37 +94,21 @@ State / Router / Gate / Session Control
 - `superpowers-verification-before-completion`
 - `superpowers-finishing-a-development-branch`
 
-这两组没有互相替代。Agent 是角色，skill 是做事方法。
+Agent 是角色，skill 是方法，插件 runtime 是推进和记录机制。Agent prompt 不整段复制 skill 内容，只声明职责、权限、primary skill 和结束时要调用 `sp_report`。具体流程细节仍来自 skill 文件。
 
-Agent prompt 没有整段复制 skill 内容。它是新设计的轻量角色规则：说明这个 agent 的职责、权限、primary skill 和结束时要调用 `sp_report`。具体流程细节仍然来自 skill 文件。最终设计要求一个节点会话只加载一个 primary skill；需要另一个 skill 时，插件创建另一个节点会话。
+最终设计要求一个节点会话只加载一个 primary skill；需要另一个 skill 时，插件创建另一个节点会话。这样可以把节点上下文控制在当前任务范围内，同时让主流程状态留在插件里。
 
 插件会在创建节点会话时注入运行时 skill 上下文。它来自同一份节点定义，包含当前 workflow、phase、agent、`primary_skill` 和节点任务模板。这样 agent prompt、router、节点任务包和运行时系统消息看到的是同一份 skill map。
 
-最终控制权边界是：大模型只执行节点任务并通过 `sp_report` 提交规范化结果；插件负责保存状态、判断结果、创建或复用下一步会话。
+核心工具保持紧凑：
 
-例子：
+- `sp_status`：查看当前 workflow、节点、进度和可用能力。
+- `sp_prepare`：准备任务、生成摘要和执行方案。
+- `sp_start`：启动、继续或裁决 workflow。
+- `sp_cancel`：取消当前 workflow。
+- `sp_report`：节点 agent 提交结构化结果、证据和后续建议。
 
-```text
-用户选择 `super-agent`
-  -> super-agent 确认 debug workflow
-  -> 插件创建 workflow run
-  -> sp-debugger
-  -> 加载一个 primary skill: superpowers-systematic-debugging
-  -> sp_report 提交 root_cause artifact
-  -> 插件写 artifact、打开 root_cause_found gate、调度下一步
-```
-
-如果用户在 OpenCode 里直接选择某个节点 agent，比如 `sp-debugger`，它仍然会看到自己的角色 prompt：聚焦 debug、加载 `superpowers-systematic-debugging`、结束时调用 `sp_report`。但直接选择节点 agent 会绕过 super-agent 的需求确认和恢复逻辑，所以用户入口统一为 `super-agent`。
-
-## Entrypoint
-
-插件不注册 slash commands。安装后在 OpenCode 中选择 `super-agent` 作为唯一入口；后续设计、计划、执行、验证、review 和恢复都通过 `super-agent` 调用 `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel` 等工具推进。
-
-## 相比直接使用 Superpowers skills 的优势
-
-直接使用 Superpowers skills，适合已经很熟悉流程的人。它轻、直接、没有额外状态。
-
-这个插件适合更长、更复杂、更容易中断的工作：
+直接使用 Superpowers skills，适合已经熟悉流程、任务较短、状态压力不大的场景。这个插件更适合更长、更复杂、更容易中断的工作：
 
 - 用户说“继续”时，插件先看当前 workflow state，而不是重新猜意图。
 - 写入、修复、完成声明会经过 gate 检查。
@@ -137,7 +119,7 @@ Agent prompt 没有整段复制 skill 内容。它是新设计的轻量角色规
 
 ## 安装
 
-正式 npm 包名和 CLI 命令统一为 `superpowers-controller`。当前已验证运行环境是 OpenCode `>= 1.16.0`。
+npm 包名和 CLI 命令统一为 `superpowers-controller`。当前已验证运行环境是 OpenCode `>= 1.16.0`。
 
 一键安装：
 
@@ -237,3 +219,12 @@ bun run test:e2e:opencode
 ```
 
 这个命令会先构建插件，再运行可复用 harness smoke 和 workflow 场景。当前覆盖 debug root cause、strict debug gate、完整 feature lifecycle、`sp_report` 校验恢复、completion verification、active waiting status 查询和 strict execute gate 顺序。
+
+## 设计文档
+
+更多设计细节见：
+
+```text
+docs/superpowers/specs/2026-06-11-controller-final-design.md
+docs/superpowers/specs/2026-06-28-controller-prd-v5.md
+```

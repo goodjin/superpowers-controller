@@ -25,6 +25,17 @@ product docs 记录 Superpowers Controller 的产品设计版本、PRD 来源和
 - 实现后的模块契约按模块文档规范放置。
 - 如果 PRD 和模块文档冲突，先以当前代码和模块文档核验，再回写 PRD。
 
+## README Positioning
+
+`README.md` 和 `README.en.md` 面向首次了解项目的读者，结构保持一致：
+
+- 先说明 Superpowers Controller 是面向 coding agents 的任务控制插件。
+- 再说明安装后通过 `super-agent` 使用，需求准备、启动、继续、取消和节点汇报通过插件工具推进。
+- 接着解释设计理念：skills 负责方法，node agents 负责节点执行，plugin runtime 负责状态、调度、gate、恢复和审计。
+- 最后说明 agents、primary skills、核心工具、安装、配置和验证方式。
+
+README 不强调项目没有实现的入口形态或能力，避免让读者把注意力放到负向边界上。项目边界可以保留为独立项目和非上游官方插件的说明。
+
 ## V5 Prepare/Start Execution Notes
 
 v5 PRD 将产品目标从固定 workflow definition 调整为 prepare-first task control 加 controller-selected start configuration：
