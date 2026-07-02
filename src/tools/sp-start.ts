@@ -383,6 +383,7 @@ export async function dispatchWorkflowDecisions(args: {
         parentSessionID: current.parent_session_id,
         decision,
         packet,
+        readStateForProgress: () => args.store.readRun(current.id),
         async onSessionCreated(input) {
           args.store.addNodeRun({
             phase: decision.phase,

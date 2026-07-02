@@ -284,6 +284,61 @@ describe("createSessionOrchestrator", () => {
     expect(order).toEqual(["create", "register", "prompt"])
   })
 
+  test("starts parent progress after node registration and before child prompt", async () => {
+    const order: string[] = []
+    const orchestrator = createSessionOrchestrator(
+      {
+        async createNodeSession() {
+          order.push("create")
+          return "session-node"
+        },
+        async continueNodeSession() {
+          order.push("prompt")
+        },
+        async showProgress() {},
+      },
+      {
+        parentProgress: {
+          start() {
+            order.push("parent-progress")
+          },
+        },
+      },
+    )
+
+    await orchestrator.dispatch({
+      project: "/repo",
+      runID: "run-1",
+      parentSessionID: "session-main",
+      decision: {
+        action: "create_session",
+        phase: "plan",
+        agent: "sp-planner",
+        primary_skill: "superpowers-writing-plans",
+        reason: "plan next",
+      },
+      packet: {
+        run_id: "run-1",
+        node_id: "001-plan",
+        workflow: "feature",
+        phase: "plan",
+        agent: "sp-planner",
+        primary_skill: "superpowers-writing-plans",
+        objective: "Write plan.",
+        required_artifacts: [],
+        record_contract: { event: "plan", expected_artifacts: ["plan"], allowed_gates: ["plan_written"] },
+      },
+      async onSessionCreated() {
+        order.push("register")
+      },
+      readStateForProgress() {
+        return null
+      },
+    })
+
+    expect(order).toEqual(["create", "register", "parent-progress", "prompt"])
+  })
+
   test("reuses an existing node session for retry dispatch", async () => {
     const continued: string[] = []
     const orchestrator = createSessionOrchestrator({

@@ -97,6 +97,7 @@ export function createReportHandler(deps: {
           parentSessionID: current.parent_session_id ?? context.sessionID ?? current.session,
           decision,
           packet,
+          readStateForProgress: () => deps.store.readRun(current.id),
           async onSessionCreated(input) {
             deps.store.addNodeRun({
               phase: decision.phase,

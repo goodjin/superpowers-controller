@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from "node:fs"
 import { isAbsolute, join, normalize } from "node:path"
 import type { DispatchDecision } from "../router/transition"
 import type { SessionAdapter } from "./adapter"
+import type { ParentProgressNotifier } from "./parent-progress-notifier"
 import { buildNodeTaskPrompt } from "./templates"
 import type { NodeTaskPacket } from "./task-packet"
+import type { WorkflowState } from "../state/types"
 
 export type SessionDispatchResult = {
   action: "create_session" | "reuse_session"
@@ -18,7 +20,12 @@ export type SessionResumeResult = {
 
 export type SessionOrchestrator = ReturnType<typeof createSessionOrchestrator>
 
-export function createSessionOrchestrator(adapter: SessionAdapter) {
+export function createSessionOrchestrator(
+  adapter: SessionAdapter,
+  options: {
+    parentProgress?: Pick<ParentProgressNotifier, "start">
+  } = {},
+) {
   return {
     async dispatch(args: {
       project: string
@@ -27,6 +34,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
       decision: Extract<DispatchDecision, { action: "create_session" | "reuse_session" }>
       packet: NodeTaskPacket
       onSessionCreated?: (args: { sessionID: string; taskMarkdown: string }) => Promise<void>
+      readStateForProgress?: () => WorkflowState | null
     }): Promise<SessionDispatchResult> {
       const packet = inlineRequiredArtifacts({
         project: args.project,
@@ -47,6 +55,11 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
             taskMarkdown,
           })
         }
+        startParentProgress(options.parentProgress, {
+          project: args.project,
+          runID: args.runID,
+          readState: args.readStateForProgress,
+        })
         const scheduled = scheduleNodePrompt(adapter, {
           sessionID: args.decision.session_id,
           agent: args.decision.agent,
@@ -83,6 +96,11 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
           taskMarkdown,
         })
       }
+      startParentProgress(options.parentProgress, {
+        project: args.project,
+        runID: args.runID,
+        readState: args.readStateForProgress,
+      })
       const scheduled = scheduleNodePrompt(adapter, {
         sessionID,
         agent: args.decision.agent,
@@ -160,6 +178,22 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
       })
     },
   }
+}
+
+function startParentProgress(
+  parentProgress: Pick<ParentProgressNotifier, "start"> | undefined,
+  args: {
+    project: string
+    runID: string
+    readState?: () => WorkflowState | null
+  },
+): void {
+  if (!parentProgress || !args.readState) return
+  parentProgress.start({
+    project: args.project,
+    runID: args.runID,
+    readState: args.readState,
+  })
 }
 
 function inlineRequiredArtifacts(args: {
