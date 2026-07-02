@@ -1,8 +1,14 @@
 # Superpowers Controller
 
-Superpowers Controller 是一种用 Agent 使用 Superpowers 框架的方式。
+Superpowers Controller 是一种通过 Agent 来使用 Superpowers 框架的插件。
 
-安装后默认入口会设为 `super-agent`。这个 Agent 会按 Superpowers 框架的规则和流程执行任务，并自动使用相关 Skill，不需要手动触发。大模型负责理解任务、拆分任务和完成节点产出；插件通过程序控制各个环节的执行，维护状态、调度节点、记录结果，减少大上下文污染和注意力漂移带来的中断或流程跑偏。
+安装后默认入口会设为 `super-agent`。
+
+这个 Agent 会按 Superpowers 框架的规则和流程执行任务，并自动使用相关 Skill，不需要手动触发。
+
+大模型负责理解任务、拆分任务和完成节点产出。
+
+插件通过程序控制各个环节的执行，维护状态、调度节点、记录结果，减少大上下文污染和注意力漂移带来的中断或流程跑偏问题。
 
 ## 怎么使用
 
@@ -31,7 +37,7 @@ opencode
 opencode --agent super-agent
 ```
 
-如果要从本项目源码编译后安装：
+如果要从本项目源码编译后安装可以这样：
 
 ```bash
 git clone https://github.com/goodjin/superpowers-controller.git
