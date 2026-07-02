@@ -1,8 +1,8 @@
 # Superpowers Controller
 
-Superpowers Controller 是一个面向 OpenCode coding agents 的任务控制插件。
+Superpowers Controller 是一种用 Agent 使用 Superpowers 框架的方式。
 
-它基于 Superpowers methodology，但把流程从“靠 skill 提醒模型怎么做”推进到“由插件维护状态、调度节点、记录结果”。大模型负责理解任务、拆分任务和完成节点产出；插件负责推进 workflow、持久化状态、恢复中断和记录审计日志。
+安装后直接选择 `super-agent`，Agent 会按 Superpowers 框架的规则和流程执行任务，并自动使用相关 Skill，不需要手动触发。大模型负责理解任务、拆分任务和完成节点产出；插件通过程序控制各个环节的执行，维护状态、调度节点、记录结果，减少大上下文污染和注意力漂移带来的中断或流程跑偏。
 
 ## 怎么使用
 
@@ -39,9 +39,9 @@ bash scripts/install.sh
 
 ## 设计理念
 
-很多 agent 框架用 skill 承载工作方法。skill 很轻，也容易扩展，但长程任务会把问题放大：同一个主会话加载太多 skill 后，上下文变长、噪音变多；改用 subagent 可以隔离单个节点，但任务编排、结果回收、失败处理和继续推进仍会压回主会话。
+Superpowers 原本主要通过 Skill 承载工作方法。Skill 很轻，也容易扩展，但长程任务会把问题放大：同一个主会话加载太多 Skill 后，上下文变长、噪音变多；改用 subagent 可以隔离单个节点，但任务编排、结果回收、失败处理和继续推进仍会压回主会话。
 
-Superpowers Controller 把这部分流程压力交给插件 runtime。模型只需要处理当前节点的判断和产出；插件负责保存 workflow state、校验 gate、记录 artifacts、调度下一步，并在重启后恢复。
+Superpowers Controller 把 Skill 的使用封装进 Agent 流程里。用户只选择 `super-agent`，Agent 负责按流程调用合适的 Skill；插件 runtime 负责保存 workflow state、校验 gate、记录 artifacts、调度下一步，并在重启后恢复。
 
 可以把它看作动态工作流方案：workflow 可以由主控根据任务生成或裁剪；进入执行后，节点顺序、执行状态、结果记录和异常处理由插件接管。
 

@@ -15,6 +15,7 @@
 - 中文和英文 README 保持相同信息层级。
 - 移除对未实现能力的负向强调，把篇幅留给项目定位、使用方式和设计理念。
 - 补充设计理念：skills 适合承载方法，但多个 skills 在同一主会话中容易让上下文变长、噪音增多；subagent 可以隔离执行，但长程任务的编排和推进仍会压回主会话；本插件把任务推进、状态持久化、恢复和审计交给程序化 runtime。
+- 调整首页定位：Superpowers Controller 是用 Agent 使用 Superpowers 框架的方式；安装后选择 `super-agent`，Agent 自动使用相关 Skill，插件通过程序控制流程推进。
 
 ## Out of Scope
 
