@@ -3,7 +3,7 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { spawnSync } from "node:child_process"
 import { parse } from "jsonc-parser"
-import { CONFIG_FILE_NAME, LEGACY_CONFIG_FILE_NAME, PACKAGE_NAME } from "./install"
+import { CONFIG_FILE_NAME, LEGACY_CONFIG_FILE_NAME, PACKAGE_NAME, TUI_PACKAGE_ENTRY } from "./install"
 
 export const MIN_OPENCODE_VERSION = "1.16.0"
 
@@ -24,6 +24,9 @@ export function doctor(
   const configPath = existsSync(join(configDir, "opencode.jsonc")) ? join(configDir, "opencode.jsonc") : join(configDir, "opencode.json")
   const configContent = existsSync(configPath) ? readFileSync(configPath, "utf8") : ""
   const parsedConfig = parse(configContent || "{}")
+  const tuiConfigPath = existsSync(join(configDir, "tui.jsonc")) ? join(configDir, "tui.jsonc") : join(configDir, "tui.json")
+  const tuiConfigContent = existsSync(tuiConfigPath) ? readFileSync(tuiConfigPath, "utf8") : ""
+  const parsedTuiConfig = parse(tuiConfigContent || "{}")
   const skillsDir = join(configDir, "skills")
   const stateDir = join(projectDir, ".opencode", "superpowers")
   const pluginConfigPath = join(configDir, CONFIG_FILE_NAME)
@@ -44,8 +47,13 @@ export function doctor(
     },
     {
       name: "plugin-entry",
-      ok: configContent.includes(PACKAGE_NAME),
+      ok: hasPluginEntry(parsedConfig, PACKAGE_NAME),
       detail: configPath,
+    },
+    {
+      name: "tui-plugin-entry",
+      ok: hasPluginEntry(parsedTuiConfig, TUI_PACKAGE_ENTRY),
+      detail: tuiConfigPath,
     },
     {
       name: "default-agent",
@@ -97,6 +105,14 @@ function isWritableOrCreatable(path: string): boolean {
   } catch {
     return false
   }
+}
+
+function hasPluginEntry(config: unknown, pluginEntry: string): boolean {
+  return isRecord(config) && Array.isArray(config.plugin) && config.plugin.includes(pluginEntry)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
 }
 
 function nearestExistingPath(path: string): string {

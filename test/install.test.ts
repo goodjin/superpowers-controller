@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFil
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawnSync } from "node:child_process"
-import { install, mergeDefaultAgent, mergePluginEntry } from "../src/cli/install"
+import { install, mergeDefaultAgent, mergePluginEntry, mergeTuiPluginEntry } from "../src/cli/install"
 import { doctor, MIN_OPENCODE_VERSION } from "../src/cli/doctor"
 
 describe("mergePluginEntry", () => {
@@ -50,12 +50,28 @@ describe("mergePluginEntry", () => {
     expect(output).not.toContain('"general"')
   })
 
+  test("adds the TUI plugin entry while preserving existing TUI config", () => {
+    const output = mergeTuiPluginEntry(`{
+  // keep theme
+  "theme": "system",
+  "plugin": ["other-tui-plugin"]
+}
+`)
+
+    expect(output).toContain("// keep theme")
+    expect(output).toContain('"theme": "system"')
+    expect(output).toContain('"other-tui-plugin"')
+    expect(output).toContain('"superpowers-controller/tui"')
+    expect(output).toContain('"$schema": "https://opencode.ai/tui.json"')
+  })
+
   test("installs skills without copying command assets", () => {
     const configDir = mkdtempSync(join(tmpdir(), "sp-install-"))
 
     install(configDir)
 
     expect(existsSync(join(configDir, "superpowers-controller.jsonc"))).toBe(true)
+    expect(readFileSync(join(configDir, "tui.jsonc"), "utf8")).toContain('"superpowers-controller/tui"')
     const skills = readdirSync(join(configDir, "skills")).filter((entry) => entry.startsWith("superpowers-"))
     const commandsDir = join(configDir, "commands")
     const commands = existsSync(commandsDir) ? readdirSync(commandsDir).filter((entry) => entry.startsWith("sp")) : []
@@ -109,8 +125,11 @@ describe("mergePluginEntry", () => {
     }
 
     const config = readFileSync(join(home, ".config", "opencode", "opencode.jsonc"), "utf8")
+    const tuiConfig = readFileSync(join(home, ".config", "opencode", "tui.jsonc"), "utf8")
     const matches = config.match(/superpowers-controller/g) ?? []
+    const tuiMatches = tuiConfig.match(/superpowers-controller\/tui/g) ?? []
     expect(matches).toHaveLength(1)
+    expect(tuiMatches).toHaveLength(1)
     expect(config).toContain('"default_agent": "super-agent"')
     expect(existsSync(join(home, ".config", "opencode", "superpowers-controller.jsonc"))).toBe(true)
     expect(readdirSync(join(home, ".config", "opencode", "skills")).filter((entry) => entry.startsWith("superpowers-")).length).toBeGreaterThan(0)
@@ -127,6 +146,27 @@ describe("mergePluginEntry", () => {
     expect(paths).toContain(nextConfig)
     expect(readFileSync(nextConfig, "utf8")).toBe('{\n  "mode": "strict"\n}\n')
     expect(existsSync(legacyConfig)).toBe(true)
+  })
+
+  test("doctor reports missing TUI plugin entry", () => {
+    const home = mkdtempSync(join(tmpdir(), "sp-doctor-tui-"))
+    const binDir = join(home, "bin")
+    const configDir = join(home, ".config", "opencode")
+    mkdirSync(binDir, { recursive: true })
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(join(binDir, "opencode"), "#!/usr/bin/env bash\nprintf '1.17.13\\n'\n", { mode: 0o755 })
+
+    install(configDir)
+    writeFileSync(join(configDir, "tui.jsonc"), '{\n  "plugin": []\n}\n')
+
+    const tuiCheck = doctor(
+      configDir,
+      home,
+      { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ""}` },
+    ).find((check) => check.name === "tui-plugin-entry")
+
+    expect(tuiCheck?.ok).toBe(false)
+    expect(tuiCheck?.detail).toBe(join(configDir, "tui.jsonc"))
   })
 
   test("doctor rejects OpenCode versions older than the verified runtime", () => {

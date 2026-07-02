@@ -38,6 +38,53 @@ doctor_allows_only_missing_opencode() {
   [[ -z "$failures" ]]
 }
 
+refresh_opencode_plugin_cache() {
+  if ! command_exists opencode; then
+    return 0
+  fi
+
+  log "Refreshing OpenCode plugin cache..."
+  opencode plugin "$PACKAGE_NAME" --global --force
+}
+
+ensure_tui_plugin_config() {
+  local config_dir="$HOME/.config/opencode"
+  local tui_entry="$PACKAGE_NAME/tui"
+
+  mkdir -p "$config_dir"
+  CONFIG_DIR="$config_dir" TUI_PACKAGE_ENTRY="$tui_entry" bun --eval '
+const fs = require("fs")
+const path = require("path")
+
+const configDir = process.env.CONFIG_DIR
+const entry = process.env.TUI_PACKAGE_ENTRY
+const jsoncPath = path.join(configDir, "tui.jsonc")
+const jsonPath = path.join(configDir, "tui.json")
+const target = fs.existsSync(jsoncPath) || !fs.existsSync(jsonPath) ? jsoncPath : jsonPath
+let content = fs.existsSync(target)
+  ? fs.readFileSync(target, "utf8")
+  : "{\n  \"$schema\": \"https://opencode.ai/tui.json\"\n}\n"
+
+if (!content.includes(entry)) {
+  if (/"plugin"\s*:\s*\[/.test(content)) {
+    content = content.replace(/("plugin"\s*:\s*\[)([\s\S]*?)(\])/m, (_match, start, body, end) => {
+      const needsComma = body.trim().length > 0 && !body.trimEnd().endsWith(",")
+      return `${start}${body}${needsComma ? ", " : ""}"${entry}"${end}`
+    })
+  } else {
+    content = content.replace(/\}\s*$/, `,\n  "plugin": ["${entry}"]\n}\n`)
+  }
+}
+
+if (!content.includes("\"$schema\"")) {
+  content = content.replace(/\{\s*/, "{\n  \"$schema\": \"https://opencode.ai/tui.json\",\n  ")
+}
+
+fs.writeFileSync(target, content.endsWith("\n") ? content : `${content}\n`)
+console.log(`Installed OpenCode TUI plugin entry:\n${target}`)
+'
+}
+
 main() {
   require_command bash
   require_command bun
@@ -53,6 +100,12 @@ main() {
     die "install command failed"
   fi
   printf '%s\n' "$install_output"
+
+  ensure_tui_plugin_config
+
+  if ! refresh_opencode_plugin_cache; then
+    die "failed to refresh OpenCode plugin cache"
+  fi
 
   log ""
   log "Running doctor..."
@@ -72,6 +125,8 @@ main() {
     log "Superpowers Controller installed."
   fi
   log "Validate OpenCode can see the agent with: opencode agent list"
+  log "Validate TUI config with: test -f ~/.config/opencode/tui.json -o -f ~/.config/opencode/tui.jsonc"
+  log "Restart OpenCode after installation so the TUI plugin is loaded."
   log "Start with: opencode --agent super-agent"
 }
 

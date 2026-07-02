@@ -6,6 +6,7 @@ import { modify, applyEdits, parse } from "jsonc-parser"
 import { DEFAULT_CONFIG } from "../config/defaults"
 
 export const PACKAGE_NAME = "superpowers-controller"
+export const TUI_PACKAGE_ENTRY = `${PACKAGE_NAME}/tui`
 export const CONFIG_FILE_NAME = "superpowers-controller.jsonc"
 export const LEGACY_CONFIG_FILE_NAME = "opencode-superpowers.jsonc"
 const EXCLUDED_SKILL_DIRS = new Set([
@@ -18,6 +19,25 @@ const EXCLUDED_SKILL_DIRS = new Set([
 ])
 
 export function mergePluginEntry(content: string, pluginEntry = PACKAGE_NAME): string {
+  let output = mergePluginArray(content, pluginEntry)
+  const defaultAgentEdits = modify(output, ["default_agent"], "super-agent", {
+    formattingOptions: { insertSpaces: true, tabSize: 2 },
+  })
+  return applyEdits(output, defaultAgentEdits)
+}
+
+export function mergeTuiPluginEntry(content: string, pluginEntry = TUI_PACKAGE_ENTRY): string {
+  let output = mergePluginArray(content, pluginEntry)
+  if (!parse(output)?.$schema) {
+    const schemaEdits = modify(output, ["$schema"], "https://opencode.ai/tui.json", {
+      formattingOptions: { insertSpaces: true, tabSize: 2 },
+    })
+    output = applyEdits(output, schemaEdits)
+  }
+  return output
+}
+
+function mergePluginArray(content: string, pluginEntry: string): string {
   const parsed = parse(content)
   const plugins = Array.isArray(parsed?.plugin) ? parsed.plugin.filter((entry: unknown): entry is string => typeof entry === "string") : []
   const nextPlugins = plugins.includes(pluginEntry) ? plugins : [...plugins, pluginEntry]
@@ -26,11 +46,7 @@ export function mergePluginEntry(content: string, pluginEntry = PACKAGE_NAME): s
   const pluginEdits = modify(output, ["plugin"], nextPlugins, {
     formattingOptions,
   })
-  output = applyEdits(output, pluginEdits)
-  const defaultAgentEdits = modify(output, ["default_agent"], "super-agent", {
-    formattingOptions,
-  })
-  return applyEdits(output, defaultAgentEdits)
+  return applyEdits(output, pluginEdits)
 }
 
 export function mergeDefaultAgent(content: string, agent = "super-agent"): string {
@@ -48,6 +64,12 @@ export function install(configDir = join(homedir(), ".config", "opencode")): str
   const current = existsSync(target) ? readFileSync(target, "utf8") : "{}\n"
   writeFileSync(target, ensureTrailingNewline(mergePluginEntry(current)))
 
+  const tuiJsonc = join(configDir, "tui.jsonc")
+  const tuiJson = join(configDir, "tui.json")
+  const tuiTarget = existsSync(tuiJsonc) || !existsSync(tuiJson) ? tuiJsonc : tuiJson
+  const currentTui = existsSync(tuiTarget) ? readFileSync(tuiTarget, "utf8") : "{}\n"
+  writeFileSync(tuiTarget, ensureTrailingNewline(mergeTuiPluginEntry(currentTui)))
+
   const pluginConfigPath = join(configDir, CONFIG_FILE_NAME)
   const legacyPluginConfigPath = join(configDir, LEGACY_CONFIG_FILE_NAME)
   if (!existsSync(pluginConfigPath)) {
@@ -60,7 +82,7 @@ export function install(configDir = join(homedir(), ".config", "opencode")): str
   mkdirSync(join(configDir, "skills"), { recursive: true })
   copyAssetTree("skills", join(configDir, "skills"))
 
-  return [target, pluginConfigPath]
+  return [target, tuiTarget, pluginConfigPath]
 }
 
 export function copyFileEnsuringDir(source: string, destination: string): void {
