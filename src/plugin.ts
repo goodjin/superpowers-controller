@@ -43,8 +43,8 @@ export function createPluginModule(): PluginModule {
       config: async (hostConfig: Record<string, unknown>) => {
         const globalPermission = resolveGlobalPermission(hostConfig.permission)
         hostConfig.agent = {
-          ...createAgentConfig({ globalPermission }),
           ...((hostConfig.agent as Record<string, unknown>) ?? {}),
+          ...createAgentConfig({ globalPermission }),
         }
       },
       "tool.execute.before": async (input, output) => {
@@ -68,10 +68,12 @@ export function createPluginModule(): PluginModule {
           })
         }
       },
-      "experimental.chat.system.transform": async (_input, output) => {
+      "experimental.chat.system.transform": async (input, output) => {
         const state = store.readCurrent()
         if (!state || output.system.some(hasRuntimeSkillInjection)) return
-        output.system.push(buildRuntimeSkillInjection(state))
+        const node = state.node_runs.find((run) => run.session_id === input.sessionID)
+        if (!node) return
+        output.system.push(buildRuntimeSkillInjection(state, node))
       },
     }
   }

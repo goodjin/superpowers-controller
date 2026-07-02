@@ -1,4 +1,5 @@
 import type { WorkflowConfig, GateMode } from "../config/schema"
+import { AGENT_SKILL_MAP, type NodeAgentName } from "./modes"
 import type { WorkflowState } from "../state/types"
 
 export type GateResult = {
@@ -14,6 +15,10 @@ export function evaluateToolGate(args: {
   tool: string
   args: Record<string, unknown>
 }): GateResult {
+  if (isSkillTool(args.tool) && isSuperpowersAgent(args.agent)) {
+    return evaluateSkillToolGate(args.agent, args.args)
+  }
+
   if (isNativeTaskTool(args.tool) && isSuperpowersAgent(args.agent)) {
     return {
       allowed: false,
@@ -50,12 +55,49 @@ export function evaluateToolGate(args: {
   return allow()
 }
 
+function isSkillTool(tool: string): boolean {
+  return tool.toLowerCase().replace(/^mcp_/, "") === "skill"
+}
+
 function isNativeTaskTool(tool: string): boolean {
   return tool.toLowerCase().replace(/^mcp_/, "") === "task"
 }
 
 function isSuperpowersAgent(agent: string | undefined): boolean {
   return agent === "super-agent" || agent?.startsWith("sp-") === true
+}
+
+function evaluateSkillToolGate(agent: string | undefined, toolArgs: Record<string, unknown>): GateResult {
+  if (agent === "super-agent") {
+    return {
+      allowed: false,
+      severity: "blocked",
+      reason: "super-agent cannot load skills; use sp_prepare or sp_start so node agents load plugin-assigned primary skills",
+    }
+  }
+  if (isNodeAgentName(agent)) {
+    const requested = requestedSkill(toolArgs)
+    const primarySkill = AGENT_SKILL_MAP[agent]
+    if (!requested || requested === primarySkill) return allow()
+    return {
+      allowed: false,
+      severity: "blocked",
+      reason: `${agent} can only load assigned primary skill ${primarySkill}`,
+    }
+  }
+  return allow()
+}
+
+function isNodeAgentName(agent: string | undefined): agent is NodeAgentName {
+  return agent !== undefined && agent in AGENT_SKILL_MAP
+}
+
+function requestedSkill(args: Record<string, unknown>): string | undefined {
+  for (const key of ["skill", "name", "id"]) {
+    const value = args[key]
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+  return undefined
 }
 
 export function evaluateCompletionGate(args: {

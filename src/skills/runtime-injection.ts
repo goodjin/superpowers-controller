@@ -1,17 +1,20 @@
 import { modeDefinition } from "../router/modes"
-import type { WorkflowState } from "../state/types"
+import type { NodeRun, WorkflowState } from "../state/types"
 
 const MARKER = "<superpowers-controller-runtime>"
 
-export function buildRuntimeSkillInjection(state: WorkflowState): string {
+export function buildRuntimeSkillInjection(state: WorkflowState, node?: Pick<NodeRun, "agent" | "phase" | "primary_skill">): string {
   const definition = modeDefinition(state.mode)
-  const [primarySkill, ...supportingSkills] = definition.skills
+  const primarySkill = node?.primary_skill ?? definition.primary_skill
+  const supportingSkills = node ? [] : definition.skills.filter((skill) => skill !== primarySkill)
+  const agent = node?.agent ?? definition.agent
+  const phase = node?.phase ?? state.phase
   return [
     MARKER,
     `run: ${state.id}`,
     `mode: ${state.mode}`,
-    `phase: ${state.phase}`,
-    `agent: ${definition.agent}`,
+    `phase: ${phase}`,
+    `agent: ${agent}`,
     `primary_skill: ${primarySkill ?? "none"}`,
     `supporting_skills: ${supportingSkills.length > 0 ? supportingSkills.join(", ") : "none"}`,
     "",

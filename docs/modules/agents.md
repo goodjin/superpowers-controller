@@ -59,13 +59,15 @@ agent prompt 不能成为 workflow state machine。职责边界如下：
 ## Skill Boundary
 
 - `super-agent` 不加载业务技能，也不执行节点工作。
-- `super-agent` 禁用 `tools.skill`，避免全局 skill 进入控制器上下文。
+- `super-agent` 禁用 `tools.skill`，并通过 `tool.execute.before` 硬阻断 native `skill` 调用，避免全局 skill 进入控制器上下文。
 - `super-agent` 禁止调用原生 `task` tool，并通过 `permission.task = deny`、`tools.task = false` 和 `tool.execute.before` 三层限制；子会话只能由 `sp_start` / `sp_report` 驱动的 Controller dispatch 创建，保证 `state.node_runs` 先登记再发送 child prompt。
 - 对 planning-driven workflow，`super-agent` 负责 `sp_status -> sp_prepare -> user confirm -> sp_start` 这一段控制链。
 - 节点 agent 保留 `skill` tool，但 `permission.skill` 只允许 router 分配的 primary skill，并拒绝其它全局 skill。
+- 即使外部插件或全局 permission 放宽了 native `skill` 权限，`tool.execute.before` 也会限制节点 agent 只能加载 `src/router/modes.ts` 分配的 primary skill。
 - 节点 agent 也禁止嵌套调用原生 `task` tool，避免节点绕过 Controller 继续派生未登记子会话。
 - 节点 agent 禁止调用 OpenCode 原生 `question` tool，并通过 `permission.question = deny` 和 `tools.question = false` 隐藏入口。需要用户输入时只能调用 `sp_report`，使用 `status: "needs_user"` 和结构化 `question` 字段；runtime 负责写入 `pending_question`、通知主控会话，并等待 `sp_start(run_id, resume_input)` 恢复原 child session。
 - 节点 agent prompt 只声明一个 primary skill；需要其他 skill 时，由控制器创建或复用另一个节点 session。
+- Runtime system 注入只对 `node_runs.session_id` 匹配的 child node session 生效。父级 `super-agent` 会话不注入 `agent: sp-*` 或 `primary_skill`，避免控制器误认为自己正在执行节点 skill。
 
 ## Permission Inheritance
 

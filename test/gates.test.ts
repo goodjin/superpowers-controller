@@ -122,6 +122,41 @@ describe("evaluateToolGate", () => {
       expect(result.reason, agent).toContain("node_runs")
     }
   })
+
+  test("super-agent cannot call native skill even without active state", () => {
+    const result = evaluateToolGate({
+      config: { ...DEFAULT_CONFIG, mode: "off" },
+      state: null,
+      agent: "super-agent",
+      tool: "skill",
+      args: { skill: "superpowers-brainstorming" },
+    })
+
+    expect(result.allowed).toBe(false)
+    expect(result.severity).toBe("blocked")
+    expect(result.reason).toContain("super-agent cannot load skills")
+  })
+
+  test("node agents can only call their assigned primary skill", () => {
+    const allowed = evaluateToolGate({
+      config: { ...DEFAULT_CONFIG, mode: "off" },
+      state: null,
+      agent: "sp-implementer",
+      tool: "skill",
+      args: { skill: "superpowers-test-driven-development" },
+    })
+    const blocked = evaluateToolGate({
+      config: { ...DEFAULT_CONFIG, mode: "off" },
+      state: null,
+      agent: "sp-implementer",
+      tool: "skill",
+      args: { skill: "superpowers-brainstorming" },
+    })
+
+    expect(allowed.allowed).toBe(true)
+    expect(blocked.allowed).toBe(false)
+    expect(blocked.reason).toContain("superpowers-test-driven-development")
+  })
 })
 
 describe("evaluateCompletionGate", () => {
