@@ -213,9 +213,9 @@ describe("sp_prepare and sp_start tools", () => {
           task_brief: {
             goal: "Update controller prompt",
             scope: "Prompt and tests only",
-            constraints: ["Keep public tools unchanged"],
-            acceptance_criteria: ["Greeting rule is present"],
-            known_context: ["v5 PRD"],
+            constraints: "Keep public tools unchanged",
+            acceptance_criteria: "Greeting rule is present",
+            known_context: "v5 PRD",
           },
           kind: "single-agent",
           entrypoint: "implement",
@@ -243,6 +243,7 @@ describe("sp_prepare and sp_start tools", () => {
       expect(documents).toContain("task.md")
       expect(documents).toContain("proposal.md")
       expect(readFileSync(join(runRoot, "task.md"), "utf8")).toContain("Acceptance Criteria")
+      expect(readFileSync(join(runRoot, "task.md"), "utf8")).toContain("Greeting rule is present")
 
       const start = createStartTool(store, {
         async dispatch(args) {
@@ -271,6 +272,37 @@ describe("sp_prepare and sp_start tools", () => {
       expect(started.state.workflow_spec.template_id).toBe("single-agent")
       expect(readFileSync(join(runRoot, "workflow-spec.json"), "utf8")).toContain("single-agent")
       expect(dispatched.at(-1)).toEqual({ agent: "sp-implementer", phase: "implement" })
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_prepare rejects array task brief prose fields", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-v5-prepare-string-fields-"))
+    try {
+      const store = createProjectStore(project)
+      const prepare = createPrepareTool(
+        store,
+        {
+          async dispatch() {
+            return {
+              action: "create_session",
+              session_id: "session-unused",
+              task_markdown: "# Unused",
+            }
+          },
+        },
+      )
+
+      await expect(prepare.execute(
+        {
+          task_brief: {
+            goal: "Update controller prompt",
+            constraints: ["Keep public tools unchanged"],
+          },
+        },
+        toolContext,
+      )).rejects.toThrow("sp_prepare task_brief.constraints must be a string.")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

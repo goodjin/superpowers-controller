@@ -134,17 +134,15 @@ describe("mergePluginEntry", () => {
     const binDir = join(home, "bin")
     mkdirSync(binDir, { recursive: true })
     writeFileSync(join(binDir, "opencode"), "#!/usr/bin/env bash\nprintf '1.3.10\\n'\n", { mode: 0o755 })
-    const oldPath = process.env.PATH
-    process.env.PATH = `${binDir}:${oldPath ?? ""}`
 
-    try {
-      install(join(home, ".config", "opencode"))
-      const opencodeCheck = doctor(join(home, ".config", "opencode"), home).find((check) => check.name === "opencode")
-      expect(opencodeCheck?.ok).toBe(false)
-      expect(opencodeCheck?.detail).toContain(`requires >= ${MIN_OPENCODE_VERSION}`)
-    } finally {
-      process.env.PATH = oldPath
-    }
+    install(join(home, ".config", "opencode"))
+    const opencodeCheck = doctor(
+      join(home, ".config", "opencode"),
+      home,
+      { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ""}` },
+    ).find((check) => check.name === "opencode")
+    expect(opencodeCheck?.ok).toBe(false)
+    expect(opencodeCheck?.detail).toContain(`requires >= ${MIN_OPENCODE_VERSION}`)
   })
 
 })

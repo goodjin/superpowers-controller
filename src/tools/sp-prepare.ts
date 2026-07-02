@@ -20,10 +20,10 @@ export function createPrepareTool(
         .object({
           goal: tool.schema.string().describe("User-facing task goal."),
           scope: tool.schema.string().optional().describe("Task scope and boundaries."),
-          constraints: tool.schema.array(tool.schema.string()).optional().describe("Known constraints."),
-          acceptance_criteria: tool.schema.array(tool.schema.string()).optional().describe("Acceptance criteria for completion."),
-          known_context: tool.schema.array(tool.schema.string()).optional().describe("Important existing context."),
-          risks: tool.schema.array(tool.schema.string()).optional().describe("Known risks or unknowns."),
+          constraints: tool.schema.string().optional().describe("Known constraints as model-readable prose."),
+          acceptance_criteria: tool.schema.string().optional().describe("Acceptance criteria for completion as model-readable prose."),
+          known_context: tool.schema.string().optional().describe("Important existing context as model-readable prose."),
+          risks: tool.schema.string().optional().describe("Known risks or unknowns as model-readable prose."),
           controller_notes: tool.schema.string().optional().describe("Controller-only planning notes to persist in task.md."),
         })
         .optional()
@@ -213,10 +213,10 @@ function buildPreparedProposal(args: {
 type NormalizedTaskBrief = {
   goal: string
   scope?: string
-  constraints: string[]
-  acceptance_criteria: string[]
-  known_context: string[]
-  risks: string[]
+  constraints?: string
+  acceptance_criteria?: string
+  known_context?: string
+  risks?: string
   controller_notes?: string
 }
 
@@ -234,17 +234,23 @@ type NormalizedConfirmation = {
 
 function normalizeTaskBrief(value: unknown): NormalizedTaskBrief | undefined {
   if (!value || typeof value !== "object") return undefined
-  const input = value as Partial<NormalizedTaskBrief>
-  if (!input.goal) return undefined
+  const input = value as Record<string, unknown>
+  if (typeof input.goal !== "string" || !input.goal) return undefined
   return {
     goal: input.goal,
-    scope: input.scope,
-    constraints: input.constraints ?? [],
-    acceptance_criteria: input.acceptance_criteria ?? [],
-    known_context: input.known_context ?? [],
-    risks: input.risks ?? [],
-    controller_notes: input.controller_notes,
+    scope: optionalTaskBriefText(input.scope, "scope"),
+    constraints: optionalTaskBriefText(input.constraints, "constraints"),
+    acceptance_criteria: optionalTaskBriefText(input.acceptance_criteria, "acceptance_criteria"),
+    known_context: optionalTaskBriefText(input.known_context, "known_context"),
+    risks: optionalTaskBriefText(input.risks, "risks"),
+    controller_notes: optionalTaskBriefText(input.controller_notes, "controller_notes"),
   }
+}
+
+function optionalTaskBriefText(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== "string") throw new Error(`sp_prepare task_brief.${field} must be a string.`)
+  return value
 }
 
 function normalizeDesignParticipation(value: unknown): NormalizedDesignParticipation | undefined {
@@ -276,18 +282,18 @@ function renderTaskBrief(brief: NormalizedTaskBrief): string {
   const sections = [
     `Goal: ${brief.goal}`,
     brief.scope ? `Scope: ${brief.scope}` : undefined,
-    listSection("Constraints", brief.constraints),
-    listSection("Acceptance Criteria", brief.acceptance_criteria),
-    listSection("Known Context", brief.known_context),
-    listSection("Risks", brief.risks),
+    textSection("Constraints", brief.constraints),
+    textSection("Acceptance Criteria", brief.acceptance_criteria),
+    textSection("Known Context", brief.known_context),
+    textSection("Risks", brief.risks),
     brief.controller_notes ? `Controller Notes: ${brief.controller_notes}` : undefined,
   ].filter(Boolean)
   return sections.join("\n\n")
 }
 
-function listSection(title: string, items: string[]): string | undefined {
-  if (!items.length) return undefined
-  return [`${title}:`, ...items.map((item) => `- ${item}`)].join("\n")
+function textSection(title: string, text?: string): string | undefined {
+  if (!text?.trim()) return undefined
+  return `${title}:\n${text.trim()}`
 }
 
 function buildConfirmationSummary(args: {

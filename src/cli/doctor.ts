@@ -13,8 +13,12 @@ export type DoctorCheck = {
   detail: string
 }
 
-export function doctor(configDir = join(homedir(), ".config", "opencode"), projectDir = process.cwd()): DoctorCheck[] {
-  const opencode = spawnSync("opencode", ["--version"], { encoding: "utf8" })
+export function doctor(
+  configDir = join(homedir(), ".config", "opencode"),
+  projectDir = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): DoctorCheck[] {
+  const opencode = spawnSync("opencode", ["--version"], { encoding: "utf8", env })
   const opencodeVersion = opencode.status === 0 ? extractVersion(opencode.stdout) : undefined
   const opencodeVersionOk = opencodeVersion ? compareVersions(opencodeVersion, MIN_OPENCODE_VERSION) >= 0 : false
   const configPath = existsSync(join(configDir, "opencode.jsonc")) ? join(configDir, "opencode.jsonc") : join(configDir, "opencode.json")
