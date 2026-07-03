@@ -76,7 +76,9 @@ agent prompt 不能成为 workflow state machine。职责边界如下：
 When global `permission` is not `"allow"`, agents keep the default workflow boundaries:
 
 - `super-agent` cannot edit files directly, asks before bash, cannot use native `task`, and has `tools.skill` disabled.
-- Node agents ask or deny edits according to their role, ask before bash, deny nested tasks, and can load only their primary skill.
+- Node agents ask or deny edits according to their role, allow bash after workflow dispatch, deny nested tasks, deny native child questions, and can load only their primary skill.
+
+Node agents allow `bash` by default after workflow dispatch. The workflow start/approval step is the user confirmation boundary, and repeated child-shell probes should not strand the user in per-command prompts. File edits still use the existing agent-specific `edit` policy, verifier/reviewer/investigator agents remain read-only, and the plugin gate layer still evaluates workflow gates such as `design_approved`, `plan_written`, and `red_test_seen`.
 
 When global `permission` is `"allow"`, plugin agents inherit that posture for read, edit, bash, external directory, plan, and related OpenCode permission points. The exceptions are native `task` and child native `question`: `super-agent` and node agents still deny the native `task` tool because child session creation is a Superpowers control-plane responsibility, and node agents deny native `question` because user-input requests must be recorded through `sp_report needs_user`. `super-agent` keeps native `question` permission for controller-level clarification and denies `skill`; node agents keep skill access so they can load their assigned primary skill.
 

@@ -34,6 +34,26 @@ describe("plugin config and runtime injection", () => {
     }
   })
 
+  test("node agents allow bash after workflow confirmation while keeping control-plane restrictions", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-plugin-node-permission-"))
+    try {
+      const hooks = await createHooks(project)
+      const hostConfig: Record<string, unknown> = {}
+
+      await hooks.config?.(hostConfig)
+
+      const agent = (hostConfig.agent as Record<string, Record<string, unknown>>)["sp-planner"]
+      const permission = agent.permission as Record<string, unknown>
+      expect(permission.bash).toBe("allow")
+      expect(permission.edit).toBe("ask")
+      expect(permission.task).toBe("deny")
+      expect(permission.question).toBe("deny")
+      expect((permission.skill as Record<string, unknown>)["superpowers-writing-plans"]).toBe("allow")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("runtime primary-skill context is injected only into registered node sessions", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-plugin-runtime-injection-"))
     try {

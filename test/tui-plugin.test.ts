@@ -393,6 +393,49 @@ describe("Superpowers TUI plugin", () => {
     }
   })
 
+  test("resident progress surfaces show child sessions waiting on permission", () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-permission-"))
+    try {
+      createWorkflowWithProgress({
+        project,
+        parentSessionID: "session-main",
+        childSessionID: "session-child",
+        summary: "checking local tools",
+        updatedAt: "2026-07-03T10:00:00.000Z",
+      })
+      const api = {
+        state: {
+          path: { directory: project },
+          session: {
+            status(sessionID: string) {
+              expect(sessionID).toBe("session-child")
+              return { type: "waiting_permission" }
+            },
+          },
+        },
+      } as never
+      const statusSlot = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "workflow-status", allowGlobal: true },
+      )
+      const sidebarSlot = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
+      )
+
+      const status = statusSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
+      expect(status.value).toContain("sessions 1 waiting permission")
+      expect(status.value).toContain("sp-implementer T1 waiting permission")
+
+      const sidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
+      expect(sidebar.value).toContain("sp-implementer T1: waiting permission - checking local tools")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("resident progress slots refresh progress files after initial render", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-tui-refresh-"))
     try {

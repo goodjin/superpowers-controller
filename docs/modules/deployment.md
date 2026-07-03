@@ -57,6 +57,8 @@ The isolated `opencode.json` plugin list includes `file://.../dist/index.js` for
 
 The generated isolated `opencode.json` sets global OpenCode permissions to `allow`. Plugin-generated agents inherit that global allow mode through `src/agents/index.ts`, while non-allow global configurations keep the plugin's default role-specific restrictions.
 
+As of `0.1.6`, node agents also allow `bash` in the default non-global-allow posture. This reduces repeated child-session permission prompts after the user has already confirmed a workflow. Native `task` and child native `question` remain denied so Controller state remains the source of truth for child sessions and user-input handoff.
+
 ## Notes
 
 - The isolated `superagent restart` flow does not modify the default user config at `~/.config/opencode`; the public one-click installer does.

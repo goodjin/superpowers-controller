@@ -7,7 +7,7 @@ export type ProgressPanelRow = {
   agent: string
   phase: string
   durable_status: string
-  activity_status: "active" | "stalled"
+  activity_status: "active" | "stalled" | "waiting_permission"
   session_id: string
   live_status: string
   latest_summary: string
@@ -88,7 +88,11 @@ export function buildProgressPanelViewModel(
         agent: node.agent,
         phase: node.phase,
         durable_status: node.status,
-        activity_status: node.status === "running" && isStalled(observedAt, now) ? "stalled" : "active",
+        activity_status: node.status === "running" && isWaitingPermission(liveStatusBySession[node.session_id])
+          ? "waiting_permission"
+          : node.status === "running" && isStalled(observedAt, now)
+            ? "stalled"
+            : "active",
         session_id: node.session_id,
         live_status: liveStatusBySession[node.session_id] ?? "unknown",
         latest_summary: display?.summary ?? "no progress recorded",
@@ -140,12 +144,13 @@ export function renderWorkflowStatusText(model: ProgressPanelViewModel, max = 18
     )
   }
   const runningRows = model.rows.filter((row) => row.durable_status === "running")
-  const running = runningRows.filter((row) => row.activity_status !== "stalled").length
+  const running = runningRows.filter((row) => row.activity_status === "active").length
   const stalled = runningRows.filter((row) => row.activity_status === "stalled").length
+  const waitingPermission = runningRows.filter((row) => row.activity_status === "waiting_permission").length
   const taskTotal = model.tasks.length
   const taskDone = model.tasks.filter((task) => task.status === "passed").length
   const taskSummary = taskTotal > 0 ? `tasks ${taskDone}/${taskTotal} done` : `nodes ${model.rows.length}`
-  const sessionSummary = sessionStatusSummary(running, stalled)
+  const sessionSummary = sessionStatusSummary(running, stalled, waitingPermission)
   const activity = model.rows.length > 0 ? ` | ${latestActivityText(model)}` : ""
   return truncateLine(`SP: ${model.workflow} ${model.status}@${model.current_phase} | ${taskSummary} | sessions ${sessionSummary}${activity}`, max)
 }
@@ -209,14 +214,16 @@ function renderSidebarRow(row: ProgressPanelRow): string {
 }
 
 function displaySessionStatus(row: ProgressPanelRow): string {
+  if (row.durable_status === "running" && row.activity_status === "waiting_permission") return "waiting permission"
   if (row.durable_status === "running" && row.activity_status === "stalled") return "stalled"
   return row.durable_status
 }
 
-function sessionStatusSummary(running: number, stalled: number): string {
+function sessionStatusSummary(running: number, stalled: number, waitingPermission = 0): string {
   const parts = []
   if (running > 0) parts.push(`${running} running`)
   if (stalled > 0) parts.push(`${stalled} stalled`)
+  if (waitingPermission > 0) parts.push(`${waitingPermission} waiting permission`)
   return parts.length > 0 ? parts.join(", ") : "0 running"
 }
 
@@ -243,6 +250,10 @@ function latestDisplayProgress(progress: NodeProgressEntry[]): NodeProgressEntry
 
 function isDisplayProgress(entry: NodeProgressEntry): boolean {
   return entry.kind !== "session_status" && entry.kind !== "session_idle"
+}
+
+function isWaitingPermission(status: string | undefined): boolean {
+  return status === "waiting_permission" || status === "waiting permission"
 }
 
 function formatAge(value: string | undefined, now: Date): string | undefined {

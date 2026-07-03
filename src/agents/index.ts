@@ -86,7 +86,7 @@ function nodeAgent(agentName: NodeAgentName, primarySkill: string, inheritGlobal
             agentName === "sp-investigator" || agentName.endsWith("reviewer") || agentName === "sp-verifier"
               ? "deny"
               : "ask",
-          bash: "ask",
+          bash: "allow",
           task: "deny",
           question: "deny",
           skill: {
