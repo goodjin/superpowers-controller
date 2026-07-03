@@ -138,12 +138,14 @@ describe("progress panel view model", () => {
     expect(text).toContain("bash running")
     expect(renderCompactProgressText(model)).toBe("SP: sp-implementer T1 running - bash running")
     expect(renderCompactProgressText(model, 44)).toBe("SP: sp-implementer T1 running - bash running")
-    expect(renderWorkflowStatusText(model, 160)).toBe("SP: feature running@implement | tasks 0/2 done | sessions 1 running | sp-implementer T1 running - bash running (5s ago)")
+    expect(renderWorkflowStatusText(model, 160)).toBe("SP: feature running@implement | tasks 0/2 done | children 1 active (1 running) | sp-implementer T1 running - bash running (5s ago)")
     expect(renderRunningSessionsText(model)).toContain("sp-implementer T1: running - bash running")
     expect(renderSidebarProgressText(model)).toBe([
-      "SP: feature running@implement | tasks 0/2 done | sessions 1 running | sp-implementer T1 running - bash running (5s ago)",
-      "running",
+      "SP: feature running@implement | tasks 0/2 done | children 1 active (1 running) | sp-implementer T1 running - bash running (5s ago)",
+      "child sessions",
       "sp-implementer T1: running - bash running (5s ago)\n  bun run test",
+      "planned sessions",
+      "T2: pending - Document progress surface",
     ].join("\n"))
   })
 
@@ -272,7 +274,7 @@ describe("progress panel view model", () => {
     expect(renderProgressPanelText(model)).toContain("status: stalled")
     expect(renderProgressPanelText(model)).toContain("live: busy")
     expect(renderCompactProgressText(model)).toBe("SP: sp-acceptance-reviewer stalled - write pending")
-    expect(renderWorkflowStatusText(model, 140)).toBe("SP: feature running@implement | nodes 1 | sessions 1 stalled | sp-acceptance-reviewer stalled - write pending (40s ago)")
+    expect(renderWorkflowStatusText(model, 140)).toBe("SP: feature running@implement | nodes 1 | children 1 active (1 stalled) | sp-acceptance-reviewer stalled - write pending (40s ago)")
   })
 
   test("sidebar progress surfaces waiting-user questions and options", () => {
@@ -369,9 +371,95 @@ describe("progress panel view model", () => {
     const model = buildProgressPanelViewModel(state, {}, {})
 
     expect(renderSidebarProgressText(model)).toBe([
-      "SP: feature intake@intake | nodes 0 | sessions 0 running",
+      "SP: feature intake@intake | nodes 0 | children 0 active (0 running)",
       "waiting for node dispatch",
     ].join("\n"))
+  })
+
+  test("sidebar progress renders a TodoWrite-style planned and running task list", () => {
+    const state: WorkflowState = {
+      id: "run-1",
+      project: "/repo",
+      session: "session-main",
+      parent_session_id: "session-main",
+      activation: "active",
+      workflow: "feature",
+      entrypoint: "execute",
+      limited_context: true,
+      mode: "execute",
+      phase: "implement",
+      current_phase: "implement",
+      status: "running",
+      goal: "Implement feature",
+      created_at: "2026-06-19T00:00:00.000Z",
+      updated_at: "2026-06-19T00:00:00.000Z",
+      gates: {},
+      artifacts: {},
+      task_graph: {
+        tasks: [
+          {
+            id: "T1",
+            title: "Implement progress surface",
+            summary: "Show progress in TUI",
+            depends_on: [],
+            agent: "sp-implementer",
+          },
+          {
+            id: "T2",
+            title: "Add progress tests",
+            summary: "Cover TUI status",
+            depends_on: ["T1"],
+            agent: "sp-acceptance-reviewer",
+          },
+          {
+            id: "T3",
+            title: "Update progress docs",
+            summary: "Document TUI behavior",
+            depends_on: ["T2"],
+            agent: "sp-doc-writer",
+          },
+        ],
+      },
+      node_runs: [
+        {
+          id: "001-implement-T1",
+          task_id: "T1",
+          phase: "implement",
+          agent: "sp-implementer",
+          session_id: "session-child",
+          status: "running",
+          attempts: 1,
+          started_at: "2026-06-19T00:00:00.000Z",
+        },
+      ],
+      history: [{ at: "2026-06-19T00:00:00.000Z", event: "created", to: "feature" }],
+    }
+
+    const model = buildProgressPanelViewModel(
+      state,
+      {
+        "001-implement-T1": [{
+          at: "2026-06-19T00:01:00.000Z",
+          kind: "text",
+          session_id: "session-child",
+          node_id: "001-implement-T1",
+          agent: "sp-implementer",
+          phase: "implement",
+          task_id: "T1",
+          summary: "editing renderer",
+        }],
+      },
+      { "session-child": "busy" },
+      new Date("2026-06-19T00:01:05.000Z"),
+    )
+
+    const sidebar = renderSidebarProgressText(model)
+    expect(renderWorkflowStatusText(model)).toContain("children 1 active (1 running)")
+    expect(sidebar).toContain("child sessions")
+    expect(sidebar).toContain("sp-implementer T1: running - editing renderer")
+    expect(sidebar).toContain("planned sessions")
+    expect(sidebar).toContain("sp-acceptance-reviewer T2: pending - Add progress tests")
+    expect(sidebar).toContain("sp-doc-writer T3: pending - Update progress docs")
   })
 
   test("prefers the latest running retry node over an interrupted old node", () => {

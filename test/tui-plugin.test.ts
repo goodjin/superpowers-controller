@@ -107,7 +107,7 @@ describe("Superpowers TUI plugin", () => {
       )
       const globalWorkflowStatus = globalWorkflowStatusSlot() as { type: string; value: string }
       expect(globalWorkflowStatus.type).toBe("text")
-      expect(globalWorkflowStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(globalWorkflowStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
       expect(globalWorkflowStatus.value).toContain("sp-implementer T1 running")
       const appBottomSlot = createProgressSlot(
         api,
@@ -116,13 +116,13 @@ describe("Superpowers TUI plugin", () => {
       )
       const appBottomGlobalStatus = appBottomSlot() as { type: string; value: string }
       expect(appBottomGlobalStatus.type).toBe("text")
-      expect(appBottomGlobalStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(appBottomGlobalStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
       const appBottomStatus = appBottomSlot(undefined, { session_id: "session-new-main" }) as { type: string; value: string }
       expect(appBottomStatus.type).toBe("text")
-      expect(appBottomStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(appBottomStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
       const sessionWorkflowStatus = workflowStatusSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
       expect(sessionWorkflowStatus.type).toBe("text")
-      expect(sessionWorkflowStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(sessionWorkflowStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
       expect(sessionWorkflowStatus.value).toContain("sp-implementer T1 running")
       expect(sessionWorkflowStatus.value).toContain("bash running")
       const sidebarSlot = createProgressSlot(
@@ -132,12 +132,12 @@ describe("Superpowers TUI plugin", () => {
       )
       const globalSidebar = sidebarSlot() as { type: string; value: string }
       expect(globalSidebar.type).toBe("text")
-      expect(globalSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(globalSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
       expect(globalSidebar.value).toContain("sp-implementer T1: running - bash running")
       expect(globalSidebar.value).toContain("bun run test")
       const sessionSidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
       expect(sessionSidebar.type).toBe("text")
-      expect(sessionSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(sessionSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
       expect(sessionSidebar.value).toContain("sp-implementer T1: running - bash running")
       expect(sessionSidebar.value).toContain("bun run test")
       const compactSlot = createCompactProgressSlot(
@@ -339,7 +339,7 @@ describe("Superpowers TUI plugin", () => {
         sidebarSlot({ session: { id: "session-current-main" } }),
       ] as Array<{ type: string; value: string }>) {
         expect(rendered.type).toBe("text")
-        expect(rendered.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+        expect(rendered.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
         expect(rendered.value).toContain("sp-implementer T1 running - session owned progress")
         expect(rendered.value).toContain("sp-implementer T1: running - session owned progress")
       }
@@ -383,7 +383,7 @@ describe("Superpowers TUI plugin", () => {
 
       const controllerSidebar = sidebarSlot({ session: { id: "session-new-controller", agent: "super-agent" } }) as { type: string; value: string }
       expect(controllerSidebar.type).toBe("text")
-      expect(controllerSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
+      expect(controllerSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
       expect(controllerSidebar.value).toContain("sp-implementer T1: running - controller fallback progress")
       const noAgentSidebar = sidebarSlot(undefined, { session_id: "session-new-controller" }) as { type: string; value: string }
       expect(noAgentSidebar.type).toBe("text")
@@ -426,11 +426,77 @@ describe("Superpowers TUI plugin", () => {
       )
 
       const status = statusSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
-      expect(status.value).toContain("sessions 1 waiting permission")
+      expect(status.value).toContain("children 1 active (1 waiting permission)")
       expect(status.value).toContain("sp-implementer T1 waiting permission")
 
       const sidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
       expect(sidebar.value).toContain("sp-implementer T1: waiting permission - checking local tools")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sidebar content shows running and planned child-session work", () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-planned-sessions-"))
+    try {
+      const state = createWorkflowWithProgress({
+        project,
+        parentSessionID: "session-main",
+        childSessionID: "session-child",
+        summary: "editing renderer",
+        updatedAt: "2026-07-03T12:00:00.000Z",
+      })
+      writeWorkflowState(project, {
+        ...state,
+        task_graph: {
+          tasks: [
+            {
+              id: "T1",
+              title: "Implement progress surface",
+              summary: "Show running child session progress",
+              depends_on: [],
+              agent: "sp-implementer",
+            },
+            {
+              id: "T2",
+              title: "Add progress tests",
+              summary: "Cover sidebar planned sessions",
+              depends_on: ["T1"],
+              agent: "sp-acceptance-reviewer",
+            },
+            {
+              id: "T3",
+              title: "Update progress docs",
+              summary: "Document sidebar behavior",
+              depends_on: ["T2"],
+              agent: "sp-doc-writer",
+            },
+          ],
+        },
+      })
+      const api = {
+        state: {
+          path: { directory: project },
+          session: {
+            status() {
+              return { type: "busy" }
+            },
+          },
+        },
+      } as never
+      const sidebarSlot = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
+      )
+
+      const sidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
+      expect(sidebar.value).toContain("children 1 active (1 running)")
+      expect(sidebar.value).toContain("child sessions")
+      expect(sidebar.value).toContain("sp-implementer T1: running - editing renderer")
+      expect(sidebar.value).toContain("planned sessions")
+      expect(sidebar.value).toContain("sp-acceptance-reviewer T2: pending - Add progress tests")
+      expect(sidebar.value).toContain("sp-doc-writer T3: pending - Update progress docs")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

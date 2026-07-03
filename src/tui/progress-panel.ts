@@ -37,6 +37,7 @@ export type ProgressPanelTaskRow = {
   task_id: string
   title: string
   summary: string
+  agent?: string
   status:
     | "pending"
     | "running"
@@ -139,20 +140,15 @@ export function renderWorkflowStatusText(model: ProgressPanelViewModel, max = 18
   if (!model.active) return ""
   if (model.pending_question) {
     return truncateLine(
-      `SP: ${model.workflow} ${model.status}@${model.current_phase} | waiting user | ${model.pending_question.prompt} | ${latestActivityText(model)}`,
+      `SP: ${model.workflow} ${model.status}@${model.current_phase} | ${childSessionSummary(model)} | waiting user | ${model.pending_question.prompt} | ${latestActivityText(model)}`,
       max,
     )
   }
-  const runningRows = model.rows.filter((row) => row.durable_status === "running")
-  const running = runningRows.filter((row) => row.activity_status === "active").length
-  const stalled = runningRows.filter((row) => row.activity_status === "stalled").length
-  const waitingPermission = runningRows.filter((row) => row.activity_status === "waiting_permission").length
   const taskTotal = model.tasks.length
   const taskDone = model.tasks.filter((task) => task.status === "passed").length
   const taskSummary = taskTotal > 0 ? `tasks ${taskDone}/${taskTotal} done` : `nodes ${model.rows.length}`
-  const sessionSummary = sessionStatusSummary(running, stalled, waitingPermission)
   const activity = model.rows.length > 0 ? ` | ${latestActivityText(model)}` : ""
-  return truncateLine(`SP: ${model.workflow} ${model.status}@${model.current_phase} | ${taskSummary} | sessions ${sessionSummary}${activity}`, max)
+  return truncateLine(`SP: ${model.workflow} ${model.status}@${model.current_phase} | ${taskSummary} | ${childSessionSummary(model)}${activity}`, max)
 }
 
 export function renderRunningSessionsText(model: ProgressPanelViewModel, maxRows = 6): string {
@@ -189,9 +185,23 @@ export function renderSidebarProgressText(model: ProgressPanelViewModel, maxRows
   }
   const running = model.rows.filter((row) => row.durable_status === "running")
   if (running.length > 0) {
-    lines.push("running")
+    lines.push("child sessions")
     lines.push(...running.slice(0, maxRows).map(renderSidebarRow))
     if (running.length > maxRows) lines.push(`+${running.length - maxRows} more`)
+    const planned = plannedTaskRows(model)
+    if (planned.length > 0) {
+      lines.push("planned sessions")
+      lines.push(...planned.slice(0, maxRows).map(renderPlannedTaskRow))
+      if (planned.length > maxRows) lines.push(`+${planned.length - maxRows} more planned`)
+    }
+    return lines.join("\n")
+  }
+
+  const planned = plannedTaskRows(model)
+  if (planned.length > 0) {
+    lines.push("planned sessions")
+    lines.push(...planned.slice(0, maxRows).map(renderPlannedTaskRow))
+    if (planned.length > maxRows) lines.push(`+${planned.length - maxRows} more planned`)
     return lines.join("\n")
   }
 
@@ -213,10 +223,24 @@ function renderSidebarRow(row: ProgressPanelRow): string {
   return `${row.agent}${task}: ${displaySessionStatus(row)} - ${row.latest_summary}${age}${detail}`
 }
 
+function renderPlannedTaskRow(task: ProgressPanelTaskRow): string {
+  const agent = task.agent ? `${task.agent} ` : ""
+  return `${agent}${task.task_id}: ${task.status} - ${task.title}`
+}
+
 function displaySessionStatus(row: ProgressPanelRow): string {
   if (row.durable_status === "running" && row.activity_status === "waiting_permission") return "waiting permission"
   if (row.durable_status === "running" && row.activity_status === "stalled") return "stalled"
   return row.durable_status
+}
+
+function childSessionSummary(model: ProgressPanelViewModel): string {
+  const runningRows = model.rows.filter((row) => row.durable_status === "running")
+  const running = runningRows.filter((row) => row.activity_status === "active").length
+  const stalled = runningRows.filter((row) => row.activity_status === "stalled").length
+  const waitingPermission = runningRows.filter((row) => row.activity_status === "waiting_permission").length
+  const active = running + stalled + waitingPermission
+  return `children ${active} active (${sessionStatusSummary(running, stalled, waitingPermission)})`
 }
 
 function sessionStatusSummary(running: number, stalled: number, waitingPermission = 0): string {
@@ -285,6 +309,7 @@ function progressTaskRows(state: WorkflowState): ProgressPanelTaskRow[] {
         task_id: node.task_id as string,
         title: node.task_id as string,
         summary: node.phase,
+        agent: node.agent,
         status: node.status,
         node_id: node.id,
       }))
@@ -295,10 +320,22 @@ function progressTaskRows(state: WorkflowState): ProgressPanelTaskRow[] {
       task_id: task.id,
       title: task.title,
       summary: task.summary,
+      agent: latestRun?.agent ?? task.agent,
       status: latestRun?.status ?? "pending",
       node_id: latestRun?.id,
     }
   })
+}
+
+function plannedTaskRows(model: ProgressPanelViewModel): ProgressPanelTaskRow[] {
+  return model.tasks.filter((task) => [
+    "pending",
+    "blocked",
+    "needs_user",
+    "dispatch_failed",
+    "notification_failed",
+    "interrupted",
+  ].includes(task.status))
 }
 
 function isStalled(observedAt: string | undefined, now: Date): boolean {
