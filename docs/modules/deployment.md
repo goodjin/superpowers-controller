@@ -88,11 +88,13 @@ The workflow is manually triggered from GitHub Actions and runs:
 
 ```bash
 bun install --frozen-lockfile
-bun run test
+bun test <ci-safe unit tests>
 bun run build
 npm pack --dry-run
 npm publish --provenance --access public --tag "$NPM_TAG"
 ```
+
+The CI-safe test set intentionally excludes `test/deploy-superagent-runtime.test.ts`. That file exercises the local isolated OpenCode launcher/runtime and remains part of local release verification through `bun run test`.
 
 The npm package must be configured once at `https://www.npmjs.com/package/superpowers-controller/access`:
 
