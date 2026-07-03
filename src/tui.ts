@@ -146,7 +146,7 @@ export function createProgressSlot(
 function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions, "renderer" | "maxChars" | "allowGlobal" | "requireSession"> {
   switch (slotName) {
     case "app_bottom":
-      return { renderer: "workflow-status", maxChars: 180, allowGlobal: true, requireSession: true }
+      return { renderer: "workflow-status", maxChars: 180, allowGlobal: true }
     case "sidebar_footer":
       return { renderer: "workflow-status", maxChars: 180, allowGlobal: true }
     case "sidebar_content":

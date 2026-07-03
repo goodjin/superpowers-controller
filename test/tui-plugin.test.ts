@@ -94,7 +94,6 @@ describe("Superpowers TUI plugin", () => {
       expect(slots.session_prompt_right).toBeUndefined()
       expect(slots.home_prompt).toBeUndefined()
       expect(slots.home_prompt_right).toBeUndefined()
-      expect(slots.app_bottom()).toBeNull()
       const workflowStatusSlot = createProgressSlot(
         api,
         (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
@@ -113,9 +112,11 @@ describe("Superpowers TUI plugin", () => {
       const appBottomSlot = createProgressSlot(
         api,
         (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
-        { refreshMs: 0, renderer: "workflow-status", allowGlobal: true, requireSession: true },
+        { refreshMs: 0, renderer: "workflow-status", allowGlobal: true },
       )
-      expect(appBottomSlot()).toBeNull()
+      const appBottomGlobalStatus = appBottomSlot() as { type: string; value: string }
+      expect(appBottomGlobalStatus.type).toBe("text")
+      expect(appBottomGlobalStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
       const appBottomStatus = appBottomSlot(undefined, { session_id: "session-new-main" }) as { type: string; value: string }
       expect(appBottomStatus.type).toBe("text")
       expect(appBottomStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | sessions 1 running")
@@ -442,6 +443,74 @@ describe("Superpowers TUI plugin", () => {
             setTimeout(() => {
               try {
                 expect(text?.()).toContain("refreshed progress")
+                dispose()
+                resolve()
+              } catch (error) {
+                dispose()
+                reject(error)
+              }
+            }, 20)
+          } catch (error) {
+            dispose()
+            reject(error)
+          }
+        })
+      })
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("app bottom shows and refreshes active workflow progress without session props", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-app-bottom-refresh-"))
+    try {
+      const state = createWorkflowWithProgress({
+        project,
+        parentSessionID: "session-main",
+        childSessionID: "session-child",
+        summary: "initial bottom progress",
+        updatedAt: "2026-07-03T02:00:00.000Z",
+      })
+      const node = state.node_runs[0]
+      if (!node) throw new Error("expected node")
+      const api = {
+        state: {
+          path: { directory: project },
+          session: {
+            status() {
+              return { type: "busy" }
+            },
+          },
+        },
+      } as never
+      let text: Accessor<string> | undefined
+
+      await new Promise<void>((resolve, reject) => {
+        createRoot((dispose) => {
+          try {
+            const slot = createProgressSlot(
+              api,
+              (value) => {
+                text = typeof value === "function" ? value : () => value
+                return { type: "text" }
+              },
+              { refreshMs: 5, renderer: "workflow-status", allowGlobal: true },
+            )
+            slot()
+            expect(text?.()).toContain("initial bottom progress")
+            createNodeProgressStore(project).append(state.id, {
+              at: "2026-07-03T02:00:05.000Z",
+              kind: "tool_running",
+              session_id: "session-child",
+              node_id: node.id,
+              agent: node.agent,
+              phase: node.phase,
+              task_id: node.task_id,
+              summary: "refreshed bottom progress",
+            })
+            setTimeout(() => {
+              try {
+                expect(text?.()).toContain("refreshed bottom progress")
                 dispose()
                 resolve()
               } catch (error) {

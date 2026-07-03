@@ -85,6 +85,45 @@ describe("deploy-superagent-runtime", () => {
       }
     }
   }, 30_000)
+
+  test("start leaves the server listening after the deploy script exits", async () => {
+    const tempHome = mkdtempSync(join(tmpdir(), "sp-superagent-home-"))
+    const runtimeRoot = mkdtempSync(join(tmpdir(), "sp-superagent-runtime-"))
+    const port = await getAvailablePort()
+    const env = {
+      ...process.env,
+      HOME: tempHome,
+      SUPERAGENT_ROOT: runtimeRoot,
+      SUPERAGENT_PORT: String(port),
+    }
+
+    try {
+      const start = spawnSync("bash", ["scripts/deploy-superagent-runtime.sh", "start"], {
+        cwd: process.cwd(),
+        env,
+        encoding: "utf8",
+      })
+      expect(start.status, start.stderr || start.stdout).toBe(0)
+
+      await sleep(2_000)
+
+      const status = spawnSync("bash", ["scripts/deploy-superagent-runtime.sh", "status"], {
+        cwd: process.cwd(),
+        env,
+        encoding: "utf8",
+      })
+      expect(status.stdout).toContain(`Superagent running at http://127.0.0.1:${port}`)
+      const response = await fetch(`http://127.0.0.1:${port}/`)
+      expect(response.ok).toBe(true)
+      expect(await response.text()).toContain("/assets/index-")
+    } finally {
+      spawnSync("bash", ["scripts/deploy-superagent-runtime.sh", "stop"], {
+        cwd: process.cwd(),
+        env,
+        encoding: "utf8",
+      })
+    }
+  }, 180_000)
 })
 
 async function getAvailablePort(): Promise<number> {
@@ -137,4 +176,8 @@ async function waitForExit(child: ReturnType<typeof spawn>, timeoutMs: number): 
     }
     child.once("exit", onExit)
   })
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms))
 }
