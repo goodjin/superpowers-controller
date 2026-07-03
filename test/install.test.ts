@@ -135,6 +135,41 @@ describe("mergePluginEntry", () => {
     expect(readdirSync(join(home, ".config", "opencode", "skills")).filter((entry) => entry.startsWith("superpowers-")).length).toBeGreaterThan(0)
   }, 30_000)
 
+  test("one-click install script works when piped into bash", () => {
+    const home = mkdtempSync(join(tmpdir(), "sp-install-pipe-home-"))
+    const binDir = join(home, "bin")
+    const fakeOpencode = join(binDir, "opencode")
+    const fakeBunx = join(binDir, "bunx")
+    mkdirSync(binDir, { recursive: true })
+    writeFileSync(fakeOpencode, "#!/usr/bin/env bash\nprintf 'opencode 1.17.13\\n'\n", { mode: 0o755 })
+    writeFileSync(fakeBunx, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" != "superpowers-controller" ]]; then
+  echo "unexpected bunx package: $1" >&2
+  exit 2
+fi
+shift
+exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
+`, { mode: 0o755 })
+
+    const script = readFileSync("scripts/install.sh", "utf8")
+    const result = spawnSync("bash", {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        HOME: home,
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+      },
+      input: script,
+      encoding: "utf8",
+    })
+
+    expect(result.status, result.stderr || result.stdout).toBe(0)
+    expect(result.stderr).not.toContain("BASH_SOURCE")
+    expect(result.stdout).toContain("Superpowers Controller installed.")
+    expect(readFileSync(join(home, ".config", "opencode", "tui.jsonc"), "utf8")).toContain("superpowers-controller/tui")
+  }, 30_000)
+
   test("migrates the legacy plugin config path to the controller config path", () => {
     const configDir = mkdtempSync(join(tmpdir(), "sp-install-legacy-"))
     const legacyConfig = join(configDir, "opencode-superpowers.jsonc")

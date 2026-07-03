@@ -2,8 +2,13 @@
 set -euo pipefail
 
 PACKAGE_NAME="${SUPERPOWERS_CONTROLLER_PACKAGE:-superpowers-controller}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
+SCRIPT_DIR=""
+REPO_ROOT=""
+if [[ -n "$SCRIPT_SOURCE" && -f "$SCRIPT_SOURCE" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+  REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
 
 log() {
   printf '%s\n' "$*"
@@ -24,7 +29,7 @@ require_command() {
 
 run_controller() {
   local command="$1"
-  if [[ -f "$REPO_ROOT/package.json" && -f "$REPO_ROOT/src/cli/index.ts" ]]; then
+  if [[ -n "$REPO_ROOT" && -f "$REPO_ROOT/package.json" && -f "$REPO_ROOT/src/cli/index.ts" ]]; then
     (cd "$REPO_ROOT" && bun run src/cli/index.ts "$command")
   else
     bunx "$PACKAGE_NAME" "$command"

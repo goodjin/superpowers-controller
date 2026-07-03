@@ -1,6 +1,6 @@
 {
   "name": "superpowers-controller",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Unofficial stateful workflow controller for the Superpowers methodology on OpenCode.",
   "type": "module",
   "main": "./dist/index.js",

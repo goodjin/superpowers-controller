@@ -24,7 +24,7 @@
 - `doctor` 增加 TUI plugin 检查。
 - 一键安装脚本输出提示用户重启 OpenCode，并在缓存旧版本时建议用 `opencode plugin superpowers-controller --global --force` 刷新。
 - 更新安装测试和部署文档，防止后续回归。
-- 包版本升到 `0.1.4`，为发布修复版 npm 包预留版本号。
+- 包版本先发布到 `0.1.4`；随后发现 `curl | bash` 场景会因为 `BASH_SOURCE[0]` 不存在打印警告，继续升到 `0.1.5` 修复管道执行兼容性。
 
 ## 验证步骤
 
@@ -32,6 +32,7 @@
 2. ✅ `bun run test`：150 pass，0 fail。
 3. ✅ `bun run build`：构建 `dist/index.js`、`dist/tui.js` 和 `dist/cli/index.js` 成功。
 4. ✅ `npm pack --dry-run`：生成 `superpowers-controller@0.1.4` dry-run，包内包含 `dist/tui.js`、`dist/cli/index.js` 和 `scripts/install.sh`。
+5. ✅ 本地 `bash < scripts/install.sh` 管道模拟：临时 `HOME` 下写入 `opencode.jsonc`、`tui.jsonc`、skills，并刷新 OpenCode 插件缓存，无 `BASH_SOURCE` 警告。
 
 ## 相关文件
 
