@@ -79,3 +79,28 @@ npm pack --dry-run
 ```
 
 The dry-run package should be named `superpowers-controller`, include `LICENSE`, ship `dist/index.js`, `dist/tui.js`, `dist/cli/index.js`, bundled primary skills, and declaration files under `dist/src/`. It should not include command assets or test declaration files.
+
+## GitHub Actions Publishing
+
+The npm release path is `.github/workflows/publish.yml`. It uses npm trusted publishing through GitHub Actions OIDC, so the repository does not need a long-lived `NPM_TOKEN` secret and local release commands do not need to pass OTP/security-key prompts.
+
+The workflow is manually triggered from GitHub Actions and runs:
+
+```bash
+bun install --frozen-lockfile
+bun run test
+bun run build
+npm pack --dry-run
+npm publish --provenance --access public --tag "$NPM_TAG"
+```
+
+The npm package must be configured once at `https://www.npmjs.com/package/superpowers-controller/access`:
+
+- Publisher: GitHub Actions
+- Organization or user: `goodjin`
+- Repository: `superpowers-controller`
+- Workflow filename: `publish.yml`
+- Environment name: blank
+- Allowed actions: `npm publish`
+
+Trusted publishing requires a GitHub-hosted runner, `id-token: write`, and a recent npm CLI. The workflow uses Node.js 24 so npm is new enough for OIDC publishing.

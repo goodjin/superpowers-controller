@@ -1,0 +1,58 @@
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: npm dist-tag to publish
+        required: true
+        default: latest
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Build, test, and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun run test
+
+      - name: Build
+        run: bun run build
+
+      - name: Package dry run
+        run: npm pack --dry-run
+
+      - name: Check version is unpublished
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          PUBLISHED="$(npm view "superpowers-controller@$VERSION" version 2>/dev/null || true)"
+          if [ "$PUBLISHED" = "$VERSION" ]; then
+            echo "::error::superpowers-controller@$VERSION is already published"
+            exit 1
+          fi
+
+      - name: Publish
+        env:
+          NPM_TAG: ${{ inputs.tag }}
+        run: npm publish --provenance --access public --tag "$NPM_TAG"
