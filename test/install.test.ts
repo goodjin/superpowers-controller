@@ -105,7 +105,12 @@ describe("mergePluginEntry", () => {
     const home = mkdtempSync(join(tmpdir(), "sp-install-home-"))
     const binDir = join(home, "bin")
     const fakeOpencode = join(binDir, "opencode")
+    const cacheRoot = join(home, ".cache", "opencode", "packages")
     mkdirSync(binDir, { recursive: true })
+    mkdirSync(join(cacheRoot, "superpowers-controller", "node_modules", "superpowers-controller"), { recursive: true })
+    mkdirSync(join(cacheRoot, "superpowers-controller@latest", "node_modules", "superpowers-controller"), { recursive: true })
+    mkdirSync(join(cacheRoot, "opencode-superpowers-controller@latest"), { recursive: true })
+    mkdirSync(join(cacheRoot, "other-plugin"), { recursive: true })
     writeFileSync(fakeOpencode, "#!/usr/bin/env bash\nprintf 'opencode 1.16.2\\n'\n", { mode: 0o755 })
 
     const env = {
@@ -133,6 +138,10 @@ describe("mergePluginEntry", () => {
     expect(config).toContain('"default_agent": "super-agent"')
     expect(existsSync(join(home, ".config", "opencode", "superpowers-controller.jsonc"))).toBe(true)
     expect(readdirSync(join(home, ".config", "opencode", "skills")).filter((entry) => entry.startsWith("superpowers-")).length).toBeGreaterThan(0)
+    expect(existsSync(join(cacheRoot, "superpowers-controller"))).toBe(false)
+    expect(existsSync(join(cacheRoot, "superpowers-controller@latest"))).toBe(false)
+    expect(existsSync(join(cacheRoot, "opencode-superpowers-controller@latest"))).toBe(false)
+    expect(existsSync(join(cacheRoot, "other-plugin"))).toBe(true)
   }, 30_000)
 
   test("one-click install script works when piped into bash", () => {

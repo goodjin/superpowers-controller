@@ -43,12 +43,38 @@ doctor_allows_only_missing_opencode() {
   [[ -z "$failures" ]]
 }
 
+opencode_plugin_cache_root() {
+  local cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+  printf '%s\n' "$cache_home/opencode/packages"
+}
+
+clear_opencode_plugin_cache() {
+  local cache_root
+  cache_root="$(opencode_plugin_cache_root)"
+  local legacy_package="opencode-superpowers-controller"
+  local cache_keys=(
+    "$PACKAGE_NAME"
+    "$PACKAGE_NAME@latest"
+    "$legacy_package"
+    "$legacy_package@latest"
+  )
+
+  for key in "${cache_keys[@]}"; do
+    local target="$cache_root/$key"
+    if [[ -e "$target" ]]; then
+      log "Removing stale OpenCode plugin cache: $target"
+      rm -rf "$target"
+    fi
+  done
+}
+
 refresh_opencode_plugin_cache() {
   if ! command_exists opencode; then
     return 0
   fi
 
   log "Refreshing OpenCode plugin cache..."
+  clear_opencode_plugin_cache
   opencode plugin "$PACKAGE_NAME" --global --force
 }
 

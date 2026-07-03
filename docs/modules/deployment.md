@@ -23,6 +23,8 @@ curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-controller/main
 
 When run from this repository checkout, the script uses the local TypeScript CLI. When run from the raw GitHub URL, it uses `bunx superpowers-controller`. The script installs the server plugin entry in `opencode.json` / `opencode.jsonc`, installs the TUI plugin entry `superpowers-controller/tui` in `tui.json` / `tui.jsonc`, sets OpenCode `default_agent` to `super-agent`, and copies bundled primary skills into the user's OpenCode config. The shell script also directly ensures the TUI plugin entry is present, so the raw GitHub installer can repair TUI config even before a newer npm package has been pulled into OpenCode's cache. When `opencode` is available, it also runs `opencode plugin superpowers-controller --global --force` so OpenCode refreshes its package cache instead of reusing an older plugin version. It does not modify provider auth, model config, or the isolated `superagent` runtime.
 
+Before invoking OpenCode's plugin installer, `scripts/install.sh` removes stale cache directories for this package under `${XDG_CACHE_HOME:-$HOME/.cache}/opencode/packages`: `superpowers-controller`, `superpowers-controller@latest`, and legacy `opencode-superpowers-controller` keys. This is intentionally scoped to the Controller package because OpenCode may otherwise reuse an existing `node_modules/superpowers-controller` cache even when npm has a newer version.
+
 The installer writes `superpowers-controller.jsonc` beside the user's OpenCode config. If an older `opencode-superpowers.jsonc` exists and the new file does not, the installer copies the legacy content into `superpowers-controller.jsonc` and leaves the legacy file in place.
 
 ## Runtime Layout
