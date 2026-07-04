@@ -146,10 +146,12 @@ describe("mergePluginEntry", () => {
 
   test("one-click install script works when piped into bash", () => {
     const home = mkdtempSync(join(tmpdir(), "sp-install-pipe-home-"))
+    const temp = join(home, "tmp")
     const binDir = join(home, "bin")
     const fakeOpencode = join(binDir, "opencode")
     const fakeBunx = join(binDir, "bunx")
     mkdirSync(binDir, { recursive: true })
+    mkdirSync(temp, { recursive: true })
     writeFileSync(fakeOpencode, "#!/usr/bin/env bash\nprintf 'opencode 1.17.13\\n'\n", { mode: 0o755 })
     writeFileSync(fakeBunx, `#!/usr/bin/env bash
 set -euo pipefail
@@ -168,6 +170,7 @@ exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
         ...process.env,
         HOME: home,
         PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        TMPDIR: `${temp}/`,
       },
       input: script,
       encoding: "utf8",
@@ -181,9 +184,11 @@ exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
 
   test("one-click install script fails fast when remote bunx times out", () => {
     const home = mkdtempSync(join(tmpdir(), "sp-install-timeout-home-"))
+    const temp = join(home, "tmp")
     const binDir = join(home, "bin")
     const fakeBunx = join(binDir, "bunx")
     mkdirSync(binDir, { recursive: true })
+    mkdirSync(temp, { recursive: true })
     writeFileSync(fakeBunx, `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" != "superpowers-controller@latest" ]]; then
@@ -200,6 +205,7 @@ exit 124
         ...process.env,
         HOME: home,
         PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        TMPDIR: `${temp}/`,
         SUPERPOWERS_CONTROLLER_INSTALL_TIMEOUT_SECONDS: "1",
       },
       input: script,
@@ -213,10 +219,12 @@ exit 124
 
   test("one-click install script fails fast when OpenCode plugin refresh times out", () => {
     const home = mkdtempSync(join(tmpdir(), "sp-install-opencode-timeout-home-"))
+    const temp = join(home, "tmp")
     const binDir = join(home, "bin")
     const fakeOpencode = join(binDir, "opencode")
     const fakeBunx = join(binDir, "bunx")
     mkdirSync(binDir, { recursive: true })
+    mkdirSync(temp, { recursive: true })
     writeFileSync(fakeOpencode, `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" == "plugin" ]]; then
@@ -237,6 +245,7 @@ exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
         ...process.env,
         HOME: home,
         PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        TMPDIR: `${temp}/`,
         SUPERPOWERS_CONTROLLER_INSTALL_TIMEOUT_SECONDS: "1",
       },
       input: script,
@@ -248,12 +257,57 @@ exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
     expect(result.stderr).toContain("failed to refresh OpenCode plugin cache")
   }, 30_000)
 
-  test("one-click install script can skip OpenCode plugin cache refresh", () => {
-    const home = mkdtempSync(join(tmpdir(), "sp-install-skip-refresh-home-"))
+  test("one-click install script seeds OpenCode cache from the bunx package cache", () => {
+    const home = mkdtempSync(join(tmpdir(), "sp-install-seed-cache-home-"))
+    const temp = join(home, "tmp")
     const binDir = join(home, "bin")
     const fakeOpencode = join(binDir, "opencode")
     const fakeBunx = join(binDir, "bunx")
     mkdirSync(binDir, { recursive: true })
+    mkdirSync(temp, { recursive: true })
+    writeFileSync(fakeOpencode, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "plugin" ]]; then
+  echo "plugin refresh should have used bunx cache" >&2
+  exit 2
+fi
+printf 'opencode 1.17.13\\n'
+`, { mode: 0o755 })
+    writeFileSync(fakeBunx, `#!/usr/bin/env bash
+set -euo pipefail
+package_dir="\${TMPDIR%/}/bunx-\$(id -u)-superpowers-controller@latest/node_modules/superpowers-controller"
+mkdir -p "$package_dir"
+printf '{"name":"superpowers-controller","version":"9.9.9"}\\n' > "$package_dir/package.json"
+shift
+exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
+`, { mode: 0o755 })
+
+    const script = readFileSync("scripts/install.sh", "utf8")
+    const result = spawnSync("bash", {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        HOME: home,
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        TMPDIR: `${temp}/`,
+      },
+      input: script,
+      encoding: "utf8",
+    })
+
+    expect(result.status, result.stderr || result.stdout).toBe(0)
+    expect(result.stdout).toContain("Seeded OpenCode plugin cache from bunx package cache")
+    expect(readFileSync(join(home, ".cache", "opencode", "packages", "node_modules", "superpowers-controller", "package.json"), "utf8")).toContain('"version":"9.9.9"')
+  }, 30_000)
+
+  test("one-click install script can skip OpenCode plugin cache refresh", () => {
+    const home = mkdtempSync(join(tmpdir(), "sp-install-skip-refresh-home-"))
+    const temp = join(home, "tmp")
+    const binDir = join(home, "bin")
+    const fakeOpencode = join(binDir, "opencode")
+    const fakeBunx = join(binDir, "bunx")
+    mkdirSync(binDir, { recursive: true })
+    mkdirSync(temp, { recursive: true })
     writeFileSync(fakeOpencode, `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" == "plugin" ]]; then
@@ -275,6 +329,7 @@ exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
         ...process.env,
         HOME: home,
         PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        TMPDIR: `${temp}/`,
         SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH: "1",
       },
       input: script,

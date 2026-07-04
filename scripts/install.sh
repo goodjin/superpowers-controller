@@ -88,6 +88,12 @@ clear_opencode_plugin_cache() {
       rm -rf "$target"
     fi
   done
+
+  local node_package="$cache_root/node_modules/$PACKAGE_NAME"
+  if [[ -e "$node_package" ]]; then
+    log "Removing stale OpenCode plugin cache: $node_package"
+    rm -rf "$node_package"
+  fi
 }
 
 refresh_opencode_plugin_cache() {
@@ -95,12 +101,16 @@ refresh_opencode_plugin_cache() {
     return 0
   fi
   if [[ "${SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH:-}" == "1" ]]; then
+    seed_opencode_plugin_cache_from_bunx || true
     log "Skipping OpenCode plugin cache refresh because SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH=1."
     return 0
   fi
 
   log "Refreshing OpenCode plugin cache..."
   clear_opencode_plugin_cache
+  if seed_opencode_plugin_cache_from_bunx; then
+    return 0
+  fi
   set +e
   run_with_timeout opencode plugin "$PACKAGE_NAME" --global --force
   local status=$?
@@ -110,6 +120,33 @@ refresh_opencode_plugin_cache() {
     printf 'error: Config files were written, but OpenCode could not refresh its plugin cache. Retry later, or set SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH=1 to skip this step.\n' >&2
   fi
   return "$status"
+}
+
+seed_opencode_plugin_cache_from_bunx() {
+  local temp_root="${TMPDIR:-/tmp}"
+  temp_root="${temp_root%/}"
+  local bunx_root="$temp_root/bunx-$(id -u)-$PACKAGE_NAME@latest"
+  local source_modules="$bunx_root/node_modules"
+  local source_package="$source_modules/$PACKAGE_NAME/package.json"
+  if [[ ! -f "$source_package" ]]; then
+    return 1
+  fi
+
+  local cache_root
+  cache_root="$(opencode_plugin_cache_root)"
+  mkdir -p "$cache_root/node_modules"
+  cp -R "$source_modules/." "$cache_root/node_modules/"
+  CACHE_ROOT="$cache_root" PACKAGE_NAME="$PACKAGE_NAME" bun --eval '
+const fs = require("fs")
+const path = require("path")
+const cacheRoot = process.env.CACHE_ROOT
+const packageName = process.env.PACKAGE_NAME
+const target = path.join(cacheRoot, "package.json")
+const current = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, "utf8")) : {}
+current.dependencies = { ...(current.dependencies ?? {}), [packageName]: "latest" }
+fs.writeFileSync(target, JSON.stringify(current, null, 2) + "\n")
+'
+  log "Seeded OpenCode plugin cache from bunx package cache: $source_modules"
 }
 
 ensure_tui_plugin_config() {

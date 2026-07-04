@@ -17,6 +17,7 @@ The install script currently captures `run_controller install` into a shell vari
 - Improve installer observability so long-running install, refresh, and doctor steps show progress in the terminal.
 - Add a timeout around remote `bunx` controller calls so npm registry stalls do not block indefinitely.
 - Add a timeout around the OpenCode plugin cache refresh step for the same reason.
+- Seed OpenCode's package cache from the package already downloaded by `bunx` before falling back to `opencode plugin`.
 - Print actionable fallback guidance when the remote package execution times out.
 - Provide an explicit skip switch for the OpenCode cache refresh when the user's network blocks that path.
 - Keep the local checkout path unchanged for development installs.
@@ -30,15 +31,17 @@ The install script currently captures `run_controller install` into a shell vari
 5. Let the install command stream directly to stdout/stderr instead of capturing it.
 6. Keep doctor output captured because the script needs to tolerate only the missing-opencode warning, but capture it through a temporary file while also streaming it.
 7. Update deployment module docs with the new installer timeout/progress behavior.
-8. Wrap `opencode plugin superpowers-controller --global --force` in the same timeout helper.
-9. Add `SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH=1` for users who need config installation to complete while OpenCode registry access is blocked.
-10. Verify with targeted install tests, build, and package dry-run.
+8. Copy the local `bunx` package cache into OpenCode's package cache when available.
+9. Wrap `opencode plugin superpowers-controller --global --force` in the same timeout helper for fallback refreshes.
+10. Add `SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH=1` for users who need config installation to complete while OpenCode registry access is blocked.
+11. Verify with targeted install tests, build, and package dry-run.
 
 ## Acceptance
 
 - The installer no longer silently waits after the initial installing line.
 - A hung npm/Bun registry request exits with a readable timeout error.
 - A hung OpenCode plugin refresh exits with a readable timeout error.
+- When `bunx` has already downloaded the package, OpenCode's plugin cache is seeded locally without invoking the network refresh.
 - Users can explicitly skip the OpenCode plugin cache refresh when needed.
 - Existing local one-click install tests still pass.
 - CI-safe tests/build/pack remain green.
