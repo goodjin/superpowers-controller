@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PACKAGE_NAME="${SUPERPOWERS_CONTROLLER_PACKAGE:-superpowers-controller}"
+INSTALL_TIMEOUT_SECONDS="${SUPERPOWERS_CONTROLLER_INSTALL_TIMEOUT_SECONDS:-120}"
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
 SCRIPT_DIR=""
 REPO_ROOT=""
@@ -32,7 +33,28 @@ run_controller() {
   if [[ -n "$REPO_ROOT" && -f "$REPO_ROOT/package.json" && -f "$REPO_ROOT/src/cli/index.ts" ]]; then
     (cd "$REPO_ROOT" && bun run src/cli/index.ts "$command")
   else
-    bunx "$PACKAGE_NAME" "$command"
+    log "Running $PACKAGE_NAME@latest $command via bunx (timeout: ${INSTALL_TIMEOUT_SECONDS}s)..."
+    set +e
+    run_with_timeout bunx "$PACKAGE_NAME@latest" "$command"
+    local status=$?
+    set -e
+    if [[ "$status" -eq 124 ]] || [[ "$status" -eq 137 ]] || [[ "$status" -eq 142 ]]; then
+      printf 'error: bunx timed out after %ss while running %s@latest %s.\n' "$INSTALL_TIMEOUT_SECONDS" "$PACKAGE_NAME" "$command" >&2
+      printf 'error: Bun may be unable to reach the npm registry. Retry after network recovery, or set BUN_CONFIG_REGISTRY to a reachable registry.\n' >&2
+    fi
+    return "$status"
+  fi
+}
+
+run_with_timeout() {
+  if command_exists timeout; then
+    timeout "$INSTALL_TIMEOUT_SECONDS" "$@"
+  elif command_exists gtimeout; then
+    gtimeout "$INSTALL_TIMEOUT_SECONDS" "$@"
+  elif command_exists perl; then
+    perl -e 'alarm shift; exec @ARGV' "$INSTALL_TIMEOUT_SECONDS" "$@"
+  else
+    "$@"
   fi
 }
 
@@ -125,12 +147,9 @@ main() {
   fi
 
   log "Installing Superpowers Controller..."
-  local install_output
-  if ! install_output="$(run_controller install 2>&1)"; then
-    printf '%s\n' "$install_output" >&2
+  if ! run_controller install; then
     die "install command failed"
   fi
-  printf '%s\n' "$install_output"
 
   ensure_tui_plugin_config
 
@@ -142,8 +161,14 @@ main() {
   log "Running doctor..."
   local doctor_output
   local doctor_status=0
-  doctor_output="$(run_controller doctor 2>&1)" || doctor_status=$?
-  printf '%s\n' "$doctor_output"
+  local doctor_capture
+  doctor_capture="$(mktemp)"
+  set +e
+  run_controller doctor 2>&1 | tee "$doctor_capture"
+  doctor_status="${PIPESTATUS[0]}"
+  set -e
+  doctor_output="$(cat "$doctor_capture")"
+  rm -f "$doctor_capture"
 
   if [[ "$doctor_status" -ne 0 ]] && ! doctor_allows_only_missing_opencode "$doctor_output"; then
     die "doctor reported failed checks"

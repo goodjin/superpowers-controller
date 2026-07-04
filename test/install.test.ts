@@ -153,7 +153,7 @@ describe("mergePluginEntry", () => {
     writeFileSync(fakeOpencode, "#!/usr/bin/env bash\nprintf 'opencode 1.17.13\\n'\n", { mode: 0o755 })
     writeFileSync(fakeBunx, `#!/usr/bin/env bash
 set -euo pipefail
-if [[ "$1" != "superpowers-controller" ]]; then
+if [[ "$1" != "superpowers-controller@latest" ]]; then
   echo "unexpected bunx package: $1" >&2
   exit 2
 fi
@@ -177,6 +177,38 @@ exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
     expect(result.stderr).not.toContain("BASH_SOURCE")
     expect(result.stdout).toContain("Superpowers Controller installed.")
     expect(readFileSync(join(home, ".config", "opencode", "tui.jsonc"), "utf8")).toContain("superpowers-controller/tui")
+  }, 30_000)
+
+  test("one-click install script fails fast when remote bunx times out", () => {
+    const home = mkdtempSync(join(tmpdir(), "sp-install-timeout-home-"))
+    const binDir = join(home, "bin")
+    const fakeBunx = join(binDir, "bunx")
+    mkdirSync(binDir, { recursive: true })
+    writeFileSync(fakeBunx, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" != "superpowers-controller@latest" ]]; then
+  echo "unexpected bunx package: $1" >&2
+  exit 2
+fi
+exit 124
+`, { mode: 0o755 })
+
+    const script = readFileSync("scripts/install.sh", "utf8")
+    const result = spawnSync("bash", {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        HOME: home,
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        SUPERPOWERS_CONTROLLER_INSTALL_TIMEOUT_SECONDS: "1",
+      },
+      input: script,
+      encoding: "utf8",
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("bunx timed out after 1s")
+    expect(result.stderr).toContain("install command failed")
   }, 30_000)
 
   test("migrates the legacy plugin config path to the controller config path", () => {
