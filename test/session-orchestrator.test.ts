@@ -312,21 +312,21 @@ describe("createSessionOrchestrator", () => {
       parentSessionID: "session-main",
       decision: {
         action: "create_session",
-        phase: "plan",
-        agent: "sp-planner",
-        primary_skill: "superpowers-writing-plans",
-        reason: "plan next",
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        reason: "implement next",
       },
       packet: {
         run_id: "run-1",
-        node_id: "001-plan",
+        node_id: "001-implement",
         workflow: "feature",
-        phase: "plan",
-        agent: "sp-planner",
-        primary_skill: "superpowers-writing-plans",
-        objective: "Write plan.",
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        objective: "Implement task.",
         required_artifacts: [],
-        record_contract: { event: "plan", expected_artifacts: ["plan"], allowed_gates: ["plan_written"] },
+        record_contract: { event: "implementation", expected_artifacts: ["patch_summary"], allowed_gates: ["implementation_done"] },
       },
       async onSessionCreated() {
         order.push("register")
@@ -337,6 +337,144 @@ describe("createSessionOrchestrator", () => {
     })
 
     expect(order).toEqual(["create", "register", "parent-progress", "prompt"])
+  })
+
+  test("does not start parent progress for foreground serial design and plan nodes", async () => {
+    const order: string[] = []
+    const orchestrator = createSessionOrchestrator(
+      {
+        async createNodeSession(input) {
+          return `session-${input.agent}`
+        },
+        async continueNodeSession() {
+          order.push("prompt")
+        },
+        async showProgress() {},
+      },
+      {
+        parentProgress: {
+          start() {
+            order.push("parent-progress")
+          },
+        },
+      },
+    )
+
+    for (const phase of ["design", "plan"] as const) {
+      await orchestrator.dispatch({
+        project: "/repo",
+        runID: "run-1",
+        parentSessionID: "session-main",
+        decision: {
+          action: "create_session",
+          phase,
+          agent: phase === "design" ? "sp-designer" : "sp-planner",
+          primary_skill: phase === "design" ? "superpowers-brainstorming" : "superpowers-writing-plans",
+          reason: `${phase} next`,
+        },
+        packet: {
+          run_id: "run-1",
+          node_id: `001-${phase}`,
+          workflow: "feature",
+          phase,
+          agent: phase === "design" ? "sp-designer" : "sp-planner",
+          primary_skill: phase === "design" ? "superpowers-brainstorming" : "superpowers-writing-plans",
+          objective: `${phase} task.`,
+          required_artifacts: [],
+          record_contract: phase === "design"
+            ? { event: "design", expected_artifacts: ["spec"], allowed_gates: ["spec_written"] }
+            : { event: "plan", expected_artifacts: ["plan"], allowed_gates: ["plan_written"] },
+        },
+        async onSessionCreated() {},
+        readStateForProgress() {
+          return null
+        },
+      })
+    }
+
+    expect(order).toEqual(["prompt", "prompt"])
+  })
+
+  test("selects serial design and plan children in the foreground", async () => {
+    const selected: string[] = []
+    const orchestrator = createSessionOrchestrator({
+      async createNodeSession(input) {
+        return `session-${input.agent}`
+      },
+      async continueNodeSession() {},
+      async selectSession(input) {
+        selected.push(input.sessionID)
+      },
+      async showProgress() {},
+    })
+
+    await orchestrator.dispatch({
+      project: "/repo",
+      runID: "run-1",
+      parentSessionID: "session-main",
+      decision: {
+        action: "create_session",
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        reason: "design next",
+      },
+      packet: {
+        run_id: "run-1",
+        node_id: "001-design",
+        workflow: "feature",
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        objective: "Create design.",
+        required_artifacts: [],
+        record_contract: { event: "design", expected_artifacts: ["spec"], allowed_gates: ["spec_written"] },
+      },
+    })
+
+    expect(selected).toEqual(["session-sp-designer"])
+  })
+
+  test("selects the parent session for parent-led parallel dispatch", async () => {
+    const selected: string[] = []
+    const orchestrator = createSessionOrchestrator({
+      async createNodeSession() {
+        return "session-implement"
+      },
+      async continueNodeSession() {},
+      async selectSession(input) {
+        selected.push(input.sessionID)
+      },
+      async showProgress() {},
+    })
+
+    await orchestrator.dispatch({
+      project: "/repo",
+      runID: "run-1",
+      parentSessionID: "session-main",
+      decision: {
+        action: "create_session",
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        task_id: "T1",
+        reason: "task runnable",
+      },
+      packet: {
+        run_id: "run-1",
+        node_id: "001-implement-T1",
+        workflow: "feature",
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        task_id: "T1",
+        objective: "Implement T1.",
+        required_artifacts: [],
+        record_contract: { event: "implementation", expected_artifacts: ["patch_summary"], allowed_gates: ["implementation_done"] },
+      },
+    })
+
+    expect(selected).toEqual(["session-main"])
   })
 
   test("reuses an existing node session for retry dispatch", async () => {

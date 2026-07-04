@@ -653,6 +653,67 @@ describe("sp_prepare and sp_start tools", () => {
     }
   })
 
+  test("sp_start approval from a foreground child preserves the original parent session", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-child-approval-parent-"))
+    try {
+      const store = createProjectStore(project)
+      const prepared = store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add foreground child approvals",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+        prepareMode: "proposal_only",
+      })
+      const design = store.addNodeRun({
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        session_id: "session-design",
+        task_markdown: "# Design task",
+      })
+      const afterDesign = store.recordNodeResult({
+        nodeID: design.id,
+        sessionID: "session-design",
+        agent: "sp-designer",
+        input: {
+          event: "design",
+          status: "passed",
+          summary: "Design ready.",
+          artifacts: { spec: "# Spec\n\nForeground approval." },
+          gates: { design_approved: true, spec_written: true },
+        },
+      })
+      const start = createStartTool(store, {
+        async dispatch(args) {
+          return {
+            action: args.decision.action,
+            session_id: "session-plan",
+            task_markdown: "# Plan task",
+          }
+        },
+      })
+
+      const result = JSON.parse(toolOutput(await start.execute({
+        run_id: prepared.id,
+        start_action: "approve_design",
+        expected_state_version: afterDesign.state_version,
+      }, {
+        ...toolContext,
+        sessionID: "session-design",
+      })))
+
+      expect(result.state.parent_session_id).toBe("session-main")
+      expect(store.readCurrent()?.parent_session_id).toBe("session-main")
+      const events = readFileSync(join(store.root, "runs", prepared.id, "events.jsonl"), "utf8")
+      expect(events).toContain('"approved_by_session_id":"session-design"')
+      expect(events).toContain('"design_approved"')
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("sp_start resume preserves waiting-user workflows without dispatching", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-start-resume-waiting-"))
     try {

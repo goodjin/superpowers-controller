@@ -6,7 +6,7 @@ import {
   renderSidebarProgressText,
 } from "../tui/progress-panel"
 
-export const PARENT_PROGRESS_INTERVAL_MS = 30_000
+export const PARENT_PROGRESS_INTERVAL_MS = 10_000
 
 type TimerHandle = unknown
 
@@ -121,11 +121,15 @@ export function buildParentProgressPrompt(state: WorkflowState, project: string,
 
 function isParentProgressActive(state: WorkflowState | null, runID: string): state is WorkflowState {
   return Boolean(
-    state &&
+      state &&
       state.id === runID &&
       state.status === "running" &&
-      state.node_runs.some((node) => node.status === "running"),
+      state.node_runs.some((node) => node.status === "running" && !isForegroundSerialPhase(node.phase)),
   )
+}
+
+function isForegroundSerialPhase(phase: string): boolean {
+  return phase === "design" || phase === "plan"
 }
 
 const defaultTimer: ParentProgressTimer = {

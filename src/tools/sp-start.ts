@@ -143,9 +143,10 @@ export function createStartTool(
         .describe("User input collected by the controller for a waiting_user workflow."),
     },
     async execute(args, context) {
-      const sessionID = args.session ?? context.sessionID
+      const callerSessionID = args.session ?? context.sessionID
       const runID = args.run_id ?? args.prepared_task_id
       const currentForVersion = runID ? store.readRun(runID) : store.readCurrent()
+      const parentSessionID = currentForVersion?.parent_session_id ?? callerSessionID
       const currentStateVersion = currentForVersion?.state_version ?? (currentForVersion ? `${currentForVersion.updated_at}:legacy` : undefined)
       if (args.expected_state_version && currentForVersion && args.expected_state_version !== currentStateVersion) {
         return JSON.stringify(
@@ -189,7 +190,7 @@ export function createStartTool(
         const result = await resolveControllerDecision({
           store,
           orchestrator,
-          sessionID,
+          parentSessionID,
           state: current,
           decision,
         })
@@ -220,7 +221,7 @@ export function createStartTool(
         const pendingQuestion = before?.pending_question
         const resumed = store.consumePendingQuestion({
           runID,
-          parentSessionID: sessionID,
+          parentSessionID,
           resumeInput: args.resume_input as ResumeInput,
         })
         const prompt = buildChildResumePrompt({
@@ -267,8 +268,8 @@ export function createStartTool(
         if (startAction === "approve_design") {
           state = store.approveDesign({
             runID,
-            parentSessionID: sessionID,
-            approvedBySessionID: sessionID,
+            parentSessionID,
+            approvedBySessionID: callerSessionID,
           })
           dispatches = await dispatchStart({
             store,
@@ -280,8 +281,8 @@ export function createStartTool(
         } else if (startAction === "approve_plan") {
           state = store.approvePlan({
             runID,
-            parentSessionID: sessionID,
-            approvedBySessionID: sessionID,
+            parentSessionID,
+            approvedBySessionID: callerSessionID,
           })
           dispatches = await dispatchStart({
             store,
@@ -293,7 +294,7 @@ export function createStartTool(
         } else {
           state = store.activateRun({
             runID,
-            parentSessionID: sessionID,
+            parentSessionID,
           })
         }
       } else {
@@ -305,7 +306,7 @@ export function createStartTool(
           workflow: args.workflow as WorkflowKind,
           entrypoint: args.entrypoint as WorkflowEntrypoint,
           proposal: args.proposal,
-          parentSessionID: sessionID,
+          parentSessionID,
         })
         state = store.startRun(start)
       }
@@ -317,7 +318,7 @@ export function createStartTool(
       if (workflowSpec) {
         state = store.setWorkflowSpec({
           runID: state.id,
-          parentSessionID: sessionID,
+          parentSessionID,
           workflowSpec,
           workflow: workflowSpec.template_id ?? state.workflow,
           entrypoint: entrypointForWorkflowSpec(workflowSpec, state.entrypoint),
@@ -438,7 +439,7 @@ const dispatchStart = dispatchWorkflowDecisions
 async function resolveControllerDecision(args: {
   store: ProjectStore
   orchestrator?: StartOrchestrator
-  sessionID: string
+  parentSessionID: string
   state: WorkflowState
   decision: ControllerDecision
 }): Promise<{ state: WorkflowState; dispatches: Array<Record<string, string | undefined>> }> {
@@ -446,7 +447,7 @@ async function resolveControllerDecision(args: {
     case "retry_node": {
       const state = args.store.resolveControllerDecision({
         runID: args.state.id,
-        parentSessionID: args.sessionID,
+        parentSessionID: args.parentSessionID,
         decision: args.decision,
       })
       const dispatches = await dispatchStart({
@@ -461,7 +462,7 @@ async function resolveControllerDecision(args: {
     case "continue_existing_graph": {
       const state = args.store.resolveControllerDecision({
         runID: args.state.id,
-        parentSessionID: args.sessionID,
+        parentSessionID: args.parentSessionID,
         decision: args.decision,
       })
       const dispatches = await dispatchStart({
@@ -479,7 +480,7 @@ async function resolveControllerDecision(args: {
     case "replace_orchestration": {
       const state = args.store.resolveControllerDecision({
         runID: args.state.id,
-        parentSessionID: args.sessionID,
+        parentSessionID: args.parentSessionID,
         decision: args.decision,
       })
       return { state, dispatches: [] }

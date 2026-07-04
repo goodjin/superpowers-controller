@@ -13,6 +13,11 @@ export type SessionAdapter = {
     prompt: string
   }): Promise<void>
 
+  selectSession?(input: {
+    sessionID: string
+    reason?: string
+  }): Promise<void>
+
   showProgress(input: ProgressUpdate): Promise<void>
 }
 
@@ -24,6 +29,8 @@ type OpenCodePluginContext = {
     }
     tui?: {
       showToast?: (...args: never[]) => Promise<unknown>
+      selectSession?: (...args: never[]) => Promise<unknown>
+      publish?: (...args: never[]) => Promise<unknown>
     }
     app?: {
       log?: (...args: never[]) => Promise<unknown>
@@ -63,6 +70,26 @@ export function createOpenCodeSessionAdapter(ctx: OpenCodePluginContext): Sessio
       return sessionID
     },
     continueNodeSession,
+    async selectSession(input) {
+      try {
+        if (hasMethod(ctx.client.tui, "selectSession")) {
+          await callMethod(ctx.client.tui, "selectSession", { sessionID: input.sessionID })
+          return
+        }
+        if (hasMethod(ctx.client.tui, "publish")) {
+          await callMethod(ctx.client.tui, "publish", {
+            body: {
+              type: "tui.session.select",
+              properties: { sessionID: input.sessionID },
+            },
+          })
+          return
+        }
+        await showSelectSessionWarning(ctx, input.sessionID, "OpenCode TUI session selection is unavailable.")
+      } catch (error) {
+        await showSelectSessionWarning(ctx, input.sessionID, `OpenCode TUI session selection failed. ${errorMessage(error)}`)
+      }
+    },
     async showProgress(input) {
       if (ctx.client.tui?.showToast) {
         await callMethod(ctx.client.tui, "showToast", { body: input })
@@ -77,6 +104,26 @@ export function createOpenCodeSessionAdapter(ctx: OpenCodePluginContext): Sessio
       })
     },
   }
+}
+
+async function showSelectSessionWarning(ctx: OpenCodePluginContext, sessionID: string, message: string): Promise<void> {
+  const progress: ProgressUpdate = {
+    stage: "tui_session_select_failed",
+    title: "Superpowers workflow",
+    message: `${message} Session: ${sessionID}.`,
+    variant: "warning",
+  }
+  if (ctx.client.tui?.showToast) {
+    await callMethod(ctx.client.tui, "showToast", { body: progress })
+    return
+  }
+  await callMethod(ctx.client.app, "log", {
+    body: {
+      service: "superpowers-controller",
+      level: "warn",
+      message: `${progress.title}: ${progress.message}`,
+    },
+  })
 }
 
 async function callMethod(target: unknown, method: string, input: unknown): Promise<unknown> {
@@ -105,4 +152,14 @@ function extractSessionID(value: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+function hasMethod(target: unknown, method: string): boolean {
+  return isRecord(target) && typeof target[method] === "function"
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === "string" && error) return error
+  return "Unknown error."
 }

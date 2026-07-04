@@ -27,7 +27,6 @@ describe("parent progress notifier", () => {
       const prompts: Array<{ sessionID: string; agent: string; prompt: string }> = []
       const notifier = createParentProgressNotifier(adapterWithPrompts(prompts), {
         timer,
-        intervalMs: 30_000,
         now: () => new Date("2026-07-02T00:00:30.000Z"),
       })
 
@@ -36,6 +35,7 @@ describe("parent progress notifier", () => {
         runID: state.id,
         readState: () => state,
       })
+      expect(timer.intervals()).toEqual([10_000])
       await timer.tick()
 
       expect(prompts).toHaveLength(1)
@@ -93,6 +93,49 @@ describe("parent progress notifier", () => {
       rmSync(project, { recursive: true, force: true })
     }
   })
+
+  test("does not start for foreground serial design and plan child sessions", async () => {
+    const project = tempProject()
+    try {
+      const timer = createManualTimer()
+      const prompts: Array<{ sessionID: string; agent: string; prompt: string }> = []
+      const notifier = createParentProgressNotifier(adapterWithPrompts(prompts), { timer })
+      const state = {
+        ...runningState(project),
+        current_phase: "design",
+        node_runs: [
+          {
+            id: "001-design",
+            phase: "design",
+            agent: "sp-designer",
+            primary_skill: "superpowers-brainstorming",
+            session_id: "session-design",
+            status: "running" as const,
+            attempts: 1,
+            started_at: "2026-07-02T00:00:00.000Z",
+          },
+          {
+            id: "002-plan",
+            phase: "plan",
+            agent: "sp-planner",
+            primary_skill: "superpowers-writing-plans",
+            session_id: "session-plan",
+            status: "running" as const,
+            attempts: 1,
+            started_at: "2026-07-02T00:00:00.000Z",
+          },
+        ],
+      }
+
+      notifier.start({ project, runID: state.id, readState: () => state })
+      await timer.tick()
+
+      expect(timer.activeCount()).toBe(0)
+      expect(prompts).toEqual([])
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
 })
 
 function tempProject(): string {
@@ -116,10 +159,12 @@ function adapterWithPrompts(prompts: Array<{ sessionID: string; agent: string; p
 function createManualTimer() {
   let nextID = 1
   const callbacks = new Map<number, () => void | Promise<void>>()
+  const intervalValues: number[] = []
   return {
-    setInterval(callback: () => void | Promise<void>) {
+    setInterval(callback: () => void | Promise<void>, ms: number) {
       const id = nextID++
       callbacks.set(id, callback)
+      intervalValues.push(ms)
       return id
     },
     clearInterval(id: number) {
@@ -132,6 +177,9 @@ function createManualTimer() {
     },
     activeCount() {
       return callbacks.size
+    },
+    intervals() {
+      return intervalValues
     },
   }
 }

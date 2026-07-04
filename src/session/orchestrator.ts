@@ -58,6 +58,7 @@ export function createSessionOrchestrator(
         startParentProgress(options.parentProgress, {
           project: args.project,
           runID: args.runID,
+          phase: args.decision.phase,
           readState: args.readStateForProgress,
         })
         const scheduled = scheduleNodePrompt(adapter, {
@@ -77,6 +78,11 @@ export function createSessionOrchestrator(
           title: "Superpowers dispatch",
           message: `Scheduled ${args.decision.agent} for ${args.packet.node_id}.`,
           variant: "info",
+        })
+        await selectWorkflowSession(adapter, {
+          phase: args.decision.phase,
+          sessionID: args.decision.session_id,
+          parentSessionID: args.parentSessionID,
         })
         return {
           action: "reuse_session",
@@ -99,6 +105,7 @@ export function createSessionOrchestrator(
       startParentProgress(options.parentProgress, {
         project: args.project,
         runID: args.runID,
+        phase: args.decision.phase,
         readState: args.readStateForProgress,
       })
       const scheduled = scheduleNodePrompt(adapter, {
@@ -118,6 +125,11 @@ export function createSessionOrchestrator(
         title: "Superpowers dispatch",
         message: `Scheduled ${args.decision.agent} for ${args.packet.node_id}.`,
         variant: "success",
+      })
+      await selectWorkflowSession(adapter, {
+        phase: args.decision.phase,
+        sessionID,
+        parentSessionID: args.parentSessionID,
       })
       return {
         action: "create_session",
@@ -180,15 +192,37 @@ export function createSessionOrchestrator(
   }
 }
 
+async function selectWorkflowSession(
+  adapter: SessionAdapter,
+  args: {
+    phase: string
+    sessionID: string
+    parentSessionID: string
+  },
+): Promise<void> {
+  if (!adapter.selectSession) return
+  const sessionID = isForegroundSerialPhase(args.phase) ? args.sessionID : args.parentSessionID
+  await adapter.selectSession({
+    sessionID,
+    reason: isForegroundSerialPhase(args.phase) ? `foreground ${args.phase} child` : "parent-led parallel workflow",
+  })
+}
+
+function isForegroundSerialPhase(phase: string): boolean {
+  return phase === "design" || phase === "plan"
+}
+
 function startParentProgress(
   parentProgress: Pick<ParentProgressNotifier, "start"> | undefined,
   args: {
     project: string
     runID: string
+    phase: string
     readState?: () => WorkflowState | null
   },
 ): void {
   if (!parentProgress || !args.readState) return
+  if (isForegroundSerialPhase(args.phase)) return
   parentProgress.start({
     project: args.project,
     runID: args.runID,
