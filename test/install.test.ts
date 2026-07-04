@@ -148,10 +148,13 @@ describe("mergePluginEntry", () => {
     const home = mkdtempSync(join(tmpdir(), "sp-install-pipe-home-"))
     const temp = join(home, "tmp")
     const binDir = join(home, "bin")
+    const cacheRoot = join(home, ".cache", "opencode", "packages")
     const fakeOpencode = join(binDir, "opencode")
     const fakeBunx = join(binDir, "bunx")
     mkdirSync(binDir, { recursive: true })
     mkdirSync(temp, { recursive: true })
+    mkdirSync(cacheRoot, { recursive: true })
+    writeFileSync(join(cacheRoot, "package.json"), JSON.stringify({ dependencies: { "oh-my-opencode": "latest" } }, null, 2))
     writeFileSync(fakeOpencode, "#!/usr/bin/env bash\nprintf 'opencode 1.17.13\\n'\n", { mode: 0o755 })
     writeFileSync(fakeBunx, `#!/usr/bin/env bash
 set -euo pipefail
@@ -261,10 +264,13 @@ exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
     const home = mkdtempSync(join(tmpdir(), "sp-install-seed-cache-home-"))
     const temp = join(home, "tmp")
     const binDir = join(home, "bin")
+    const cacheRoot = join(home, ".cache", "opencode", "packages")
     const fakeOpencode = join(binDir, "opencode")
     const fakeBunx = join(binDir, "bunx")
     mkdirSync(binDir, { recursive: true })
     mkdirSync(temp, { recursive: true })
+    mkdirSync(cacheRoot, { recursive: true })
+    writeFileSync(join(cacheRoot, "package.json"), JSON.stringify({ dependencies: { "oh-my-opencode": "latest" } }, null, 2))
     writeFileSync(fakeOpencode, `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" == "plugin" ]]; then
@@ -298,6 +304,9 @@ exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
     expect(result.status, result.stderr || result.stdout).toBe(0)
     expect(result.stdout).toContain("Seeded OpenCode plugin cache from bunx package cache")
     expect(readFileSync(join(home, ".cache", "opencode", "packages", "node_modules", "superpowers-controller", "package.json"), "utf8")).toContain('"version":"9.9.9"')
+    const packageRoot = JSON.parse(readFileSync(join(cacheRoot, "package.json"), "utf8"))
+    expect(packageRoot.dependencies["superpowers-controller"]).toBe("latest")
+    expect(packageRoot.dependencies["oh-my-opencode"]).toBeUndefined()
   }, 30_000)
 
   test("one-click install script can skip OpenCode plugin cache refresh", () => {

@@ -144,6 +144,9 @@ const packageName = process.env.PACKAGE_NAME
 const target = path.join(cacheRoot, "package.json")
 const current = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, "utf8")) : {}
 current.dependencies = { ...(current.dependencies ?? {}), [packageName]: "latest" }
+for (const legacyName of ["oh-my-openagent", "oh-my-opencode", "opencode-superpowers-controller"]) {
+  delete current.dependencies[legacyName]
+}
 fs.writeFileSync(target, JSON.stringify(current, null, 2) + "\n")
 '
   log "Seeded OpenCode plugin cache from bunx package cache: $source_modules"
