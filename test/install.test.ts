@@ -211,6 +211,81 @@ exit 124
     expect(result.stderr).toContain("install command failed")
   }, 30_000)
 
+  test("one-click install script fails fast when OpenCode plugin refresh times out", () => {
+    const home = mkdtempSync(join(tmpdir(), "sp-install-opencode-timeout-home-"))
+    const binDir = join(home, "bin")
+    const fakeOpencode = join(binDir, "opencode")
+    const fakeBunx = join(binDir, "bunx")
+    mkdirSync(binDir, { recursive: true })
+    writeFileSync(fakeOpencode, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "plugin" ]]; then
+  exit 124
+fi
+printf 'opencode 1.17.13\\n'
+`, { mode: 0o755 })
+    writeFileSync(fakeBunx, `#!/usr/bin/env bash
+set -euo pipefail
+shift
+exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
+`, { mode: 0o755 })
+
+    const script = readFileSync("scripts/install.sh", "utf8")
+    const result = spawnSync("bash", {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        HOME: home,
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        SUPERPOWERS_CONTROLLER_INSTALL_TIMEOUT_SECONDS: "1",
+      },
+      input: script,
+      encoding: "utf8",
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("OpenCode plugin refresh timed out after 1s")
+    expect(result.stderr).toContain("failed to refresh OpenCode plugin cache")
+  }, 30_000)
+
+  test("one-click install script can skip OpenCode plugin cache refresh", () => {
+    const home = mkdtempSync(join(tmpdir(), "sp-install-skip-refresh-home-"))
+    const binDir = join(home, "bin")
+    const fakeOpencode = join(binDir, "opencode")
+    const fakeBunx = join(binDir, "bunx")
+    mkdirSync(binDir, { recursive: true })
+    writeFileSync(fakeOpencode, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "plugin" ]]; then
+  echo "plugin refresh should have been skipped" >&2
+  exit 2
+fi
+printf 'opencode 1.17.13\\n'
+`, { mode: 0o755 })
+    writeFileSync(fakeBunx, `#!/usr/bin/env bash
+set -euo pipefail
+shift
+exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
+`, { mode: 0o755 })
+
+    const script = readFileSync("scripts/install.sh", "utf8")
+    const result = spawnSync("bash", {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        HOME: home,
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH: "1",
+      },
+      input: script,
+      encoding: "utf8",
+    })
+
+    expect(result.status, result.stderr || result.stdout).toBe(0)
+    expect(result.stdout).toContain("Skipping OpenCode plugin cache refresh")
+    expect(result.stdout).toContain("Superpowers Controller installed.")
+  }, 30_000)
+
   test("migrates the legacy plugin config path to the controller config path", () => {
     const configDir = mkdtempSync(join(tmpdir(), "sp-install-legacy-"))
     const legacyConfig = join(configDir, "opencode-superpowers.jsonc")

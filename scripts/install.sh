@@ -94,10 +94,22 @@ refresh_opencode_plugin_cache() {
   if ! command_exists opencode; then
     return 0
   fi
+  if [[ "${SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH:-}" == "1" ]]; then
+    log "Skipping OpenCode plugin cache refresh because SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH=1."
+    return 0
+  fi
 
   log "Refreshing OpenCode plugin cache..."
   clear_opencode_plugin_cache
-  opencode plugin "$PACKAGE_NAME" --global --force
+  set +e
+  run_with_timeout opencode plugin "$PACKAGE_NAME" --global --force
+  local status=$?
+  set -e
+  if [[ "$status" -eq 124 ]] || [[ "$status" -eq 137 ]] || [[ "$status" -eq 142 ]]; then
+    printf 'error: OpenCode plugin refresh timed out after %ss while installing %s.\n' "$INSTALL_TIMEOUT_SECONDS" "$PACKAGE_NAME" >&2
+    printf 'error: Config files were written, but OpenCode could not refresh its plugin cache. Retry later, or set SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH=1 to skip this step.\n' >&2
+  fi
+  return "$status"
 }
 
 ensure_tui_plugin_config() {
