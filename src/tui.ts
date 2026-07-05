@@ -85,11 +85,40 @@ export function createTuiPluginModule() {
           }),
         ),
       })
+      if (api.command) {
+        disposers.push(api.command.register(() => workflowSessionCommands(api)))
+      }
       api.lifecycle?.onDispose(() => {
         for (const dispose of disposers) dispose()
       })
     },
   }
+}
+
+function workflowSessionCommands(api: TuiApi): Array<{ title: string; value: string; description?: string; category?: string; onSelect?: () => void }> {
+  const context = currentWorkflowContext(api)
+  const state = context.state
+  if (!state) return []
+  const commands = [
+    {
+      title: "Superpowers: Open parent session",
+      value: `superpowers.open-session.${state.parent_session_id}`,
+      description: `${state.workflow} ${state.status}@${state.current_phase}`,
+      category: "Superpowers",
+      onSelect: () => api.route.navigate("session", { sessionID: state.parent_session_id }),
+    },
+  ]
+  for (const node of state.node_runs) {
+    const task = node.task_id ? ` ${node.task_id}` : ""
+    commands.push({
+      title: `Superpowers: Open ${node.agent}${task}`,
+      value: `superpowers.open-session.${node.session_id}`,
+      description: `${node.phase} ${node.status} (${node.session_id})`,
+      category: "Superpowers",
+      onSelect: () => api.route.navigate("session", { sessionID: node.session_id }),
+    })
+  }
+  return commands
 }
 
 function residentProgressSlots(

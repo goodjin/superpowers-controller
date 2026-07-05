@@ -61,7 +61,7 @@ child session live progress 走事件归档，不靠 toast 断言：
 
 - `test/node-progress.test.ts` 覆盖 `message.part.updated`、`session.status`、`session.error` 等事件的归档形状。
 - `test/plugin-progress-event.test.ts` 覆盖 server hook 只处理 active workflow 中已登记的 child session。
-- `test/tui-plugin.test.ts` 覆盖 `superpowers-progress` route、不注册 command、resident progress slot 名单、`app_bottom` no-props 渲染 active workflow、`app_bottom` refresh 重读 progress、`sidebar_content` 作为 workflow 会话运行信息主展示区域、`session_prompt_right` / `home_prompt` / `home_prompt_right` 不注册、`sidebar_content` no-props 全局进度/主会话运行列表、无 agent 的新主控会话 fallback，以及 parent/child/no-props/unrelated session 下的 compact progress 行。
+- `test/tui-plugin.test.ts` 覆盖 `superpowers-progress` route、parent/child session navigation command、resident progress slot 名单、`app_bottom` no-props 渲染 active workflow、`app_bottom` refresh 重读 progress、`sidebar_content` 作为 workflow 会话运行信息主展示区域、`session_prompt_right` / `home_prompt` / `home_prompt_right` 不注册、`sidebar_content` no-props 全局进度/主会话运行列表、无 agent 的新主控会话 fallback，以及 parent/child/no-props/unrelated session 下的 compact progress 行。
 
 ## Mock LLM Contract
 

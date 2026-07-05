@@ -105,9 +105,9 @@ sp_status(include_progress=true)
 
 TUI entry 暴露在 package 的 `./tui` export。
 
-完整面板 route 名为 `superpowers-progress`。面板展示 active run、每个 node 的 agent、phase、task、session、durable status、live session status 和最新进展摘要。插件不注册 command 入口，用户入口统一保留在 `super-agent`。
+完整面板 route 名为 `superpowers-progress`。面板展示 active run、每个 node 的 agent、phase、task、session、durable status、live session status 和最新进展摘要。插件还会注册动态 session navigation command，命令面板中包含当前 workflow 的 parent session 和已登记 child node session，选中后通过 OpenCode session route 切换到对应会话。
 
-orchestrator 还会请求 OpenCode TUI 切换当前 foreground session。design/plan child 创建或复用后会被选到前台，方便用户观看过程并在该 child session 中直接确认候选设计或计划。后续进入 implement/acceptance/verification/code-review 等 parent-led 阶段时，TUI 会回到 `parent_session_id`，并由 parent progress notifier 每 10 秒输出并行运行摘要。
+orchestrator 还会请求 OpenCode TUI 切换当前 foreground session。design/plan child 创建或复用后会被选到前台，方便用户观看过程并在该 child session 中直接确认候选设计或计划。后续进入 implement/acceptance/verification/code-review 等 parent-led 阶段时，TUI 会回到 `parent_session_id`，并由 parent progress notifier 每 10 秒输出并行运行摘要。用户从 child 回到 parent 后，仍可通过 Superpowers session command 重新打开某个 child session 查看过程或处理该 child 自己的确认。
 
 workflow 用户输入不再通过独立 TUI question route 处理。节点需要用户输入时调用 `sp_report(status="needs_user")`。如果问题来自 foreground design/plan child，runtime 会把问题 prompt 投回当前 child session；如果问题来自 parent-led 或并行阶段，runtime 通知 parent controller session，由主会话中的 `super-agent` 询问用户，并通过 `sp_start(run_id, resume_input)` 恢复原 child session。
 
@@ -118,7 +118,7 @@ workflow 用户输入不再通过独立 TUI question route 处理。节点需要
 - `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。和 `sidebar_content` 一样优先按 `session_id` 绑定，找不到匹配时 fallback 到最新未结束 workflow。
 - `session_prompt_right`、`home_prompt`、`home_prompt_right`、`home_bottom`、`home_footer`：不注册 Superpowers resident progress。workflow 会话运行信息不放在 prompt/right 区域；`home_*` 是首页区域，不作为主会话运行态展示入口。
 
-详细过程仍通过 `superpowers-progress` route 查看；用户输入通过主会话完成，不存在 `superpowers-questions` route。
+详细过程仍通过 `superpowers-progress` route 查看；会话切换通过 Superpowers session command 完成；用户输入由当前 foreground 会话或 parent controller prompt 承接，不存在 `superpowers-questions` route。
 
 running node 的最新 progress 如果超过显示阈值没有更新，会在 compact 行和完整面板里标为 `stalled`，例如 `SP: sp-acceptance-reviewer stalled - write pending`。`running` 和 `stalled` 是互斥展示状态：同一个 session 超时后只显示 `stalled`，不再把两个状态拼在一起。这表示 Controller 仍然有登记的 child session，但最近的 child progress 已经停住，需要用户能在主会话直接看到。
 

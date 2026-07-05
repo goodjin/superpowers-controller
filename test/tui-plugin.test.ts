@@ -85,7 +85,12 @@ describe("Superpowers TUI plugin", () => {
 
       expect(routes.map((route) => route.name).sort()).toEqual(["superpowers-progress"])
       expect(String(routes[0]?.render())).toContain("Superpowers Progress")
-      expect(commands).toHaveLength(0)
+      expect(commands.map((command) => command.title)).toEqual([
+        "Superpowers: Open parent session",
+        "Superpowers: Open sp-implementer T1",
+      ])
+      commands[1]?.onSelect?.()
+      expect(navigated).toEqual([{ name: "session", params: { sessionID: "session-child" } }])
       expect(Object.keys(slots).sort()).toEqual([...RESIDENT_PROGRESS_SLOT_NAMES].sort())
       expect(typeof slots.sidebar_footer).toBe("function")
       expect(typeof slots.sidebar_content).toBe("function")
@@ -171,7 +176,48 @@ describe("Superpowers TUI plugin", () => {
         type: "text",
         value: "SP: sp-implementer T1 running - bash running",
       })
-      expect(navigated).toEqual([])
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("does not expose session navigation commands without an active workflow", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-plugin-empty-"))
+    try {
+      const commands: Array<{ title: string; value: string; onSelect?: () => void }> = []
+      const plugin = createTuiPluginModule()
+      const api = {
+        route: {
+          register() {
+            return () => {}
+          },
+          navigate() {
+            throw new Error("unexpected navigation")
+          },
+        },
+        command: {
+          register(callback: () => Array<{ title: string; value: string; onSelect?: () => void }>) {
+            commands.push(...callback())
+            return () => {}
+          },
+        },
+        state: {
+          path: { directory: project },
+          session: {
+            status() {
+              return undefined
+            },
+          },
+        },
+      } as never
+
+      await plugin.tui(
+        api,
+        undefined,
+        { id: "superpowers-controller", source: "file", spec: "", target: "", first_time: 0, last_time: 0, time_changed: 0, load_count: 1, fingerprint: "", state: "first" },
+      )
+
+      expect(commands).toEqual([])
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
