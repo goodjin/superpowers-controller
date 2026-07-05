@@ -82,13 +82,13 @@ Acceptance 的 required artifacts 会指向 `spec.md`、`plan.md`、`tasks.json`
 
 ## User Input Resume
 
-当 child session 通过 `sp_report(status="needs_user")` 请求用户输入时，report handler 会先写入 state，再调用 `orchestrator.notifyParent()`。该方法复用 adapter 的 `session.prompt`，把等待用户输入的 controller prompt 发给 `parent_session_id` 和 `super-agent`。通知也是后台提交：child 的 `sp_report` 不应等待主会话完成提问回合。主会话负责向用户提问；插件不在 TUI 里额外创建问题面板。
+当 child session 通过 `sp_report(status="needs_user")` 请求用户输入时，report handler 会先写入 state，再调度一条等待用户输入的 prompt。通知目标取决于当前阶段：design/plan foreground child 产生的问题会投回当前 child session；其他 parent-led 或并行阶段的问题会投递到 `parent_session_id` 和 `super-agent`。通知也是后台提交：child 的 `sp_report` 不应等待目标会话完成提问回合。插件不在 TUI 里额外创建问题面板。
 
 用户回答后，`sp_start(run_id, resume_input)` 会调用 store 消费 `pending_question`，再通过 `orchestrator.resumeNode()` 把 resume prompt 发回原 `node_runs[].session_id`。这不是新的 dispatch decision，不创建新 child session，也不改变 task graph；它只是调度原等待节点继续执行。`sp_start` 在 resume prompt 调度后返回，不等待该 child session 完成。
 
 ## Foreground Session Policy
 
-design 和 plan 是串行前台阶段。创建或复用这类 child session 后，orchestrator 会请求 OpenCode TUI 选择该 child session，让用户直接看到 designer/planner 的运行过程。候选 design 或 plan 需要批准、修改或取消时，用户可以在当前 child session 中回复，由该 child session 调用 `sp_start(approve_design)` 或 `sp_start(approve_plan)` 推进 workflow。
+design 和 plan 是串行前台阶段。创建或复用这类 child session 后，orchestrator 会请求 OpenCode TUI 选择该 child session，让用户直接看到 designer/planner 的运行过程。候选 design 或 plan 需要批准、修改或取消时，等待确认 prompt 会继续投到当前 child session；用户可以在当前 child session 中回复，由该 child session 调用 `sp_start(approve_design)` 或 `sp_start(approve_plan)` 推进 workflow。
 
 这不会改变 workflow 的 parent 身份。`sp_start` 对已有 run 会优先使用 durable `parent_session_id`，调用者 session 只作为 `approved_by_session_id` 等审计信息。这样 foreground child 可以承接用户交互，但 parent session 仍是并行阶段、恢复和 closeout 的稳定控制面。
 

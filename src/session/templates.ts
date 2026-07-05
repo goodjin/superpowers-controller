@@ -64,7 +64,27 @@ function formatSourceArtifacts(sourceArtifacts: NodeTaskPacket["source_artifacts
   return ["## Source Artifacts", ...sections].join("\n\n")
 }
 
-export function buildControllerUserInputPrompt(state: WorkflowState): string {
+export function buildControllerUserInputPrompt(
+  state: WorkflowState,
+  options: { conversation?: "main" | "foreground" } = {},
+): string {
+  if (state.status === "awaiting_design_approval") {
+    return buildApprovalPrompt(state, {
+      kind: "design",
+      action: "approve_design",
+      artifact: "spec",
+      conversation: options.conversation ?? "main",
+    })
+  }
+  if (state.status === "awaiting_plan_approval") {
+    return buildApprovalPrompt(state, {
+      kind: "plan",
+      action: "approve_plan",
+      artifact: "plan",
+      conversation: options.conversation ?? "main",
+    })
+  }
+
   const question = state.pending_question
   if (!question) {
     return [
@@ -83,7 +103,9 @@ export function buildControllerUserInputPrompt(state: WorkflowState): string {
     `Phase: ${state.current_phase}`,
     `Source node: ${question.source_node_id ?? "unknown"}`,
     "",
-    "Ask the user this pending_question in the main conversation. Do not answer it yourself.",
+    options.conversation === "foreground"
+      ? "Ask the user this pending_question in the current foreground child conversation. Do not answer it yourself."
+      : "Ask the user this pending_question in the main conversation. Do not answer it yourself.",
     "",
     "## Question",
     question.prompt,
@@ -107,6 +129,40 @@ export function buildControllerUserInputPrompt(state: WorkflowState): string {
   ]
     .filter((line) => line !== undefined)
     .join("\n")
+}
+
+function buildApprovalPrompt(
+  state: WorkflowState,
+  args: {
+    kind: "design" | "plan"
+    action: "approve_design" | "approve_plan"
+    artifact: "spec" | "plan"
+    conversation: "main" | "foreground"
+  },
+): string {
+  const place = args.conversation === "foreground" ? "current foreground child conversation" : "main conversation"
+  return [
+    `# Superpowers ${args.kind} waiting for approval`,
+    "",
+    `Run: ${state.id}`,
+    `Workflow: ${state.workflow}`,
+    `Phase: ${state.current_phase}`,
+    "",
+    `The candidate ${args.kind} is ready. Show the user the candidate ${args.artifact} summary already produced by this node, then ask whether to approve, revise, or cancel.`,
+    `Ask in the ${place}. Do not approve or revise on the user's behalf.`,
+    "",
+    "If the user approves, call sp_start with this run_id and start_action.",
+    "",
+    "```json",
+    JSON.stringify({
+      run_id: state.id,
+      start_action: args.action,
+      expected_state_version: state.state_version,
+    }, null, 2),
+    "```",
+    "",
+    "If the user asks for revisions, explain the requested changes and continue this node with an updated report when ready. If the user cancels, call sp_cancel.",
+  ].join("\n")
 }
 
 export function buildChildResumePrompt(args: {

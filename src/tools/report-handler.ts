@@ -38,18 +38,19 @@ export function createReportHandler(deps: {
     for (const decision of decisions) {
       if (decision.action === "wait_user") {
         const current = deps.store.readCurrent() ?? state
+        const target = userInputNotificationTarget(current, context)
         if (deps.orchestrator.notifyParent) {
           try {
             await deps.orchestrator.notifyParent({
-              sessionID: current.parent_session_id,
-              agent: "super-agent",
-              prompt: buildControllerUserInputPrompt(current),
+              sessionID: target.sessionID,
+              agent: target.agent,
+              prompt: buildControllerUserInputPrompt(current, { conversation: target.conversation }),
             })
           } catch (error) {
             await progress.report({
               stage: "workflow_blocked",
               title: "Superpowers workflow",
-              message: `Parent notification failed: ${errorMessage(error)}`,
+              message: `${target.label} notification failed: ${errorMessage(error)}`,
               variant: "error",
             })
           }
@@ -156,6 +157,38 @@ export function createReportHandler(deps: {
       2,
     )
   }
+}
+
+function userInputNotificationTarget(
+  state: WorkflowState,
+  context: ReportHandlerContext,
+): {
+  sessionID: string
+  agent: string
+  conversation: "main" | "foreground"
+  label: string
+} {
+  const reportingNode = context.sessionID
+    ? state.node_runs.find((node) => node.session_id === context.sessionID)
+    : undefined
+  if (reportingNode && isForegroundSerialPhase(reportingNode.phase)) {
+    return {
+      sessionID: reportingNode.session_id,
+      agent: reportingNode.agent,
+      conversation: "foreground",
+      label: "Foreground child",
+    }
+  }
+  return {
+    sessionID: state.parent_session_id,
+    agent: "super-agent",
+    conversation: "main",
+    label: "Parent",
+  }
+}
+
+function isForegroundSerialPhase(phase: string): boolean {
+  return phase === "design" || phase === "plan"
 }
 
 function errorMessage(error: unknown): string {

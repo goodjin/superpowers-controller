@@ -356,6 +356,178 @@ describe("sp_report dispatch integration", () => {
     }
   })
 
+  test("foreground design approval prompt stays in the design child session", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-record-foreground-design-"))
+    try {
+      const store = createProjectStore(project)
+      store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Design foreground flow",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+        prepareMode: "proposal_only",
+      })
+      const node = store.addNodeRun({
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        session_id: "session-design",
+        task_markdown: "# Design task",
+      })
+      const notifications: Array<{ sessionID: string; agent: string; prompt: string }> = []
+      const handler = createReportHandler({
+        store,
+        orchestrator: {
+          async dispatch() {
+            throw new Error("unexpected dispatch")
+          },
+          async notifyParent(input: { sessionID: string; agent: string; prompt: string }) {
+            notifications.push(input)
+          },
+        } as never,
+      })
+
+      await handler(
+        {
+          event: "design",
+          status: "passed",
+          summary: "Design ready.",
+          artifacts: { spec: "# Spec\n\nForeground confirmation." },
+          gates: { design_approved: true, spec_written: true },
+        },
+        { sessionID: node.session_id, agent: "sp-designer" },
+      )
+
+      expect(store.readCurrent()?.status).toBe("awaiting_design_approval")
+      expect(notifications).toHaveLength(1)
+      expect(notifications[0].sessionID).toBe("session-design")
+      expect(notifications[0].agent).toBe("sp-designer")
+      expect(notifications[0].prompt).toContain("design waiting for approval")
+      expect(notifications[0].prompt).toContain("current foreground child conversation")
+      expect(notifications[0].prompt).toContain('"start_action": "approve_design"')
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("foreground design needs_user prompt stays in the design child session", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-record-foreground-design-question-"))
+    try {
+      const store = createProjectStore(project)
+      store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Design with user choice",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+      })
+      const node = store.addNodeRun({
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        session_id: "session-design",
+        task_markdown: "# Design task",
+      })
+      const notifications: Array<{ sessionID: string; agent: string; prompt: string }> = []
+      const handler = createReportHandler({
+        store,
+        orchestrator: {
+          async dispatch() {
+            throw new Error("unexpected dispatch")
+          },
+          async notifyParent(input: { sessionID: string; agent: string; prompt: string }) {
+            notifications.push(input)
+          },
+        } as never,
+      })
+
+      await handler(
+        {
+          event: "design",
+          status: "needs_user",
+          summary: "Need design choice.",
+          question: {
+            prompt: "Should design include a review gate?",
+            options: [{ label: "yes" }, { label: "no" }],
+          },
+        },
+        { sessionID: node.session_id, agent: "sp-designer" },
+      )
+
+      expect(store.readCurrent()?.status).toBe("waiting_user")
+      expect(notifications).toHaveLength(1)
+      expect(notifications[0].sessionID).toBe("session-design")
+      expect(notifications[0].agent).toBe("sp-designer")
+      expect(notifications[0].prompt).toContain("current foreground child conversation")
+      expect(notifications[0].prompt).toContain("Should design include a review gate?")
+      expect(notifications[0].prompt).toContain("resume_input")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("foreground plan approval prompt stays in the plan child session", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-record-foreground-plan-"))
+    try {
+      const store = createProjectStore(project)
+      store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Plan foreground flow",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+        prepareMode: "proposal_only",
+      })
+      const node = store.addNodeRun({
+        phase: "plan",
+        agent: "sp-planner",
+        primary_skill: "superpowers-writing-plans",
+        session_id: "session-plan",
+        task_markdown: "# Plan task",
+      })
+      const notifications: Array<{ sessionID: string; agent: string; prompt: string }> = []
+      const handler = createReportHandler({
+        store,
+        orchestrator: {
+          async dispatch() {
+            throw new Error("unexpected dispatch")
+          },
+          async notifyParent(input: { sessionID: string; agent: string; prompt: string }) {
+            notifications.push(input)
+          },
+        } as never,
+      })
+
+      await handler(
+        {
+          event: "plan",
+          status: "passed",
+          summary: "Plan ready.",
+          artifacts: { plan: "# Plan\n\nImplement T1." },
+          gates: { plan_written: true },
+          task_graph: {
+            tasks: [{ id: "T1", title: "Implement T1", summary: "Implement foreground flow.", depends_on: [] }],
+          },
+        },
+        { sessionID: node.session_id, agent: "sp-planner" },
+      )
+
+      expect(store.readCurrent()?.status).toBe("awaiting_plan_approval")
+      expect(notifications).toHaveLength(1)
+      expect(notifications[0].sessionID).toBe("session-plan")
+      expect(notifications[0].agent).toBe("sp-planner")
+      expect(notifications[0].prompt).toContain("plan waiting for approval")
+      expect(notifications[0].prompt).toContain("current foreground child conversation")
+      expect(notifications[0].prompt).toContain('"start_action": "approve_plan"')
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("progress report updates the running node without downstream dispatch", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-record-progress-"))
     try {
