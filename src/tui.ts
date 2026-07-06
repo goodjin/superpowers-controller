@@ -45,7 +45,7 @@ type TuiApi = {
     register(callback: () => Array<{ title: string; value: string; description?: string; category?: string; onSelect?: () => void }>): () => void
   }
   slots?: {
-    register(plugin: { slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }): string
+    register(plugin: { id: string; slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }): string
   }
   state: {
     path: {
@@ -79,6 +79,7 @@ export function createTuiPluginModule() {
         },
       ]))
       api.slots?.register({
+        id: "superpowers-controller",
         slots: residentProgressSlots((slotName) =>
           createProgressSlot(api, createTextElement, {
             ...progressSlotOptions(slotName),

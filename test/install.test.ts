@@ -111,6 +111,13 @@ describe("mergePluginEntry", () => {
     mkdirSync(join(cacheRoot, "superpowers-controller@latest", "node_modules", "superpowers-controller"), { recursive: true })
     mkdirSync(join(cacheRoot, "opencode-superpowers-controller@latest"), { recursive: true })
     mkdirSync(join(cacheRoot, "other-plugin"), { recursive: true })
+    mkdirSync(join(home, ".config", "opencode", "node_modules", "@opencode-ai", "plugin"), { recursive: true })
+    mkdirSync(join(home, ".config", "opencode", "node_modules", "@mem9", "opencode"), { recursive: true })
+    mkdirSync(join(home, ".opencode", "node_modules", "@opencode-ai", "plugin"), { recursive: true })
+    writeFileSync(join(home, ".config", "opencode", "package.json"), JSON.stringify({ dependencies: { "@opencode-ai/plugin": "1.3.10", "@mem9/opencode": "file:///tmp/mem9" } }, null, 2))
+    writeFileSync(join(home, ".config", "opencode", "package-lock.json"), "{}\n")
+    writeFileSync(join(home, ".opencode", "package.json"), JSON.stringify({ dependencies: { "@opencode-ai/plugin": "1.4.0" } }, null, 2))
+    writeFileSync(join(home, ".opencode", "package-lock.json"), "{}\n")
     writeFileSync(fakeOpencode, "#!/usr/bin/env bash\nprintf 'opencode 1.16.2\\n'\n", { mode: 0o755 })
 
     const env = {
@@ -142,6 +149,12 @@ describe("mergePluginEntry", () => {
     expect(existsSync(join(cacheRoot, "superpowers-controller@latest"))).toBe(false)
     expect(existsSync(join(cacheRoot, "opencode-superpowers-controller@latest"))).toBe(false)
     expect(existsSync(join(cacheRoot, "other-plugin"))).toBe(true)
+    expect(existsSync(join(home, ".config", "opencode", "package.json"))).toBe(false)
+    expect(existsSync(join(home, ".config", "opencode", "package-lock.json"))).toBe(false)
+    expect(existsSync(join(home, ".config", "opencode", "node_modules"))).toBe(false)
+    expect(existsSync(join(home, ".opencode", "package.json"))).toBe(false)
+    expect(existsSync(join(home, ".opencode", "package-lock.json"))).toBe(false)
+    expect(existsSync(join(home, ".opencode", "node_modules"))).toBe(false)
   }, 30_000)
 
   test("one-click install script works when piped into bash", () => {

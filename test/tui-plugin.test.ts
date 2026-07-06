@@ -16,6 +16,7 @@ describe("Superpowers TUI plugin", () => {
       const commands: Array<{ title: string; value: string; onSelect?: () => void }> = []
       const slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> = {}
       const navigated: Array<{ name: string; params?: Record<string, unknown> }> = []
+      let slotPluginID: string | undefined
       const store = createProjectStore(project)
       const state = store.startRun({
         workflow: "feature",
@@ -61,7 +62,8 @@ describe("Superpowers TUI plugin", () => {
           },
         },
         slots: {
-          register(plugin: { slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }) {
+          register(plugin: { id: string; slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }) {
+            slotPluginID = plugin.id
             Object.assign(slots, plugin.slots)
             return "superpowers-progress-slots"
           },
@@ -89,6 +91,7 @@ describe("Superpowers TUI plugin", () => {
         "Superpowers: Open parent session",
         "Superpowers: Open sp-implementer T1",
       ])
+      expect(slotPluginID).toBe("superpowers-controller")
       commands[1]?.onSelect?.()
       expect(navigated).toEqual([{ name: "session", params: { sessionID: "session-child" } }])
       expect(Object.keys(slots).sort()).toEqual([...RESIDENT_PROGRESS_SLOT_NAMES].sort())

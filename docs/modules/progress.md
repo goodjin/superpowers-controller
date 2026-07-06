@@ -126,7 +126,7 @@ running node 的最新 progress 如果超过显示阈值没有更新，会在 co
 
 TUI 行摘要优先使用最新的可读进展事件。`session_status` 和 `session_idle` 仍作为活跃度时间来源，但不会覆盖最近的 text/tool/patch/reasoning 摘要；这样 child session 刚变成 idle 时，底部和侧栏仍会显示刚才实际做了什么，而不是只显示 `session idle`。
 
-slot render 必须返回 OpenTUI/Solid element，而不是裸字符串。TUI 入口会加载 `@opentui/solid/runtime-plugin-support`，再使用 `@opentui/solid` 创建 `text` element，并对 workflow/progress 读取异常做 fail-closed 处理；读取失败时只显示 `SP: progress unavailable`，避免异常进入 host TUI 渲染器。
+slot render 必须返回 OpenTUI/Solid element，而不是裸字符串。TUI 入口会加载 `@opentui/solid/runtime-plugin-support`，再使用 `@opentui/solid` 创建 `text` element，并对 workflow/progress 读取异常做 fail-closed 处理；读取失败时只显示 `SP: progress unavailable`，避免异常进入 host TUI 渲染器。resident slot registration 必须带 `id: "superpowers-controller"`，以满足 OpenCode TUI slot runtime 对 plugin id 的校验。
 
 OpenTUI slot renderer 的类型是 `(ctx, props)`，但 host/runtime 版本可能把 merged props 放在第一个参数。resident slot 读取 session 时必须同时兼容 `props.session_id`、`props.sessionID`、`ctx.session_id`、`ctx.sessionID` 和 `ctx.session.id`。如果只读第二个参数，`sidebar_content` 会在某些 host 路径拿不到当前 session，从而误判为无关 session 或退回全局 workflow。
 

@@ -96,6 +96,99 @@ clear_opencode_plugin_cache() {
   fi
 }
 
+cleanup_user_tui_plugin_dependency_state() {
+  local config_dirs=(
+    "$HOME/.config/opencode"
+    "$HOME/.opencode"
+  )
+
+  USER_OPENCODE_CONFIG_DIRS="$(IFS=:; printf '%s' "${config_dirs[*]}")" bun --eval '
+const fs = require("fs")
+const path = require("path")
+
+const legacyNames = [
+  "@opencode-ai/plugin",
+  "@opencode-ai/sdk",
+  "@mem9/opencode",
+  "oh-my-openagent",
+  "oh-my-opencode",
+  "opencode-superpowers-controller",
+]
+const packageSections = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+
+function removeIfExists(target) {
+  if (!fs.existsSync(target)) return false
+  fs.rmSync(target, { recursive: true, force: true })
+  return true
+}
+
+function removeEmptySections(pkg) {
+  for (const section of packageSections) {
+    if (pkg[section] && Object.keys(pkg[section]).length === 0) delete pkg[section]
+  }
+}
+
+function hasDependencySections(pkg) {
+  return packageSections.some((section) => pkg[section] && Object.keys(pkg[section]).length > 0)
+}
+
+function cleanupConfigDir(configDir) {
+  if (!configDir || !fs.existsSync(configDir)) return
+  const packagePath = path.join(configDir, "package.json")
+  const lockPaths = [
+    path.join(configDir, "package-lock.json"),
+    path.join(configDir, "bun.lock"),
+    path.join(configDir, "bun.lockb"),
+  ]
+  const nodeModulesPath = path.join(configDir, "node_modules")
+  let removedDependency = false
+  let removeWholeNodeModules = false
+
+  if (fs.existsSync(packagePath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"))
+      for (const section of packageSections) {
+        const deps = pkg[section]
+        if (!deps || typeof deps !== "object") continue
+        for (const name of legacyNames) {
+          if (Object.prototype.hasOwnProperty.call(deps, name)) {
+            delete deps[name]
+            removedDependency = true
+          }
+        }
+      }
+      removeEmptySections(pkg)
+      if (!hasDependencySections(pkg)) {
+        fs.rmSync(packagePath, { force: true })
+        removeWholeNodeModules = true
+      } else if (removedDependency) {
+        fs.writeFileSync(packagePath, JSON.stringify(pkg, null, 2) + "\n")
+      }
+    } catch {
+      return
+    }
+  }
+
+  let removedArtifact = false
+  if (removeWholeNodeModules) {
+    removedArtifact = removeIfExists(nodeModulesPath) || removedArtifact
+  } else {
+    for (const name of legacyNames) {
+      removedArtifact = removeIfExists(path.join(nodeModulesPath, ...name.split("/"))) || removedArtifact
+    }
+  }
+  if (removedDependency || removedArtifact) {
+    for (const lockPath of lockPaths) removeIfExists(lockPath)
+    console.log(`Removed stale OpenCode user plugin dependency state: ${configDir}`)
+  }
+}
+
+for (const configDir of (process.env.USER_OPENCODE_CONFIG_DIRS ?? "").split(":")) {
+  cleanupConfigDir(configDir)
+}
+'
+}
+
 refresh_opencode_plugin_cache() {
   if ! command_exists opencode; then
     return 0
@@ -204,6 +297,7 @@ main() {
   fi
 
   ensure_tui_plugin_config
+  cleanup_user_tui_plugin_dependency_state
 
   if ! refresh_opencode_plugin_cache; then
     die "failed to refresh OpenCode plugin cache"
