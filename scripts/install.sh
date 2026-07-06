@@ -15,6 +15,41 @@ log() {
   printf '%s\n' "$*"
 }
 
+now_ms() {
+  if command_exists perl; then
+    perl -MTime::HiRes=time -e 'printf "%.0f", time() * 1000'
+  else
+    bun --eval 'process.stdout.write(String(Date.now()))'
+  fi
+}
+
+elapsed_ms() {
+  local start="$1"
+  local end
+  end="$(now_ms)"
+  printf '%s\n' "$((end - start))"
+}
+
+log_timing() {
+  local label="$1"
+  local start="$2"
+  log "[timing] $label: $(elapsed_ms "$start")ms"
+}
+
+run_timed() {
+  local label="$1"
+  shift
+  local start
+  local status
+  start="$(now_ms)"
+  set +e
+  "$@"
+  status=$?
+  set -e
+  log_timing "$label" "$start"
+  return "$status"
+}
+
 die() {
   printf 'error: %s\n' "$*" >&2
   exit 1
@@ -194,20 +229,23 @@ refresh_opencode_plugin_cache() {
     return 0
   fi
   if [[ "${SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH:-}" == "1" ]]; then
-    seed_opencode_plugin_cache_from_bunx || true
+    run_timed "OpenCode cache seed from bunx" seed_opencode_plugin_cache_from_bunx || true
     log "Skipping OpenCode plugin cache refresh because SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH=1."
     return 0
   fi
 
   log "Refreshing OpenCode plugin cache..."
-  clear_opencode_plugin_cache
-  if seed_opencode_plugin_cache_from_bunx; then
+  run_timed "OpenCode plugin cache cleanup" clear_opencode_plugin_cache
+  if run_timed "OpenCode cache seed from bunx" seed_opencode_plugin_cache_from_bunx; then
     return 0
   fi
+  local start
+  start="$(now_ms)"
   set +e
   run_with_timeout opencode plugin "$PACKAGE_NAME" --global --force
   local status=$?
   set -e
+  log_timing "OpenCode plugin refresh command" "$start"
   if [[ "$status" -eq 124 ]] || [[ "$status" -eq 137 ]] || [[ "$status" -eq 142 ]]; then
     printf 'error: OpenCode plugin refresh timed out after %ss while installing %s.\n' "$INSTALL_TIMEOUT_SECONDS" "$PACKAGE_NAME" >&2
     printf 'error: Config files were written, but OpenCode could not refresh its plugin cache. Retry later, or set SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH=1 to skip this step.\n' >&2
@@ -286,28 +324,32 @@ console.log(`Installed OpenCode TUI plugin entry:\n${target}`)
 main() {
   require_command bash
   require_command bun
+  local total_start
+  total_start="$(now_ms)"
 
   if ! command_exists opencode; then
     log "warning: opencode was not found in PATH. The plugin can be installed now, but OpenCode must be installed before use."
   fi
 
   log "Installing Superpowers Controller..."
-  if ! run_controller install; then
+  if ! run_timed "controller install" run_controller install; then
     die "install command failed"
   fi
 
-  ensure_tui_plugin_config
-  cleanup_user_tui_plugin_dependency_state
+  run_timed "TUI plugin config" ensure_tui_plugin_config
+  run_timed "stale user plugin dependency cleanup" cleanup_user_tui_plugin_dependency_state
 
-  if ! refresh_opencode_plugin_cache; then
+  if ! run_timed "OpenCode plugin cache refresh" refresh_opencode_plugin_cache; then
     die "failed to refresh OpenCode plugin cache"
   fi
 
   log ""
   log "Running doctor..."
+  local doctor_start
   local doctor_output
   local doctor_status=0
   local doctor_capture
+  doctor_start="$(now_ms)"
   doctor_capture="$(mktemp)"
   set +e
   run_controller doctor 2>&1 | tee "$doctor_capture"
@@ -315,6 +357,7 @@ main() {
   set -e
   doctor_output="$(cat "$doctor_capture")"
   rm -f "$doctor_capture"
+  log_timing "doctor" "$doctor_start"
 
   if [[ "$doctor_status" -ne 0 ]] && ! doctor_allows_only_missing_opencode "$doctor_output"; then
     die "doctor reported failed checks"
@@ -330,6 +373,7 @@ main() {
   log "Validate TUI config with: test -f ~/.config/opencode/tui.json -o -f ~/.config/opencode/tui.jsonc"
   log "Restart OpenCode after installation so the TUI plugin is loaded."
   log "Start with: opencode --agent super-agent"
+  log_timing "install total" "$total_start"
 }
 
 main "$@"

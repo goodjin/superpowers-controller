@@ -15,8 +15,28 @@ const startupRecoveryProjects = new Set<string>()
 
 export function createPluginModule(): PluginModule {
   const server: Plugin = async (ctx) => {
+    const startupStart = Date.now()
+    let stepStart = startupStart
+    const logStartupTiming = async (label: string, startedAt: number) => {
+      try {
+        await ctx.client.app.log({
+          body: {
+            service: "superpowers-controller",
+            level: "info",
+            message: `[timing] startup ${label}: ${Date.now() - startedAt}ms`,
+          },
+        })
+      } catch {
+        // Startup timing is diagnostic only; logging failure must not block plugin loading.
+      }
+    }
+
     const config = loadConfig(ctx.directory)
+    await logStartupTiming("config load", stepStart)
+    stepStart = Date.now()
     const store = createProjectStore(ctx.directory, { reconcileOnLoad: true })
+    await logStartupTiming("store init", stepStart)
+    stepStart = Date.now()
     if (!startupRecoveryProjects.has(ctx.directory)) {
       startupRecoveryProjects.add(ctx.directory)
       const recovered = store.recoverInterruptedRunningNodes({
@@ -32,11 +52,15 @@ export function createPluginModule(): PluginModule {
         })
       }
     }
+    await logStartupTiming("startup recovery", stepStart)
+    stepStart = Date.now()
     const nodeProgress = createNodeProgressStore(ctx.directory)
     const adapter = createOpenCodeSessionAdapter(ctx as Parameters<typeof createOpenCodeSessionAdapter>[0])
     const progress = { report: adapter.showProgress }
     const parentProgress = createParentProgressNotifier(adapter)
     const orchestrator = createSessionOrchestrator(adapter, { parentProgress })
+    await logStartupTiming("runtime wiring", stepStart)
+    await logStartupTiming("total", startupStart)
     return {
       tool: createTools(store, orchestrator, progress),
       event: async ({ event }) => {

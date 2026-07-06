@@ -94,6 +94,39 @@ describe("plugin config and runtime injection", () => {
       rmSync(project, { recursive: true, force: true })
     }
   })
+
+  test("plugin startup logs timing checkpoints", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-plugin-startup-timing-"))
+    const logs: string[] = []
+    try {
+      const plugin = createPluginModule()
+      await plugin.server({
+        directory: project,
+        worktree: project,
+        project: { id: "project-1" },
+        serverUrl: new URL("http://127.0.0.1:4096"),
+        $: {},
+        experimental_workspace: { register() {} },
+        client: {
+          session: {},
+          tui: { async showToast() {} },
+          app: {
+            async log(input: { body?: { message?: string } }) {
+              if (input.body?.message) logs.push(input.body.message)
+            },
+          },
+        },
+      } as never)
+
+      expect(logs).toContainEqual(expect.stringContaining("[timing] startup config load:"))
+      expect(logs).toContainEqual(expect.stringContaining("[timing] startup store init:"))
+      expect(logs).toContainEqual(expect.stringContaining("[timing] startup startup recovery:"))
+      expect(logs).toContainEqual(expect.stringContaining("[timing] startup runtime wiring:"))
+      expect(logs).toContainEqual(expect.stringContaining("[timing] startup total:"))
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
 })
 
 async function createHooks(project: string) {
