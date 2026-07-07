@@ -236,9 +236,7 @@ const fs = require("fs")
 const path = require("path")
 
 const legacyNames = [
-  "@opencode-ai/plugin",
-  "@opencode-ai/sdk",
-  "@mem9/opencode",
+  "superpowers-controller",
   "oh-my-openagent",
   "oh-my-opencode",
   "opencode-superpowers-controller",
