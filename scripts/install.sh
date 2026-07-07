@@ -105,15 +105,61 @@ opencode_plugin_cache_root() {
   printf '%s\n' "$cache_home/opencode/packages"
 }
 
+prune_opencode_plugin_cache_manifest() {
+  local cache_root
+  cache_root="$(opencode_plugin_cache_root)"
+  local manifest="$cache_root/package.json"
+  if [[ ! -f "$manifest" ]]; then
+    return 0
+  fi
+
+  CACHE_PACKAGE_JSON="$manifest" PACKAGE_NAME="$PACKAGE_NAME" bun --eval '
+const fs = require("fs")
+const target = process.env.CACHE_PACKAGE_JSON
+const packageName = process.env.PACKAGE_NAME
+const legacyNames = [
+  "oh-my-openagent",
+  "oh-my-opencode",
+  "opencode-superpowers-controller",
+]
+const packageSections = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+
+try {
+  const pkg = JSON.parse(fs.readFileSync(target, "utf8"))
+  let changed = false
+  for (const section of packageSections) {
+    const deps = pkg[section]
+    if (!deps || typeof deps !== "object") continue
+    for (const name of legacyNames) {
+      if (Object.prototype.hasOwnProperty.call(deps, name)) {
+        delete deps[name]
+        changed = true
+      }
+    }
+    if (Object.keys(deps).length === 0) delete pkg[section]
+  }
+  if (changed) {
+    pkg.dependencies = { ...(pkg.dependencies ?? {}), [packageName]: "latest" }
+    fs.writeFileSync(target, JSON.stringify(pkg, null, 2) + "\n")
+    console.log(`Pruned stale OpenCode plugin cache manifest: ${target}`)
+  }
+} catch {
+}
+'
+}
+
 clear_opencode_plugin_cache() {
   local cache_root
   cache_root="$(opencode_plugin_cache_root)"
-  local legacy_package="opencode-superpowers-controller"
   local cache_keys=(
     "$PACKAGE_NAME"
     "$PACKAGE_NAME@latest"
-    "$legacy_package"
-    "$legacy_package@latest"
+    "oh-my-openagent"
+    "oh-my-openagent@latest"
+    "oh-my-opencode"
+    "oh-my-opencode@latest"
+    "opencode-superpowers-controller"
+    "opencode-superpowers-controller@latest"
   )
 
   for key in "${cache_keys[@]}"; do
@@ -124,11 +170,59 @@ clear_opencode_plugin_cache() {
     fi
   done
 
-  local node_package="$cache_root/node_modules/$PACKAGE_NAME"
-  if [[ -e "$node_package" ]]; then
-    log "Removing stale OpenCode plugin cache: $node_package"
-    rm -rf "$node_package"
+  local node_packages=(
+    "$PACKAGE_NAME"
+    "oh-my-openagent"
+    "oh-my-openagent-darwin-arm64"
+    "oh-my-opencode"
+    "oh-my-opencode-darwin-arm64"
+    "opencode-superpowers-controller"
+  )
+  for package in "${node_packages[@]}"; do
+    local node_package="$cache_root/node_modules/$package"
+    if [[ -e "$node_package" ]]; then
+      log "Removing stale OpenCode plugin cache: $node_package"
+      rm -rf "$node_package"
+    fi
+  done
+
+  local bin_names=(
+    "oh-my-openagent"
+    "oh-my-opencode"
+    "opencode-superpowers-controller"
+  )
+  for bin_name in "${bin_names[@]}"; do
+    local bin_path="$cache_root/node_modules/.bin/$bin_name"
+    if [[ -e "$bin_path" || -L "$bin_path" ]]; then
+      log "Removing stale OpenCode plugin cache: $bin_path"
+      rm -f "$bin_path"
+    fi
+  done
+
+  prune_opencode_plugin_cache_manifest
+}
+
+cleanup_bunx_plugin_cache() {
+  local temp_root="${TMPDIR:-/tmp}"
+  temp_root="${temp_root%/}"
+  local uid
+  uid="$(id -u)"
+  local cache_dirs=(
+    "$temp_root/bunx-$uid-oh-my-openagent@latest"
+    "$temp_root/bunx-$uid-oh-my-opencode@latest"
+    "$temp_root/bunx-$uid-opencode-superpowers-controller@latest"
+  )
+
+  if [[ -n "$REPO_ROOT" && -f "$REPO_ROOT/package.json" && -f "$REPO_ROOT/src/cli/index.ts" ]]; then
+    cache_dirs+=("$temp_root/bunx-$uid-$PACKAGE_NAME@latest")
   fi
+
+  for target in "${cache_dirs[@]}"; do
+    if [[ -e "$target" ]]; then
+      log "Removing stale bunx plugin cache: $target"
+      rm -rf "$target"
+    fi
+  done
 }
 
 cleanup_user_tui_plugin_dependency_state() {
@@ -148,6 +242,14 @@ const legacyNames = [
   "oh-my-openagent",
   "oh-my-opencode",
   "opencode-superpowers-controller",
+]
+const legacyConfigFiles = [
+  "oh-my-openagent.json",
+  "oh-my-openagent.jsonc",
+  "oh-my-opencode.json",
+  "oh-my-opencode.jsonc",
+  "opencode-superpowers.json",
+  "opencode-superpowers.jsonc",
 ]
 const packageSections = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
 
@@ -211,6 +313,9 @@ function cleanupConfigDir(configDir) {
     for (const name of legacyNames) {
       removedArtifact = removeIfExists(path.join(nodeModulesPath, ...name.split("/"))) || removedArtifact
     }
+  }
+  for (const fileName of legacyConfigFiles) {
+    removedArtifact = removeIfExists(path.join(configDir, fileName)) || removedArtifact
   }
   if (removedDependency || removedArtifact) {
     for (const lockPath of lockPaths) removeIfExists(lockPath)
@@ -379,6 +484,7 @@ main() {
 
   run_timed "TUI plugin config" ensure_tui_plugin_config
   run_timed "stale user plugin dependency cleanup" cleanup_user_tui_plugin_dependency_state
+  run_timed "stale bunx plugin cache cleanup" cleanup_bunx_plugin_cache
 
   if ! run_timed "OpenCode plugin cache refresh" refresh_opencode_plugin_cache; then
     die "failed to refresh OpenCode plugin cache"

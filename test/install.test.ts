@@ -103,27 +103,41 @@ describe("mergePluginEntry", () => {
 
   test("one-click install script installs idempotently through the local CLI", () => {
     const home = mkdtempSync(join(tmpdir(), "sp-install-home-"))
+    const temp = join(home, "tmp")
     const binDir = join(home, "bin")
     const fakeOpencode = join(binDir, "opencode")
     const cacheRoot = join(home, ".cache", "opencode", "packages")
+    const uid = process.getuid?.() ?? 0
     mkdirSync(binDir, { recursive: true })
+    mkdirSync(temp, { recursive: true })
     mkdirSync(join(cacheRoot, "superpowers-controller", "node_modules", "superpowers-controller"), { recursive: true })
     mkdirSync(join(cacheRoot, "superpowers-controller@latest", "node_modules", "superpowers-controller"), { recursive: true })
     mkdirSync(join(cacheRoot, "opencode-superpowers-controller@latest"), { recursive: true })
+    mkdirSync(join(cacheRoot, "node_modules", "oh-my-opencode"), { recursive: true })
+    mkdirSync(join(cacheRoot, "node_modules", "oh-my-opencode-darwin-arm64"), { recursive: true })
+    mkdirSync(join(cacheRoot, "node_modules", ".bin"), { recursive: true })
+    mkdirSync(join(temp, `bunx-${uid}-superpowers-controller@latest`), { recursive: true })
+    mkdirSync(join(temp, `bunx-${uid}-oh-my-opencode@latest`), { recursive: true })
+    mkdirSync(join(temp, `bunx-${uid}-opencode-superpowers-controller@latest`), { recursive: true })
     mkdirSync(join(cacheRoot, "other-plugin"), { recursive: true })
     mkdirSync(join(home, ".config", "opencode", "node_modules", "@opencode-ai", "plugin"), { recursive: true })
     mkdirSync(join(home, ".config", "opencode", "node_modules", "@mem9", "opencode"), { recursive: true })
     mkdirSync(join(home, ".opencode", "node_modules", "@opencode-ai", "plugin"), { recursive: true })
+    writeFileSync(join(cacheRoot, "package.json"), JSON.stringify({ dependencies: { "oh-my-opencode": "latest", "other-plugin": "latest" } }, null, 2))
+    writeFileSync(join(cacheRoot, "node_modules", ".bin", "oh-my-opencode"), "#!/usr/bin/env bash\n", { mode: 0o755 })
     writeFileSync(join(home, ".config", "opencode", "package.json"), JSON.stringify({ dependencies: { "@opencode-ai/plugin": "1.3.10", "@mem9/opencode": "file:///tmp/mem9" } }, null, 2))
     writeFileSync(join(home, ".config", "opencode", "package-lock.json"), "{}\n")
+    writeFileSync(join(home, ".config", "opencode", "oh-my-openagent.json"), "{}\n")
     writeFileSync(join(home, ".opencode", "package.json"), JSON.stringify({ dependencies: { "@opencode-ai/plugin": "1.4.0" } }, null, 2))
     writeFileSync(join(home, ".opencode", "package-lock.json"), "{}\n")
+    writeFileSync(join(home, ".opencode", "oh-my-opencode.jsonc"), "{}\n")
     writeFileSync(fakeOpencode, "#!/usr/bin/env bash\nprintf 'opencode 1.16.2\\n'\n", { mode: 0o755 })
 
     const env = {
       ...process.env,
       HOME: home,
       PATH: `${binDir}:${process.env.PATH ?? ""}`,
+      TMPDIR: `${temp}/`,
     }
 
     for (let i = 0; i < 2; i += 1) {
@@ -148,13 +162,25 @@ describe("mergePluginEntry", () => {
     expect(existsSync(join(cacheRoot, "superpowers-controller"))).toBe(false)
     expect(existsSync(join(cacheRoot, "superpowers-controller@latest"))).toBe(false)
     expect(existsSync(join(cacheRoot, "opencode-superpowers-controller@latest"))).toBe(false)
+    expect(existsSync(join(cacheRoot, "node_modules", "oh-my-opencode"))).toBe(false)
+    expect(existsSync(join(cacheRoot, "node_modules", "oh-my-opencode-darwin-arm64"))).toBe(false)
+    expect(existsSync(join(cacheRoot, "node_modules", ".bin", "oh-my-opencode"))).toBe(false)
     expect(existsSync(join(cacheRoot, "other-plugin"))).toBe(true)
+    const cacheManifest = JSON.parse(readFileSync(join(cacheRoot, "package.json"), "utf8"))
+    expect(cacheManifest.dependencies["superpowers-controller"]).toBe("latest")
+    expect(cacheManifest.dependencies["other-plugin"]).toBe("latest")
+    expect(cacheManifest.dependencies["oh-my-opencode"]).toBeUndefined()
     expect(existsSync(join(home, ".config", "opencode", "package.json"))).toBe(false)
     expect(existsSync(join(home, ".config", "opencode", "package-lock.json"))).toBe(false)
     expect(existsSync(join(home, ".config", "opencode", "node_modules"))).toBe(false)
+    expect(existsSync(join(home, ".config", "opencode", "oh-my-openagent.json"))).toBe(false)
     expect(existsSync(join(home, ".opencode", "package.json"))).toBe(false)
     expect(existsSync(join(home, ".opencode", "package-lock.json"))).toBe(false)
     expect(existsSync(join(home, ".opencode", "node_modules"))).toBe(false)
+    expect(existsSync(join(home, ".opencode", "oh-my-opencode.jsonc"))).toBe(false)
+    expect(existsSync(join(temp, `bunx-${uid}-superpowers-controller@latest`))).toBe(false)
+    expect(existsSync(join(temp, `bunx-${uid}-oh-my-opencode@latest`))).toBe(false)
+    expect(existsSync(join(temp, `bunx-${uid}-opencode-superpowers-controller@latest`))).toBe(false)
   }, 30_000)
 
   test("one-click install script works when piped into bash", () => {
