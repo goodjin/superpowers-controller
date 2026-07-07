@@ -165,6 +165,51 @@ describe("decideNextDispatches", () => {
     expect(decisions.every((decision) => "agent" in decision && decision.agent === "sp-implementer")).toBe(true)
   })
 
+  test("passed planner task unlocks dependent implementer task", () => {
+    const decisions = decideNextDispatches(
+      state({
+        task_graph: {
+          tasks: [
+            {
+              id: "t01-spec-and-plan",
+              title: "Spec and plan",
+              summary: "Prepare the implementation plan.",
+              depends_on: [],
+              agent: "sp-planner",
+            },
+            {
+              id: "t02-implement",
+              title: "Implement",
+              summary: "Implement the approved plan.",
+              depends_on: ["t01-spec-and-plan"],
+              agent: "sp-implementer",
+            },
+          ],
+        },
+        node_runs: [
+          {
+            id: "001-plan-t01-spec-and-plan",
+            task_id: "t01-spec-and-plan",
+            phase: "plan",
+            agent: "sp-planner",
+            session_id: "session-plan",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-06-14T00:00:00.000Z",
+          },
+        ],
+      }),
+    )
+
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]).toMatchObject({
+      action: "create_session",
+      agent: "sp-implementer",
+      phase: "implement",
+      task_id: "t02-implement",
+    })
+  })
+
   test("plan-only plan passed finishes without implementation dispatch", () => {
     const decisions = decideNextDispatches(
       state({

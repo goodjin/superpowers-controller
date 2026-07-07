@@ -200,11 +200,15 @@ type ResumeInput = {
 
 `finish` 记录在 `verification_fresh` 之外还会检查 `task_graph`。设计规则是：如果 run 带有 task graph，所有 graph task 都必须达到 task-level passed，workflow 才能进入 `finished/passed`。这可以防止 workflow 在 T5/T6/T7 这类任务仍未登记、未实现或未完成检查时提前结束，也避免主会话绕过 Controller 后让 TUI 失去追踪对象。
 
-task-level passed 不是“任意同 `task_id` 的 node run passed”。它表示该 task 的 required check chain 已经全部通过：
+task-level passed 不是“任意同 `task_id` 的 node run passed”。它按 task 自身的 agent/phase 判断基础完成条件：
 
-- implementation node passed。
-- workflow definition 要求的 checks 全部 passed，例如 feature 默认需要 acceptance、verification 和 code-review。
-- 没有同 `task_id` 的 running、failed、blocked 或 needs_user node 阻塞后续推进。
+- `sp-planner` task 由 `plan` passed 满足依赖。
+- `sp-designer` task 由 `design` passed 满足依赖。
+- `sp-debugger` task 由 `debug` passed 满足依赖。
+- `sp-investigator` task 由 `investigate` passed 满足依赖。
+- checker task 由对应的 `acceptance`、`verification` 或 `code-review` passed 满足依赖。
+- 未声明 agent 或普通 implementation task 继续按 workflow definition 要求的 check chain 判断，例如 feature 默认需要 implementation、acceptance、verification 和 code-review 全部 passed。
+- 没有同 `task_id` 的 running、failed、blocked、needs_user 或 interrupted node 阻塞后续推进。
 
 Transition 在 `code-review` passed 后回到 `getRunnableTasks()`，继续派发依赖已满足的后续 implementation task；如果所有 graph task 都达到 task-level passed 且没有 running node，才进入 finish。
 

@@ -32,10 +32,11 @@ export function incompleteTaskIDs(state: WorkflowState): string[] {
 }
 
 export function isTaskLevelPassed(state: WorkflowState, taskID: string): boolean {
+  const task = state.task_graph?.tasks.find((candidate) => candidate.id === taskID)
   const latest = latestNodeRunsByPhase(state, taskID)
   if (latest.size === 0) return false
   if (Array.from(latest.values()).some((run) => BLOCKING_STATUSES.has(run.status))) return false
-  return requiredTaskPhases(state).every((phase) => latest.get(phase)?.status === "passed")
+  return requiredTaskPhases(state, task?.agent).every((phase) => latest.get(phase)?.status === "passed")
 }
 
 export function hasRunningNodeRuns(state: WorkflowState): boolean {
@@ -55,7 +56,26 @@ function latestNodeRunsByPhase(state: WorkflowState, taskID: string): Map<string
   return latest
 }
 
-function requiredTaskPhases(state: WorkflowState): string[] {
+function requiredTaskPhases(state: WorkflowState, agent?: string): string[] {
+  switch (agent) {
+    case "sp-planner":
+      return ["plan"]
+    case "sp-designer":
+      return ["design"]
+    case "sp-debugger":
+      return ["debug"]
+    case "sp-investigator":
+      return ["investigate"]
+    case "sp-acceptance-reviewer":
+      return ["acceptance"]
+    case "sp-verifier":
+      return ["verification"]
+    case "sp-code-reviewer":
+      return ["code-review"]
+    case "sp-finisher":
+      return ["finish"]
+  }
+
   switch (state.workflow) {
     case "review":
       return ["acceptance", "verification", "code-review"]
