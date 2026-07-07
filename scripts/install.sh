@@ -318,26 +318,37 @@ refresh_opencode_plugin_cache() {
   return "$status"
 }
 
-seed_opencode_plugin_cache_from_local_checkout() {
-  if [[ -z "$REPO_ROOT" || ! -f "$REPO_ROOT/package.json" || ! -f "$REPO_ROOT/dist/index.js" || ! -f "$REPO_ROOT/dist/tui.js" ]]; then
-    return 1
-  fi
+local_package_version() {
+  local package_json="$1/package.json"
+  PACKAGE_JSON="$package_json" bun --eval '
+const fs = require("fs")
+try {
+  const pkg = JSON.parse(fs.readFileSync(process.env.PACKAGE_JSON, "utf8"))
+  process.stdout.write(String(pkg.version || "latest"))
+} catch {
+  process.stdout.write("latest")
+}
+'
+}
 
-  local cache_root
-  cache_root="$(opencode_plugin_cache_root)"
-  local target_package="$cache_root/node_modules/$PACKAGE_NAME"
-  mkdir -p "$cache_root/node_modules"
-  rm -rf "$target_package"
-  mkdir -p "$target_package"
+write_opencode_package_cache_manifest() {
+  local cache_dir="$1"
+  local version_spec="$2"
+  mkdir -p "$cache_dir"
+  CACHE_DIR="$cache_dir" PACKAGE_NAME="$PACKAGE_NAME" VERSION_SPEC="$version_spec" bun --eval '
+const fs = require("fs")
+const path = require("path")
+const cacheDir = process.env.CACHE_DIR
+const packageName = process.env.PACKAGE_NAME
+const versionSpec = process.env.VERSION_SPEC
+const target = path.join(cacheDir, "package.json")
+fs.writeFileSync(target, JSON.stringify({ dependencies: { [packageName]: versionSpec } }, null, 2) + "\n")
+'
+}
 
-  cp "$REPO_ROOT/package.json" "$target_package/package.json"
-  [[ -f "$REPO_ROOT/README.md" ]] && cp "$REPO_ROOT/README.md" "$target_package/README.md"
-  [[ -f "$REPO_ROOT/LICENSE" ]] && cp "$REPO_ROOT/LICENSE" "$target_package/LICENSE"
-  cp -R "$REPO_ROOT/dist" "$target_package/dist"
-  cp -R "$REPO_ROOT/assets" "$target_package/assets"
-  mkdir -p "$target_package/scripts"
-  cp "$REPO_ROOT/scripts/install.sh" "$target_package/scripts/install.sh"
-
+write_opencode_root_cache_manifest() {
+  local cache_root="$1"
+  mkdir -p "$cache_root"
   CACHE_ROOT="$cache_root" PACKAGE_NAME="$PACKAGE_NAME" bun --eval '
 const fs = require("fs")
 const path = require("path")
@@ -348,7 +359,47 @@ const current = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, "utf8
 current.dependencies = { ...(current.dependencies ?? {}), [packageName]: "latest" }
 fs.writeFileSync(target, JSON.stringify(current, null, 2) + "\n")
 '
-  log "Seeded OpenCode plugin cache from local checkout: $target_package"
+}
+
+copy_local_checkout_package_to() {
+  local target_package="$1"
+  rm -rf "$target_package"
+  mkdir -p "$target_package"
+
+  cp "$REPO_ROOT/package.json" "$target_package/package.json"
+  [[ -f "$REPO_ROOT/README.md" ]] && cp "$REPO_ROOT/README.md" "$target_package/README.md"
+  [[ -f "$REPO_ROOT/LICENSE" ]] && cp "$REPO_ROOT/LICENSE" "$target_package/LICENSE"
+  cp -R "$REPO_ROOT/dist" "$target_package/dist"
+  cp -R "$REPO_ROOT/assets" "$target_package/assets"
+  mkdir -p "$target_package/scripts"
+  cp "$REPO_ROOT/scripts/install.sh" "$target_package/scripts/install.sh"
+}
+
+seed_opencode_plugin_cache_from_local_checkout() {
+  if [[ -z "$REPO_ROOT" || ! -f "$REPO_ROOT/package.json" || ! -f "$REPO_ROOT/dist/index.js" || ! -f "$REPO_ROOT/dist/tui.js" ]]; then
+    return 1
+  fi
+
+  local cache_root
+  cache_root="$(opencode_plugin_cache_root)"
+  local version_spec
+  version_spec="$(local_package_version "$REPO_ROOT")"
+  mkdir -p "$cache_root/node_modules"
+
+  local root_target="$cache_root/node_modules/$PACKAGE_NAME"
+  copy_local_checkout_package_to "$root_target"
+  write_opencode_root_cache_manifest "$cache_root"
+  log "Seeded OpenCode root package cache from local checkout: $root_target"
+
+  local cache_keys=("$PACKAGE_NAME" "$PACKAGE_NAME@latest")
+  for key in "${cache_keys[@]}"; do
+    local key_dir="$cache_root/$key"
+    local key_target="$key_dir/node_modules/$PACKAGE_NAME"
+    mkdir -p "$key_dir/node_modules"
+    copy_local_checkout_package_to "$key_target"
+    write_opencode_package_cache_manifest "$key_dir" "$version_spec"
+    log "Seeded OpenCode package-key cache from local checkout: $key_target"
+  done
 }
 
 seed_opencode_plugin_cache_from_bunx() {
@@ -365,16 +416,19 @@ seed_opencode_plugin_cache_from_bunx() {
   cache_root="$(opencode_plugin_cache_root)"
   mkdir -p "$cache_root/node_modules"
   cp -R "$source_modules/." "$cache_root/node_modules/"
-  CACHE_ROOT="$cache_root" PACKAGE_NAME="$PACKAGE_NAME" bun --eval '
-const fs = require("fs")
-const path = require("path")
-const cacheRoot = process.env.CACHE_ROOT
-const packageName = process.env.PACKAGE_NAME
-const target = path.join(cacheRoot, "package.json")
-const current = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, "utf8")) : {}
-current.dependencies = { ...(current.dependencies ?? {}), [packageName]: "latest" }
-fs.writeFileSync(target, JSON.stringify(current, null, 2) + "\n")
-'
+  write_opencode_root_cache_manifest "$cache_root"
+
+  local version_spec
+  version_spec="$(local_package_version "$source_modules/$PACKAGE_NAME")"
+  local cache_keys=("$PACKAGE_NAME" "$PACKAGE_NAME@latest")
+  for key in "${cache_keys[@]}"; do
+    local key_dir="$cache_root/$key"
+    local key_target="$key_dir/node_modules/$PACKAGE_NAME"
+    rm -rf "$key_target"
+    mkdir -p "$key_dir/node_modules"
+    cp -R "$source_modules/$PACKAGE_NAME" "$key_target"
+    write_opencode_package_cache_manifest "$key_dir" "$version_spec"
+  done
   log "Seeded OpenCode plugin cache from bunx package cache: $source_modules"
 }
 
