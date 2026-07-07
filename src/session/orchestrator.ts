@@ -201,11 +201,10 @@ async function selectWorkflowSession(
   },
 ): Promise<void> {
   if (!adapter.selectSession) return
+  const sessionID = isForegroundSerialPhase(args.phase) ? args.sessionID : args.parentSessionID
   await adapter.selectSession({
-    sessionID: args.parentSessionID,
-    reason: isForegroundSerialPhase(args.phase)
-      ? `parent shell for foreground ${args.phase} child`
-      : "parent-led parallel workflow",
+    sessionID,
+    reason: isForegroundSerialPhase(args.phase) ? `foreground ${args.phase} child` : "parent-led parallel workflow",
   })
 }
 

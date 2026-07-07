@@ -89,10 +89,11 @@ describe("Superpowers TUI plugin", () => {
       expect(String(routes[0]?.render())).toContain("Superpowers Progress")
       expect(commands.map((command) => command.title)).toEqual([
         "Superpowers: Open parent workflow session",
+        "Superpowers: Open sp-implementer T1",
       ])
       expect(slotPluginID).toBe("superpowers-controller")
-      commands[0]?.onSelect?.()
-      expect(navigated).toEqual([{ name: "session", params: { sessionID: "session-main" } }])
+      commands[1]?.onSelect?.()
+      expect(navigated).toEqual([{ name: "session", params: { sessionID: "session-child" } }])
       expect(Object.keys(slots).sort()).toEqual([...RESIDENT_PROGRESS_SLOT_NAMES].sort())
       expect(typeof slots.sidebar_footer).toBe("function")
       expect(typeof slots.sidebar_content).toBe("function")
@@ -303,6 +304,9 @@ describe("Superpowers TUI plugin", () => {
       expect(prompt.type).toBe("prompt")
       expect(prompts[0]?.sessionID).toBe("session-design")
       expect(prompts[0]?.visible).toBe(true)
+      const childPrompt = slots.session_prompt?.(undefined, { session_id: "session-design", visible: true }) as { type: string; props: Record<string, unknown> }
+      expect(childPrompt.type).toBe("prompt")
+      expect(prompts[1]?.sessionID).toBe("session-design")
 
       const sidebar = createProgressSlot(
         api,

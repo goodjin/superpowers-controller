@@ -116,7 +116,7 @@ function workflowSessionCommands(api: TuiApi): Array<{ title: string; value: str
   const context = currentWorkflowContext(api)
   const state = context.state
   if (!state) return []
-  return [
+  const commands = [
     {
       title: "Superpowers: Open parent workflow session",
       value: `superpowers.open-session.${state.parent_session_id}`,
@@ -125,6 +125,17 @@ function workflowSessionCommands(api: TuiApi): Array<{ title: string; value: str
       onSelect: () => api.route.navigate("session", { sessionID: state.parent_session_id }),
     },
   ]
+  for (const node of state.node_runs) {
+    const task = node.task_id ? ` ${node.task_id}` : ""
+    commands.push({
+      title: `Superpowers: Open ${node.agent}${task}`,
+      value: `superpowers.open-session.${node.session_id}`,
+      description: `${node.phase} ${node.status} (${node.session_id})`,
+      category: "Superpowers",
+      onSelect: () => api.route.navigate("session", { sessionID: node.session_id }),
+    })
+  }
+  return commands
 }
 
 function residentProgressSlots(api: TuiApi): Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> {
@@ -244,11 +255,12 @@ function createForegroundChildPromptSlot(api: TuiApi): (_context?: unknown, prop
     const workflow = currentWorkflowContext(api, currentSessionID).state
     const foreground = workflow ? foregroundChildNode(workflow) : undefined
     if (!workflow || !foreground) return null
-    if (currentSessionID !== workflow.parent_session_id) return null
+    if (currentSessionID !== workflow.parent_session_id && currentSessionID !== foreground.session_id) return null
     if (!api.ui?.Prompt) return `SP foreground child: ${foreground.agent}${foreground.task_id ? ` ${foreground.task_id}` : ""}`
     const input = isRecord(props) ? props : isRecord(context) ? context : {}
+    const targetSessionID = currentSessionID === foreground.session_id ? currentSessionID : foreground.session_id
     return api.ui.Prompt({
-      sessionID: foreground.session_id,
+      sessionID: targetSessionID,
       visible: typeof input.visible === "boolean" ? input.visible : undefined,
       disabled: typeof input.disabled === "boolean" ? input.disabled : undefined,
       onSubmit: typeof input.on_submit === "function" ? input.on_submit as () => void : undefined,

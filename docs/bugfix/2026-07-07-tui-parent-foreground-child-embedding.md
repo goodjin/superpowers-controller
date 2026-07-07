@@ -1,5 +1,7 @@
 # Bug Fix: TUI Parent Foreground Child Embedding
 
+> Superseded on 2026-07-07 by `docs/bugfix/2026-07-07-tui-child-route-interactive-foreground.md`. Foreground child sessions may be selected directly; the fix is to keep the child route interactive and live, not to forbid switching.
+
 ## 问题描述
 
 - 日期: 2026-07-07
@@ -30,10 +32,10 @@
 
 ## 实施记录
 
-- `src/session/orchestrator.ts` 调整 foreground session selection：所有 dispatch 都保持或回到 `parent_session_id`。
+- Earlier implementation adjusted foreground session selection so all dispatches stayed on or returned to `parent_session_id`; this was superseded because foreground child route switching is allowed.
 - `src/tui.ts` 注册 `session_prompt` slot，并在 parent session + foreground design/plan child 时用 `api.ui.Prompt({ sessionID: childID })` 绑定提交目标。
 - `src/tui.ts` 的 `sidebar_content` 在已有 workflow progress 后追加 foreground child 的 live transcript、permission/question 数量和 live status。
-- TUI command 只保留 parent workflow session 入口，不再提供 child route 跳转项。
+- Earlier implementation restricted route commands to the workflow parent; this was superseded by restoring parent and child route entries.
 
 ## 验证记录
 
