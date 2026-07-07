@@ -88,13 +88,13 @@ Acceptance 的 required artifacts 会指向 `spec.md`、`plan.md`、`tasks.json`
 
 ## Foreground Session Policy
 
-design 和 plan 是串行前台阶段。创建或复用这类 child session 后，orchestrator 会请求 OpenCode TUI 选择该 child session，让用户直接看到 designer/planner 的运行过程。候选 design 或 plan 需要批准、修改或取消时，等待确认 prompt 会继续投到当前 child session；用户可以在当前 child session 中回复，由该 child session 调用 `sp_start(approve_design)` 或 `sp_start(approve_plan)` 推进 workflow。
+design 和 plan 是串行前台阶段。创建或复用这类 child session 后，orchestrator 不再请求 OpenCode TUI 原生切到 child session；它会保持或选择 `parent_session_id`，由 TUI 插件在 parent shell 的 resident surface 中展示 foreground child，并通过 `session_prompt` slot 把底部 prompt 绑定到 child session。候选 design 或 plan 需要批准、修改或取消时，等待确认 prompt 会继续投到当前 child session；用户在 parent shell 底部输入，但提交目标是该 child session，由 child 调用 `sp_start(approve_design)` 或 `sp_start(approve_plan)` 推进 workflow。
 
-这不会改变 workflow 的 parent 身份。`sp_start` 对已有 run 会优先使用 durable `parent_session_id`，调用者 session 只作为 `approved_by_session_id` 等审计信息。这样 foreground child 可以承接用户交互，但 parent session 仍是并行阶段、恢复和 closeout 的稳定控制面。
+这不会改变 workflow 的 parent 身份。`sp_start` 对已有 run 会优先使用 durable `parent_session_id`，调用者 session 只作为 `approved_by_session_id` 等审计信息。这样 foreground child 可以承接用户交互，但 parent session 仍是外层 workflow shell、并行阶段、恢复和 closeout 的稳定控制面。
 
-进入 task graph implementation / acceptance / verification / code-review 等 parent-led 阶段后，orchestrator 会请求 TUI 选择 parent session。并行 child session 不抢前台，避免用户输入被投递到错误的分支。
+进入 task graph implementation / acceptance / verification / code-review 等 parent-led 阶段后，orchestrator 仍会请求 TUI 选择 parent session。并行 child session 不抢前台，避免用户输入被投递到错误的分支。
 
-TUI session 选择是可见性优化，不是 workflow 正确性的前提。adapter 优先调用 `tui.selectSession({ sessionID })`；如果 host 只支持事件发布，则 fallback 到 `tui.publish({ type: "tui.session.select", ... })`；两者都不可用时只发 warning progress，不阻塞 dispatch。
+TUI session 选择只用于保持 parent shell 可见，不是 workflow 正确性的前提。adapter 优先调用 `tui.selectSession({ sessionID: parent_session_id })`；如果 host 只支持事件发布，则 fallback 到 `tui.publish({ type: "tui.session.select", ... })`；两者都不可用时只发 warning progress，不阻塞 dispatch。
 
 ## Progress Behavior
 

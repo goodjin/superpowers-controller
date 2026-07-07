@@ -88,17 +88,18 @@ describe("Superpowers TUI plugin", () => {
       expect(routes.map((route) => route.name).sort()).toEqual(["superpowers-progress"])
       expect(String(routes[0]?.render())).toContain("Superpowers Progress")
       expect(commands.map((command) => command.title)).toEqual([
-        "Superpowers: Open parent session",
-        "Superpowers: Open sp-implementer T1",
+        "Superpowers: Open parent workflow session",
       ])
       expect(slotPluginID).toBe("superpowers-controller")
-      commands[1]?.onSelect?.()
-      expect(navigated).toEqual([{ name: "session", params: { sessionID: "session-child" } }])
+      commands[0]?.onSelect?.()
+      expect(navigated).toEqual([{ name: "session", params: { sessionID: "session-main" } }])
       expect(Object.keys(slots).sort()).toEqual([...RESIDENT_PROGRESS_SLOT_NAMES].sort())
       expect(typeof slots.sidebar_footer).toBe("function")
       expect(typeof slots.sidebar_content).toBe("function")
       expect(slots.home_bottom).toBeUndefined()
       expect(typeof slots.app_bottom).toBe("function")
+      expect(typeof slots.session_prompt).toBe("function")
+      expect(slots.session_prompt?.(undefined, { session_id: "session-main" })).toBeNull()
       expect(slots.session_prompt_right).toBeUndefined()
       expect(slots.home_prompt).toBeUndefined()
       expect(slots.home_prompt_right).toBeUndefined()
@@ -221,6 +222,96 @@ describe("Superpowers TUI plugin", () => {
       )
 
       expect(commands).toEqual([])
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("binds the parent session prompt to the foreground design child", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-plugin-foreground-"))
+    try {
+      const slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> = {}
+      const prompts: Array<Record<string, unknown>> = []
+      const store = createProjectStore(project)
+      store.startRun({
+        workflow: "feature",
+        entrypoint: "design",
+        goal: "Design foreground",
+        request: "Design foreground",
+        proposal: "Show design child",
+        parentSessionID: "session-main",
+      })
+      store.addNodeRun({
+        phase: "design",
+        agent: "sp-designer",
+        session_id: "session-design",
+        task_markdown: "Design task",
+      })
+      const plugin = createTuiPluginModule()
+      const api = {
+        route: {
+          register() {
+            return () => {}
+          },
+          navigate() {},
+        },
+        slots: {
+          register(plugin: { slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }) {
+            Object.assign(slots, plugin.slots)
+            return "superpowers-progress-slots"
+          },
+        },
+        ui: {
+          Prompt(props: Record<string, unknown>) {
+            prompts.push(props)
+            return { type: "prompt", props }
+          },
+        },
+        state: {
+          path: { directory: project },
+          session: {
+            messages(sessionID: string) {
+              expect(sessionID).toBe("session-design")
+              return [
+                {
+                  info: { id: "msg-1", role: "assistant" },
+                  parts: [{ type: "text", text: "Working on the design." }],
+                },
+              ]
+            },
+            status(sessionID: string) {
+              expect(sessionID).toBe("session-design")
+              return { type: "busy" }
+            },
+            permission() {
+              return []
+            },
+            question() {
+              return []
+            },
+          },
+        },
+      } as never
+
+      await plugin.tui(
+        api,
+        undefined,
+        { id: "superpowers-controller", source: "file", spec: "", target: "", first_time: 0, last_time: 0, time_changed: 0, load_count: 1, fingerprint: "", state: "first" },
+      )
+
+      const prompt = slots.session_prompt?.(undefined, { session_id: "session-main", visible: true }) as { type: string; props: Record<string, unknown> }
+      expect(prompt.type).toBe("prompt")
+      expect(prompts[0]?.sessionID).toBe("session-design")
+      expect(prompts[0]?.visible).toBe(true)
+
+      const sidebar = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
+      )(undefined, { session_id: "session-main" }) as { type: string; value: string }
+      expect(sidebar.value).toContain("foreground child")
+      expect(sidebar.value).toContain("sp-designer")
+      expect(sidebar.value).toContain("assistant: Working on the design.")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

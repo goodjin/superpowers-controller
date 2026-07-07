@@ -1,5 +1,7 @@
 # Bug Fix: TUI Child Session Return Command
 
+> Superseded on 2026-07-07 by `docs/bugfix/2026-07-07-tui-parent-foreground-child-embedding.md`. Child session route jumping was replaced by parent-shell foreground child prompt binding.
+
 ## 问题描述
 
 - 日期: 2026-07-05

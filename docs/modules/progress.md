@@ -105,20 +105,21 @@ sp_status(include_progress=true)
 
 TUI entry 暴露在 package 的 `./tui` export。
 
-完整面板 route 名为 `superpowers-progress`。面板展示 active run、每个 node 的 agent、phase、task、session、durable status、live session status 和最新进展摘要。插件还会注册动态 session navigation command，命令面板中包含当前 workflow 的 parent session 和已登记 child node session，选中后通过 OpenCode session route 切换到对应会话。
+完整面板 route 名为 `superpowers-progress`。面板展示 active run、每个 node 的 agent、phase、task、session、durable status、live session status 和最新进展摘要。插件只保留 parent workflow session 的 command 入口，不再提供 child session route 跳转命令，避免用户离开 parent shell 后失去稳定的 workflow 控制面。
 
-orchestrator 还会请求 OpenCode TUI 切换当前 foreground session。design/plan child 创建或复用后会被选到前台，方便用户观看过程并在该 child session 中直接确认候选设计或计划。后续进入 implement/acceptance/verification/code-review 等 parent-led 阶段时，TUI 会回到 `parent_session_id`，并由 parent progress notifier 每 10 秒输出并行运行摘要。用户从 child 回到 parent 后，仍可通过 Superpowers session command 重新打开某个 child session 查看过程或处理该 child 自己的确认。
+orchestrator 会请求 OpenCode TUI 保持或回到 `parent_session_id`。design/plan child 创建或复用后不再把原生 session route 切到 child；TUI 插件在 parent session 的 resident surface 中展示 foreground child 的运行信息，并在 `session_prompt` slot 中把底部 prompt 的提交目标绑定到该 child session。这样用户看起来仍在 parent workflow shell 中，但输入会进入当前 foreground child。
 
 workflow 用户输入不再通过独立 TUI question route 处理。节点需要用户输入时调用 `sp_report(status="needs_user")`。如果问题来自 foreground design/plan child，runtime 会把问题 prompt 投回当前 child session；如果问题来自 parent-led 或并行阶段，runtime 通知 parent controller session，由主会话中的 `super-agent` 询问用户，并通过 `sp_start(run_id, resume_input)` 恢复原 child session。
 
 主会话常驻进度通过 TUI slot 展示。不同 slot 不再复用同一条 compact 文本，而是按可用空间分工：
 
 - `app_bottom`：主会话底部常驻 surface，承载整体 workflow 状态，例如 workflow/status/current phase、任务完成数、当前 active child session 数，并追加最近一个 child session 的可读活动摘要和相对更新时间。child session 计数使用 `children <n> active (...)`，括号里拆分 `running`、`stalled` 和 `waiting permission`，让用户在主会话底部能稳定看到当前运行中的子会话数量。OpenTUI 的 `app_bottom` slot 不提供 `session_id`，因此这里按全局 active/unfinished workflow 渲染；只要当前项目或 fallback project 中存在未结束 workflow，就显示底部状态。
-- `sidebar_content`：右侧栏主体，是 workflow 会话运行信息的主展示区域。OpenCode host 会传入当前 `session_id`；插件优先在该 session 属于某个 workflow 的 parent session 或 child node session 时展示 workflow 总览、运行中 child session 列表、计划中/待运行 task 列表、最近活动详情，以及 waiting_user 的问题正文和候选选项。如果没有 session 匹配，允许 fallback 到最新未结束 workflow。不能依赖 host 一定传 `agent` 字段；实际 host 可能只传 `session_id`。它不收集用户答案，也不替换 host 原生摘要。
+- `sidebar_content`：右侧栏主体，是 workflow 会话运行信息的主展示区域。OpenCode host 会传入当前 `session_id`；插件优先在该 session 属于某个 workflow 的 parent session 或 child node session 时展示 workflow 总览、运行中 child session 列表、计划中/待运行 task 列表、最近活动详情，以及 waiting_user 的问题正文和候选选项。如果当前存在 foreground design/plan child，sidebar 还会读取 `api.state.session.messages(childID)`、`status(childID)`、`permission(childID)` 和 `question(childID)`，追加该 child 的 live transcript 摘要和等待项数量。如果没有 session 匹配，允许 fallback 到最新未结束 workflow。不能依赖 host 一定传 `agent` 字段；实际 host 可能只传 `session_id`。它不收集用户答案，也不替换 host 原生摘要。
 - `sidebar_footer`：右侧栏底部降级 surface，承载整体 workflow 状态。和 `sidebar_content` 一样优先按 `session_id` 绑定，找不到匹配时 fallback 到最新未结束 workflow。
+- `session_prompt`：只在当前 session 是 `parent_session_id` 且存在 foreground design/plan child 时注册有效内容。它使用 OpenCode TUI 的 `api.ui.Prompt({ sessionID: childID })` 保持底部输入区域，但把提交目标绑定到当前 child session。没有 foreground child 时返回空，不影响普通 parent prompt。
 - `session_prompt_right`、`home_prompt`、`home_prompt_right`、`home_bottom`、`home_footer`：不注册 Superpowers resident progress。workflow 会话运行信息不放在 prompt/right 区域；`home_*` 是首页区域，不作为主会话运行态展示入口。
 
-详细过程仍通过 `superpowers-progress` route 查看；会话切换通过 Superpowers session command 完成；用户输入由当前 foreground 会话或 parent controller prompt 承接，不存在 `superpowers-questions` route。
+详细过程仍通过 `superpowers-progress` route 查看；用户输入由 foreground child prompt binding 或 parent controller prompt 承接，不存在 `superpowers-questions` route。
 
 running node 的最新 progress 如果超过显示阈值没有更新，会在 compact 行和完整面板里标为 `stalled`，例如 `SP: sp-acceptance-reviewer stalled - write pending`。`running` 和 `stalled` 是互斥展示状态：同一个 session 超时后只显示 `stalled`，不再把两个状态拼在一起。这表示 Controller 仍然有登记的 child session，但最近的 child progress 已经停住，需要用户能在主会话直接看到。
 
@@ -149,6 +150,6 @@ resolver 不再简单返回第一个 `current.json`。选择规则是：
 
 `sidebar_content` 的列表结构向 OpenCode 原生 TodoWrite 的可扫读形态靠拢，但数据源仍然是 Superpowers workflow state。它先列 `child sessions`，展示已经创建并运行中的 node session；再列 `planned sessions`，从 `task_graph.tasks` 和 `node_runs` 推导 pending/blocked/needs_user/dispatch_failed/interrupted 等未完成任务。每行包含 agent、task id、状态和标题；已有 child session 的行还会显示 latest progress summary 和 detail。
 
-当 workflow 进入 `waiting_user` 时，`sidebar_content` 会显示 pending question 的来源节点、问题正文、最多三个候选选项，以及最近 child 活动。用户回答由 runtime 选择的 foreground target 处理：design/plan foreground child 留在当前 child；其他阶段回 parent controller session。TUI slot 不承担选择框或自由输入框职责。
+当 workflow 进入 `waiting_user` 时，`sidebar_content` 会显示 pending question 的来源节点、问题正文、最多三个候选选项，以及最近 child 活动。用户回答由 runtime 选择的 foreground target 处理：design/plan foreground child 通过 parent session 的 `session_prompt` slot 提交到 child；其他阶段回 parent controller session。TUI slot 不承担独立选择框或自由输入框职责。
 
 OpenCode 原生 Todo 面板来自 child session 的 `todowrite` tool part，和 Superpowers progress surface 是两条不同 UI 链路。看到 Todo 只能说明该 session 调用了 `todowrite`，不能说明 Superpowers resident progress 已经成功显示。

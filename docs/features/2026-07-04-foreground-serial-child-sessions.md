@@ -1,5 +1,7 @@
 # Foreground Serial Child Sessions
 
+> 2026-07-07 correction: foreground child interaction no longer means switching the OpenCode native session route to the child. The parent session remains the workflow shell; TUI resident surfaces display the foreground child and `session_prompt` binds the bottom prompt to the child session.
+
 ## Goal
 
 Improve workflow visibility and interaction by putting the currently active serial child session in the TUI foreground. Design and plan nodes should be visible while they run, and user confirmation for those serial nodes should happen directly in that foreground child session. When the workflow moves into parallel execution, the TUI should return to the parent controller session and keep the parent updated every 10 seconds.
@@ -7,9 +9,9 @@ Improve workflow visibility and interaction by putting the currently active seri
 ## User Experience Rule
 
 1. Serial design and plan phases are foreground phases.
-   - After the controller creates a design child session, the TUI selects that child session.
-   - After design is approved and a plan child session is created, the TUI selects the plan child session.
-   - The user can watch the child session run and can confirm, revise, or cancel from that same foreground child session.
+   - After the controller creates a design child session, the TUI keeps the parent session shell selected and shows the design child through resident surfaces.
+   - After design is approved and a plan child session is created, the TUI keeps the parent session shell selected and binds the bottom prompt to the plan child.
+   - The user can watch child progress from the parent shell and can confirm, revise, or cancel through the prompt bound to that foreground child session.
 
 2. Parallel work is parent-led.
    - After plan approval starts implementation or review tasks that may run in parallel, the TUI selects the parent controller session.
