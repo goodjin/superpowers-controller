@@ -107,7 +107,7 @@ TUI entry 暴露在 package 的 `./tui` export。
 
 完整面板 route 名为 `superpowers-progress`。面板展示 active run、每个 node 的 agent、phase、task、session、durable status、live session status 和最新进展摘要。插件还会注册 parent 和 child session command，命令语义是切换当前 OpenCode session route；切到 child 后仍必须保持 prompt 可交互并显示该 child 的实时会话内容。
 
-orchestrator 会请求 OpenCode TUI 在 design/plan 串行阶段切到对应 child session，在 implement/acceptance/verification/code-review 等 parent-led 阶段切回 `parent_session_id`。TUI 插件在 `session_prompt` slot 中显式渲染 `api.ui.Prompt({ sessionID: childID })`，保证 foreground child route 的底部输入框继续提交到该 child session；如果 host 没有成功切到 child，parent session 上也可以把 prompt 降级绑定到当前 foreground child。
+orchestrator 会请求 OpenCode TUI 在 design/plan 串行阶段切到对应 child session，在 implement/acceptance/verification/code-review 等 parent-led 阶段切回 `parent_session_id`。workflow node session 在 OpenCode 层创建为普通 session，不使用原生 `parentID` child route，以便 host 保留普通 session 的底部输入框、右侧 sidebar 和 live transcript。TUI 插件在 `session_prompt` slot 中显式渲染 `api.ui.Prompt({ sessionID: childID })`，保证 foreground child route 的底部输入框继续提交到该 child session；如果 host 没有成功切到 child，parent session 上也可以把 prompt 降级绑定到当前 foreground child。
 
 workflow 用户输入不再通过独立 TUI question route 处理。节点需要用户输入时调用 `sp_report(status="needs_user")`。如果问题来自 foreground design/plan child，runtime 会把问题 prompt 投回当前 child session；如果问题来自 parent-led 或并行阶段，runtime 通知 parent controller session，由主会话中的 `super-agent` 询问用户，并通过 `sp_start(run_id, resume_input)` 恢复原 child session。
 

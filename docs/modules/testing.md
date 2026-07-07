@@ -14,6 +14,7 @@
 - `test/controller-intake.test.ts`：proposal 生成、resume proposal、`sp_prepare` 创建 prepared run、v5 `task_brief/design_participation/confirmation`、source workflow 导入、`sp_start` 激活 prepared run 或直接创建 run、`sp_start(prepared_task_id, action=start_prepared_task, start_config)` 写入 workflow spec、`sp_start(run_id, resume_input)` 恢复 waiting-user child session 且不等待 child prompt 完成，以及 `entrypoint=execute` 的实现入口派发。
 - `test/dispatch-transition.test.ts`：intake、plan、task-scoped implementation acceptance、串行 review、code-review 后回到 task graph、retry 和 needs_user 的 dispatch decision。
 - `test/session-orchestrator.test.ts`：node task markdown 模板、session create/reuse adapter 调用。
+- `test/session-adapter.test.ts`：OpenCode adapter 行为，包括 TUI session selection fallback，以及 node session 创建时不向 OpenCode 传原生 `parentID`。
 - `test/store-node-runs.test.ts`：`node_runs` 创建、`nodes/*/task.md`、`nodes/*/record.json` 和完成状态更新。
 - `test/sp-record-dispatch.test.ts`：legacy record handler 覆盖，验证 `sp_report(plan)` 语义后 dispatch implementer、`workflow_expansion` 在允许时自动扩展/派发、不允许时进入 `waiting_controller_decision`，implementation report 后派发带 task/report 上下文的 acceptance、并行 implementation report 按 child session 归属节点、检查失败后回派 implementer 并恢复 workflow running，并在 `needs_user` 时不派发且通知 parent controller session。
 - `test/node-progress.test.ts`：child session 事件到节点 progress JSONL 的映射、忽略无关 session、错误摘要。

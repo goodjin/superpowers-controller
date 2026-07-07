@@ -60,7 +60,6 @@ export function createOpenCodeSessionAdapter(ctx: OpenCodePluginContext): Sessio
       }
       const created = await callMethod(ctx.client.session, "create", {
         body: {
-          parentID: input.parentSessionID,
           title: input.title,
           agent: input.agent,
         },
