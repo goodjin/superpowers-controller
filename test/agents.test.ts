@@ -100,4 +100,43 @@ describe("createAgentConfig", () => {
     expect((agents["super-agent"]?.tools as { skill?: boolean; task?: boolean } | undefined)?.task).toBe(false)
     expect(String(agents["super-agent"]?.prompt ?? "")).toContain("Never call the native task tool")
   })
+
+  test("inherits granular host permission rules while preserving control-plane denies", () => {
+    const agents = createAgentConfig({
+      globalPermission: {
+        edit: {
+          "*": "ask",
+          "src/**": "allow",
+        },
+        bash: {
+          "*": "ask",
+          "git status *": "allow",
+        },
+        external_directory: {
+          "*": "ask",
+          "/tmp/*": "allow",
+        },
+        task: "allow",
+        question: "allow",
+        skill: "allow",
+      },
+    })
+
+    const controllerPermission = agents["super-agent"]?.permission as Record<string, unknown>
+    const implementerPermission = agents["sp-implementer"]?.permission as Record<string, unknown>
+
+    expect(controllerPermission.edit).toEqual({ "*": "ask", "src/**": "allow" })
+    expect(controllerPermission.bash).toEqual({ "*": "ask", "git status *": "allow" })
+    expect(controllerPermission.external_directory).toEqual({ "*": "ask", "/tmp/*": "allow" })
+    expect(controllerPermission.task).toBe("deny")
+    expect(controllerPermission.question).toBe("allow")
+    expect(controllerPermission.skill).toBe("deny")
+
+    expect(implementerPermission.edit).toEqual({ "*": "ask", "src/**": "allow" })
+    expect(implementerPermission.bash).toEqual({ "*": "ask", "git status *": "allow" })
+    expect(implementerPermission.external_directory).toEqual({ "*": "ask", "/tmp/*": "allow" })
+    expect(implementerPermission.task).toBe("deny")
+    expect(implementerPermission.question).toBe("deny")
+    expect(implementerPermission.skill).toBe("allow")
+  })
 })

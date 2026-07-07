@@ -73,14 +73,18 @@ agent prompt 不能成为 workflow state machine。职责边界如下：
 
 `src/plugin.ts` resolves the host OpenCode `permission` value and passes it into `createAgentConfig`. If the config hook input omits `permission`, `src/config/permissions.ts` reads the active OpenCode config from `XDG_CONFIG_HOME` or `HOME`.
 
-When global `permission` is not `"allow"`, agents keep the default workflow boundaries:
+Plugin-generated agents inherit the host's current permission posture before Superpowers-specific overrides are applied. This includes granular permission objects such as `external_directory: { "/tmp/*": "allow" }`, `edit: { "src/**": "allow", "*": "ask" }`, or command-pattern rules under `bash`. The plugin should not turn a user-visible allow rule back into a repeated workflow prompt.
+
+OpenCode's runtime `Always` approval is still owned by OpenCode. If OpenCode exposes the approved rule through the config hook or active config, Superpowers agents inherit it. If OpenCode keeps the approval only in runtime memory and does not expose it to plugins, the plugin cannot persist or recover that rule after restart; for stable cross-session behavior, put the rule in OpenCode config.
+
+When global `permission` is not `"allow"` and no granular host rule overrides a permission, agents keep the default workflow boundaries:
 
 - `super-agent` cannot edit files directly, asks before bash, cannot use native `task`, and has `tools.skill` disabled.
 - Node agents ask or deny edits according to their role, allow bash after workflow dispatch, deny nested tasks, deny native child questions, and can load only their primary skill.
 
 Node agents allow `bash` by default after workflow dispatch. The workflow start/approval step is the user confirmation boundary, and repeated child-shell probes should not strand the user in per-command prompts. File edits still use the existing agent-specific `edit` policy, verifier/reviewer/investigator agents remain read-only, and the plugin gate layer still evaluates workflow gates such as `design_approved`, `plan_written`, and `red_test_seen`.
 
-When global `permission` is `"allow"`, plugin agents inherit that posture for read, edit, bash, external directory, plan, and related OpenCode permission points. The exceptions are native `task` and child native `question`: `super-agent` and node agents still deny the native `task` tool because child session creation is a Superpowers control-plane responsibility, and node agents deny native `question` because user-input requests must be recorded through `sp_report needs_user`. `super-agent` keeps native `question` permission for controller-level clarification and denies `skill`; node agents keep skill access so they can load their assigned primary skill.
+When global `permission` is `"allow"`, plugin agents inherit that posture for read, edit, bash, external directory, plan, and related OpenCode permission points. The same inheritance applies to granular host permission objects. The exceptions are native `task` and child native `question`: `super-agent` and node agents still deny the native `task` tool because child session creation is a Superpowers control-plane responsibility, and node agents deny native `question` because user-input requests must be recorded through `sp_report needs_user`. `super-agent` keeps native `question` permission for controller-level clarification and denies `skill`; node agents keep skill access so they can load their assigned primary skill or any host-allowed skill rule.
 
 ## Notes
 

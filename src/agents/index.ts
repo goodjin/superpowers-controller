@@ -1,5 +1,5 @@
 import { AGENT_SKILL_MAP, type NodeAgentName } from "../router/modes"
-import { isGlobalPermissionAllow } from "../config/permissions"
+import { isGlobalPermissionAllow, mergePermissionRules } from "../config/permissions"
 
 export type AgentConfigRecord = Record<string, Record<string, unknown>>
 export type AgentConfigOptions = {
@@ -27,18 +27,15 @@ const AGENT_PURPOSES: Record<NodeAgentName, string> = {
 
 export function createAgentConfig(options: AgentConfigOptions = {}): AgentConfigRecord {
   const inheritGlobalAllow = isGlobalPermissionAllow(options.globalPermission)
+  const controllerPermission = inheritGlobalAllow
+    ? allowWorkflowPermission({ task: "deny", skill: "deny" })
+    : mergePermissionRules(defaultControllerPermission(), options.globalPermission, { task: "deny", skill: "deny" })
   return {
     "super-agent": {
       description: "Primary controller for Superpowers workflow state and dispatch.",
       mode: "primary",
       color: "accent",
-      permission: inheritGlobalAllow
-        ? allowWorkflowPermission({ task: "deny", skill: "deny" })
-        : {
-            edit: "deny",
-            bash: "ask",
-            task: "deny",
-          },
+      permission: controllerPermission,
       tools: {
         skill: false,
         task: false,
@@ -69,31 +66,28 @@ export function createAgentConfig(options: AgentConfigOptions = {}): AgentConfig
     ...Object.fromEntries(
       Object.entries(AGENT_SKILL_MAP).map(([agentName, primarySkill]) => [
         agentName,
-        nodeAgent(agentName as NodeAgentName, primarySkill, inheritGlobalAllow),
+        nodeAgent(agentName as NodeAgentName, primarySkill, options.globalPermission, inheritGlobalAllow),
       ]),
     ),
   }
 }
 
-function nodeAgent(agentName: NodeAgentName, primarySkill: string, inheritGlobalAllow: boolean): Record<string, unknown> {
+function nodeAgent(
+  agentName: NodeAgentName,
+  primarySkill: string,
+  globalPermission: unknown,
+  inheritGlobalAllow: boolean,
+): Record<string, unknown> {
+  const permission = inheritGlobalAllow
+    ? allowWorkflowPermission({ task: "deny", question: "deny" })
+    : mergePermissionRules(defaultNodePermission(agentName, primarySkill), globalPermission, {
+        task: "deny",
+        question: "deny",
+      })
   return {
     description: AGENT_PURPOSES[agentName],
     mode: "subagent",
-    permission: inheritGlobalAllow
-      ? allowWorkflowPermission({ task: "deny", question: "deny" })
-      : {
-          edit:
-            agentName === "sp-investigator" || agentName.endsWith("reviewer") || agentName === "sp-verifier"
-              ? "deny"
-              : "ask",
-          bash: "allow",
-          task: "deny",
-          question: "deny",
-          skill: {
-            "*": "deny",
-            [primarySkill]: "allow",
-          },
-        },
+    permission,
     tools: {
       task: false,
       question: false,
@@ -105,6 +99,30 @@ function nodeAgent(agentName: NodeAgentName, primarySkill: string, inheritGlobal
       "Use only this primary skill for the node unless the controller creates a different session for another node.",
       RECORD_RULE,
     ].join("\n"),
+  }
+}
+
+function defaultControllerPermission(): Record<string, unknown> {
+  return {
+    edit: "deny",
+    bash: "ask",
+    task: "deny",
+  }
+}
+
+function defaultNodePermission(agentName: NodeAgentName, primarySkill: string): Record<string, unknown> {
+  return {
+    edit:
+      agentName === "sp-investigator" || agentName.endsWith("reviewer") || agentName === "sp-verifier"
+        ? "deny"
+        : "ask",
+    bash: "allow",
+    task: "deny",
+    question: "deny",
+    skill: {
+      "*": "deny",
+      [primarySkill]: "allow",
+    },
   }
 }
 

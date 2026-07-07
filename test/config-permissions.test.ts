@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { resolveGlobalPermission } from "../src/config/permissions"
+import { mergePermissionRules, resolveGlobalPermission } from "../src/config/permissions"
 
 let tempRoots: string[] = []
 
@@ -30,6 +30,25 @@ describe("resolveGlobalPermission", () => {
     writeFileSync(join(configHome, "opencode", "opencode.json"), `${JSON.stringify({ permission: "allow" }, null, 2)}\n`)
 
     expect(resolveGlobalPermission(undefined, { XDG_CONFIG_HOME: configHome })).toBe("allow")
+  })
+})
+
+describe("mergePermissionRules", () => {
+  test("inherits granular permission objects and applies explicit overrides last", () => {
+    const merged = mergePermissionRules(
+      { edit: "ask", bash: "allow", task: "deny" },
+      {
+        edit: { "*": "ask", "src/**": "allow" },
+        external_directory: { "/tmp/*": "allow" },
+        task: "allow",
+      },
+      { task: "deny" },
+    )
+
+    expect(merged.edit).toEqual({ "*": "ask", "src/**": "allow" })
+    expect(merged.bash).toBe("allow")
+    expect(merged.external_directory).toEqual({ "/tmp/*": "allow" })
+    expect(merged.task).toBe("deny")
   })
 })
 

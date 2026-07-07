@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { parse } from "jsonc-parser"
 
 type PermissionEnv = Record<string, string | undefined>
+type PermissionRuleValue = string | Record<string, string>
 
 export function resolveGlobalPermission(hostPermission: unknown, env: PermissionEnv = process.env): unknown {
   if (hostPermission !== undefined) return hostPermission
@@ -15,6 +16,34 @@ export function isGlobalPermissionAllow(permission: unknown): boolean {
 
   const rules = permission as Record<string, unknown>
   return rules["*"] === "allow"
+}
+
+export function mergePermissionRules(
+  base: Record<string, unknown>,
+  inherited: unknown,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const merged = { ...base }
+  if (isPermissionRulesObject(inherited)) {
+    for (const [permission, rule] of Object.entries(inherited)) {
+      merged[permission] = clonePermissionRule(rule)
+    }
+  }
+  return { ...merged, ...overrides }
+}
+
+function isPermissionRulesObject(value: unknown): value is Record<string, PermissionRuleValue> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  return Object.values(value).every((rule) => {
+    if (typeof rule === "string") return true
+    if (!rule || typeof rule !== "object" || Array.isArray(rule)) return false
+    return Object.values(rule).every((action) => typeof action === "string")
+  })
+}
+
+function clonePermissionRule(rule: PermissionRuleValue): PermissionRuleValue {
+  if (typeof rule === "string") return rule
+  return { ...rule }
 }
 
 function readOpenCodePermission(env: PermissionEnv): unknown {
