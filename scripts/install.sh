@@ -229,13 +229,18 @@ refresh_opencode_plugin_cache() {
     return 0
   fi
   if [[ "${SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH:-}" == "1" ]]; then
-    run_timed "OpenCode cache seed from bunx" seed_opencode_plugin_cache_from_bunx || true
+    run_timed "OpenCode cache seed from local checkout" seed_opencode_plugin_cache_from_local_checkout \
+      || run_timed "OpenCode cache seed from bunx" seed_opencode_plugin_cache_from_bunx \
+      || true
     log "Skipping OpenCode plugin cache refresh because SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH=1."
     return 0
   fi
 
   log "Refreshing OpenCode plugin cache..."
   run_timed "OpenCode plugin cache cleanup" clear_opencode_plugin_cache
+  if run_timed "OpenCode cache seed from local checkout" seed_opencode_plugin_cache_from_local_checkout; then
+    return 0
+  fi
   if run_timed "OpenCode cache seed from bunx" seed_opencode_plugin_cache_from_bunx; then
     return 0
   fi
@@ -251,6 +256,42 @@ refresh_opencode_plugin_cache() {
     printf 'error: Config files were written, but OpenCode could not refresh its plugin cache. Retry later, or set SUPERPOWERS_CONTROLLER_SKIP_OPENCODE_REFRESH=1 to skip this step.\n' >&2
   fi
   return "$status"
+}
+
+seed_opencode_plugin_cache_from_local_checkout() {
+  if [[ -z "$REPO_ROOT" || ! -f "$REPO_ROOT/package.json" || ! -f "$REPO_ROOT/dist/index.js" || ! -f "$REPO_ROOT/dist/tui.js" ]]; then
+    return 1
+  fi
+
+  local cache_root
+  cache_root="$(opencode_plugin_cache_root)"
+  local target_package="$cache_root/node_modules/$PACKAGE_NAME"
+  mkdir -p "$cache_root/node_modules"
+  rm -rf "$target_package"
+  mkdir -p "$target_package"
+
+  cp "$REPO_ROOT/package.json" "$target_package/package.json"
+  [[ -f "$REPO_ROOT/README.md" ]] && cp "$REPO_ROOT/README.md" "$target_package/README.md"
+  [[ -f "$REPO_ROOT/LICENSE" ]] && cp "$REPO_ROOT/LICENSE" "$target_package/LICENSE"
+  cp -R "$REPO_ROOT/dist" "$target_package/dist"
+  cp -R "$REPO_ROOT/assets" "$target_package/assets"
+  mkdir -p "$target_package/scripts"
+  cp "$REPO_ROOT/scripts/install.sh" "$target_package/scripts/install.sh"
+
+  CACHE_ROOT="$cache_root" PACKAGE_NAME="$PACKAGE_NAME" bun --eval '
+const fs = require("fs")
+const path = require("path")
+const cacheRoot = process.env.CACHE_ROOT
+const packageName = process.env.PACKAGE_NAME
+const target = path.join(cacheRoot, "package.json")
+const current = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, "utf8")) : {}
+current.dependencies = { ...(current.dependencies ?? {}), [packageName]: "latest" }
+for (const legacyName of ["oh-my-openagent", "oh-my-opencode", "opencode-superpowers-controller"]) {
+  delete current.dependencies[legacyName]
+}
+fs.writeFileSync(target, JSON.stringify(current, null, 2) + "\n")
+'
+  log "Seeded OpenCode plugin cache from local checkout: $target_package"
 }
 
 seed_opencode_plugin_cache_from_bunx() {

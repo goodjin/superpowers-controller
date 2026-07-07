@@ -30,7 +30,7 @@ For local development after modifying this checkout, run:
 bun run install:local
 ```
 
-This runs focused installer/TUI tests, builds `dist/`, installs the current checkout through `scripts/install.sh`, refreshes OpenCode's plugin cache, and runs `doctor`. The local wrapper and installer both print `[timing]` lines so slow runs can be attributed to tests, build, config writes, stale dependency cleanup, OpenCode cache seed/refresh, or doctor. Set `SUPERPOWERS_CONTROLLER_LOCAL_SKIP_TESTS=1` to skip the focused tests for a quick rebuild/install cycle.
+This runs focused installer/TUI tests, builds `dist/`, installs the current checkout through `scripts/install.sh`, refreshes OpenCode's plugin cache, and runs `doctor`. When the installer is run from a repository checkout, it seeds OpenCode's package cache from the local `dist/` before considering any bunx cache; this prevents a stale `superpowers-controller@latest` bunx cache from overwriting local development changes. The local wrapper and installer both print `[timing]` lines so slow runs can be attributed to tests, build, config writes, stale dependency cleanup, OpenCode cache seed/refresh, or doctor. Set `SUPERPOWERS_CONTROLLER_LOCAL_SKIP_TESTS=1` to skip the focused tests for a quick rebuild/install cycle.
 
 When OpenCode loads the plugin, `src/plugin.ts` also writes startup timing checkpoints through `ctx.client.app.log`: config load, store init, startup recovery, runtime wiring, and total. Use these app logs to separate OpenCode TUI startup slowness from installer/cache slowness.
 
