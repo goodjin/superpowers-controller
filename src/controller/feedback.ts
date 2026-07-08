@@ -4,14 +4,14 @@ export type RecommendedNext =
   | { action: "wait_running_node"; run_id: string; node_id: string; session_id: string }
   | { action: "answer_pending_question"; run_id: string; node_id?: string }
   | { action: "approve_proposal"; run_id: string }
+  | { action: "start_confirmed_task"; run_id: string }
+  | { action: "request_reprepare"; run_id: string }
   | { action: "revise_request"; run_id: string }
-  | { action: "approve_design"; run_id: string }
   | { action: "revise_design"; run_id: string }
   | { action: "retry_dispatch"; run_id: string; node_id: string }
   | { action: "retry_node"; run_id: string; task_id?: string; phase: string }
   | { action: "cancel_node"; run_id: string; node_id: string }
   | { action: "cancel_workflow"; run_id: string }
-  | { action: "approve_plan"; run_id: string }
   | { action: "revise_plan"; run_id: string }
   | { action: "finish"; run_id: string }
   | { action: "blocked"; reason: string }
@@ -58,10 +58,10 @@ export function buildRecommendedNext(state: WorkflowState): RecommendedNext[] {
     return [{ action: "answer_pending_question", run_id: state.id, node_id: state.pending_question.source_node_id }]
   }
   if (state.status === "awaiting_design_approval") {
-    return [{ action: "approve_design", run_id: state.id }, { action: "revise_design", run_id: state.id }, { action: "cancel_workflow", run_id: state.id }]
+    return [{ action: "start_confirmed_task", run_id: state.id }, { action: "request_reprepare", run_id: state.id }, { action: "revise_design", run_id: state.id }, { action: "cancel_workflow", run_id: state.id }]
   }
   if (state.status === "awaiting_plan_approval") {
-    return [{ action: "approve_plan", run_id: state.id }, { action: "revise_plan", run_id: state.id }, { action: "cancel_workflow", run_id: state.id }]
+    return [{ action: "start_confirmed_task", run_id: state.id }, { action: "request_reprepare", run_id: state.id }, { action: "revise_plan", run_id: state.id }, { action: "cancel_workflow", run_id: state.id }]
   }
   if (state.activation === "draft" && state.prepare_mode === "proposal_only") {
     return [{ action: "approve_proposal", run_id: state.id }, { action: "revise_request", run_id: state.id }, { action: "cancel_workflow", run_id: state.id }]
@@ -93,7 +93,6 @@ export function buildRecommendedNext(state: WorkflowState): RecommendedNext[] {
 export function buildAllowedControllerDecisions(state: WorkflowState): AllowedControllerDecision[] {
   if (state.status === "running" || state.status === "intake") return []
   if (state.status === "waiting_user") return []
-  if (state.status === "awaiting_design_approval" || state.status === "awaiting_plan_approval") return []
   if (state.status === "passed" || state.status === "canceled") return []
 
   const decisions: AllowedControllerDecision[] = []
@@ -222,10 +221,9 @@ export function stateVersion(state: WorkflowState): string {
 export function inferStartAction(state: WorkflowState, args: { start_action?: StartAction; resume_input?: unknown; task_id?: string }): StartAction {
   if (args.start_action) return args.start_action
   if (args.resume_input) return "resume_user_input"
-  if (state.status === "awaiting_design_approval") return "approve_design"
-  if (state.status === "awaiting_plan_approval") return "approve_plan"
+  if (state.status === "awaiting_design_approval" || state.status === "awaiting_plan_approval") return "resolve_controller_decision"
   if (state.status === "recovered_unknown" && args.task_id) return "retry_node"
-  return "start_entrypoint"
+  return "start_prepared_task"
 }
 
 function userRequirementForState(state: WorkflowState): ControllerFeedback["requires_user"] {
@@ -236,8 +234,8 @@ function userRequirementForState(state: WorkflowState): ControllerFeedback["requ
       options: state.pending_question.options,
     }
   }
-  if (state.status === "awaiting_design_approval") return { reason: "Candidate design requires approval or revision." }
-  if (state.status === "awaiting_plan_approval") return { reason: "Candidate plan requires approval or revision." }
+  if (state.status === "awaiting_design_approval") return { reason: "Candidate design requires a v5 controller decision or a revised sp_prepare -> sp_start(start_prepared_task) path." }
+  if (state.status === "awaiting_plan_approval") return { reason: "Candidate plan requires a v5 controller decision or a revised sp_prepare -> sp_start(start_prepared_task) path." }
   if (state.status === "waiting_user_decision") return { reason: "Controller needs a retry, cancel, approve, or revise decision." }
   if (state.status === "waiting_controller_decision") return { reason: "Controller needs to apply, replace, retry, block, reprepare, or cancel." }
   return undefined

@@ -10,9 +10,11 @@ import type {
   ResumeInput,
   WorkflowArtifact,
   WorkflowEntrypoint,
+  WorkflowDocumentSpec,
   WorkflowExpansionPatch,
   WorkflowKind,
   WorkflowMode,
+  WorkflowNodeSpec,
   WorkflowRecord,
   WorkflowSpec,
   WorkflowState,
@@ -45,6 +47,12 @@ export type ProjectStore = {
   activateRun(args: {
     runID: string
     parentSessionID: string
+  }): WorkflowState
+  recordPreparedTaskConfirmation(args: {
+    runID: string
+    parentSessionID: string
+    userMessage?: string
+    confirmedBySessionID?: string
   }): WorkflowState
   approveDesign(args: {
     runID: string
@@ -253,6 +261,40 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       }
       persistCurrent(next)
       appendChangelog(root, next.id, `activated ${next.workflow} workflow from ${next.entrypoint}`)
+      return next
+    },
+    recordPreparedTaskConfirmation(args) {
+      const current = this.readRun(args.runID)
+      if (!current) {
+        throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
+      }
+      const now = new Date().toISOString()
+      const next: WorkflowState = {
+        ...current,
+        session: args.parentSessionID,
+        parent_session_id: args.parentSessionID,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...current.history,
+          {
+            at: now,
+            event: "prepared_task_confirmed",
+            from: current.phase,
+            to: current.phase,
+            summary: args.userMessage ?? "User confirmed prepared task start.",
+          },
+        ],
+      }
+      persistCurrent(next)
+      appendEvent(root, next.id, {
+        type: "prepared_task_confirmed",
+        user_message: args.userMessage,
+        confirmed_by_session_id: args.confirmedBySessionID,
+        parent_session_id: args.parentSessionID,
+        state_version: next.state_version,
+      })
+      appendChangelog(root, next.id, `confirmed prepared task${args.userMessage ? `: ${args.userMessage}` : ""}`)
       return next
     },
     approveDesign(args) {
@@ -607,9 +649,22 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         node_runs: nodeRuns,
         pending_question: pendingQuestion,
       }
-      const withExpansion = args.input.workflow_expansion
-        ? applyWorkflowExpansionToState(root, withNodes, args.input.workflow_expansion)
+      const recordTaskGraphExpansion = args.input.task_graph && !isDraftCandidateRecord(current, args.input)
+        ? {
+            mode: "replace" as const,
+            reason: `${args.input.event} report produced task_graph.`,
+            tasks: args.input.task_graph.tasks,
+          }
+        : undefined
+      const withRecordTaskGraph = recordTaskGraphExpansion
+        ? applyWorkflowExpansionToState(root, {
+            ...withNodes,
+            task_graph: current.task_graph,
+          }, recordTaskGraphExpansion)
         : withNodes
+      const withExpansion = args.input.workflow_expansion
+        ? applyWorkflowExpansionToState(root, withRecordTaskGraph, args.input.workflow_expansion)
+        : withRecordTaskGraph
       persistCurrent(withExpansion)
       appendEvent(root, withNodes.id, {
         type: "report_received",
@@ -930,24 +985,30 @@ function applyWorkflowExpansionToState(
       ? expansion.tasks
       : mergeTasks(existingTasks, expansion.tasks)
     : existingTasks
-  const nextWorkflowSpec = state.workflow_spec && expansion.nodes?.length
-    ? {
+  const expansionNodes = [
+    ...(expansion.nodes ?? []),
+    ...(nextTasks.length ? workflowNodesForTasks(nextTasks) : []),
+  ]
+  const nextWorkflowSpec = state.workflow_spec
+    ? (expansionNodes.length || expansion.documents?.length)
+      ? {
         ...state.workflow_spec,
+        spec_version: nextSpecVersion(state.workflow_spec.spec_version),
         updated_at: now,
         orchestration: {
           ...state.workflow_spec.orchestration,
           nodes: expansion.mode === "replace"
-            ? expansion.nodes
-            : mergeNodes(state.workflow_spec.orchestration.nodes, expansion.nodes),
+            ? expansionNodes
+            : mergeNodes(state.workflow_spec.orchestration.nodes, expansionNodes),
           documents: expansion.documents?.length
-            ? [
-                ...(state.workflow_spec.orchestration.documents ?? []),
-                ...expansion.documents,
-              ]
+            ? mergeDocuments(state.workflow_spec.orchestration.documents ?? [], expansion.documents)
             : state.workflow_spec.orchestration.documents,
         },
       }
-    : state.workflow_spec
+      : state.workflow_spec
+    : expansionNodes.length
+      ? createWorkflowSpecFromExpansion(state, expansionNodes, expansion.documents ?? [], allowed, now)
+      : undefined
   const next: WorkflowState = {
     ...state,
     pending_workflow_expansion: undefined,
@@ -991,6 +1052,89 @@ function mergeNodes(existing: NonNullable<WorkflowState["workflow_spec"]>["orche
   const byID = new Map(existing.map((node) => [node.id, node]))
   for (const node of incoming) byID.set(node.id, node)
   return [...byID.values()]
+}
+
+function mergeDocuments(existing: WorkflowDocumentSpec[], incoming: WorkflowDocumentSpec[]): WorkflowDocumentSpec[] {
+  const byID = new Map(existing.map((document) => [document.id, document]))
+  for (const document of incoming) byID.set(document.id, document)
+  return [...byID.values()]
+}
+
+function workflowNodesForTasks(tasks: NonNullable<WorkflowState["task_graph"]>["tasks"]): WorkflowNodeSpec[] {
+  return tasks.map((task) => ({
+    id: workflowNodeIDForTask(task.id),
+    title: task.title,
+    agent: task.agent ?? "sp-implementer",
+    phase: phaseForWorkflowNodeAgent(task.agent),
+    task_id: task.id,
+    depends_on: task.depends_on.map(workflowNodeIDForTask),
+    input_documents: ["request", "plan", "task_graph"],
+    output_documents: [`report:${task.id}`],
+    report_contract: ["sp_report"],
+  }))
+}
+
+function workflowNodeIDForTask(taskID: string): string {
+  return `task-${taskID}`
+}
+
+function phaseForWorkflowNodeAgent(agent: string | undefined): string {
+  switch (agent) {
+    case "sp-designer":
+      return "design"
+    case "sp-planner":
+      return "plan"
+    case "sp-debugger":
+      return "debug"
+    case "sp-investigator":
+      return "investigate"
+    case "sp-acceptance-reviewer":
+      return "acceptance"
+    case "sp-code-reviewer":
+      return "code-review"
+    case "sp-verifier":
+      return "verification"
+    case "sp-finisher":
+      return "finish"
+    default:
+      return "implement"
+  }
+}
+
+function nextSpecVersion(current: number | undefined): number {
+  return (current ?? 0) + 1
+}
+
+function createWorkflowSpecFromExpansion(
+  state: WorkflowState,
+  nodes: WorkflowNodeSpec[],
+  documents: WorkflowDocumentSpec[],
+  autoExpansionAllow: boolean,
+  now: string,
+): WorkflowSpec {
+  return {
+    id: `${state.id}-workflow-spec`,
+    version: "v5",
+    spec_version: 1,
+    stage: "execution",
+    source: { kind: "report_expansion" },
+    template_id: state.workflow,
+    kind: "orchestration",
+    title: state.goal,
+    auto_expansion: {
+      allow: autoExpansionAllow,
+      source: "orchestration",
+      reason: "Created from a validated report expansion.",
+    },
+    orchestration: {
+      id: `${state.id}-orchestration`,
+      title: state.goal,
+      nodes,
+      documents,
+    },
+    created_at: now,
+    updated_at: now,
+  }
 }
 
 function resumableStatus(status: WorkflowState["status"]): WorkflowState["status"] {
@@ -1494,9 +1638,9 @@ function buildPendingQuestion(args: {
   }
   if (args.current.activation === "draft" && args.input.event === "design" && args.input.status === "passed") {
     return {
-      prompt: "Design candidate is ready. Review the candidate output, then approve or request revision before planning.",
+      prompt: "Design candidate is ready. Review the candidate output, then either restart through the v5 prepared-task confirmation path or request revision before planning.",
       options: [
-        { label: "approve_design", description: "Promote the candidate design to artifacts/spec.md and start planning." },
+        { label: "start_confirmed_task", description: "Use sp_prepare, user confirmation, then sp_start(start_prepared_task) with confirmation and start_config." },
         { label: "revise_design", description: "Ask the designer to revise the candidate design." },
       ],
       source_node_id: args.nodeID,
@@ -1504,9 +1648,9 @@ function buildPendingQuestion(args: {
   }
   if (args.current.activation === "draft" && args.input.event === "plan" && args.input.status === "passed") {
     return {
-      prompt: "Plan candidate and task graph are ready. Review them, then approve or request revision before implementation.",
+      prompt: "Plan candidate and task graph are ready. Review them, then either restart through the v5 prepared-task confirmation path or request revision before implementation.",
       options: [
-        { label: "approve_plan", description: "Promote the candidate plan to canonical artifacts and start execution." },
+        { label: "start_confirmed_task", description: "Use sp_prepare, user confirmation, then sp_start(start_prepared_task) with confirmation and start_config." },
         { label: "revise_plan", description: "Ask the planner to revise the candidate plan." },
       ],
       source_node_id: args.nodeID,

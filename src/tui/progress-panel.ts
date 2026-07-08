@@ -15,6 +15,9 @@ export type ProgressPanelRow = {
   updated_at?: string
   observed_at?: string
   observed_age?: string
+  shortcut?: string
+  focused?: boolean
+  attention?: "running" | "waiting" | "blocked" | "failed" | "fallback" | "stalled" | "waiting_permission"
 }
 
 export type ProgressPanelViewModel = {
@@ -24,6 +27,16 @@ export type ProgressPanelViewModel = {
   workflow?: string
   status?: string
   current_phase?: string
+  focused_session_id?: string
+  selector_hint?: string
+  session_counts?: {
+    total: number
+    running: number
+    waiting: number
+    blocked: number
+    failed: number
+    fallback_attention: number
+  }
   rows: ProgressPanelRow[]
   tasks: ProgressPanelTaskRow[]
   pending_question?: {
@@ -59,6 +72,7 @@ export function buildProgressPanelViewModel(
   progressByNode: Record<string, NodeProgressEntry[]>,
   liveStatusBySession: Record<string, string>,
   now: Date = new Date(),
+  requestedFocusedSessionID?: string,
 ): ProgressPanelViewModel {
   if (!state) {
     return {
@@ -70,6 +84,41 @@ export function buildProgressPanelViewModel(
     }
   }
 
+  const unsortedRows = state.node_runs.map((node) => {
+    const progress = progressByNode[node.id] ?? []
+    const latest = progress.at(-1)
+    const display = latestDisplayProgress(progress)
+    const observedAt = latest?.at ?? node.reported_at ?? node.started_at
+    const activityStatus = node.status === "running" && isWaitingPermission(liveStatusBySession[node.session_id])
+      ? "waiting_permission"
+      : node.status === "running" && isStalled(observedAt, now)
+        ? "stalled"
+        : "active"
+    return {
+      node_id: node.id,
+      task_id: node.task_id,
+      agent: node.agent,
+      phase: node.phase,
+      durable_status: node.status,
+      activity_status: activityStatus,
+      attention: rowAttention(node.status, activityStatus),
+      session_id: node.session_id,
+      live_status: liveStatusBySession[node.session_id] ?? "unknown",
+      latest_summary: display?.summary ?? "no progress recorded",
+      latest_detail: display?.detail,
+      updated_at: display?.at,
+      observed_at: observedAt,
+      observed_age: formatAge(observedAt, now),
+    } satisfies ProgressPanelRow
+  })
+  const sortedRows = sortSessionRows(unsortedRows)
+  const focusedSessionID = selectFocusedSessionID(sortedRows, requestedFocusedSessionID)
+  const rows = sortedRows.map((row, index) => ({
+    ...row,
+    shortcut: index < 9 ? `⌘${index + 1}` : undefined,
+    focused: focusedSessionID ? row.session_id === focusedSessionID : false,
+  }))
+
   return {
     active: true,
     title: "Superpowers Progress",
@@ -77,32 +126,11 @@ export function buildProgressPanelViewModel(
     workflow: state.workflow,
     status: state.status,
     current_phase: state.current_phase,
+    focused_session_id: focusedSessionID,
+    selector_hint: selectorHint(rows),
+    session_counts: sessionCounts(rows),
     pending_question: state.pending_question,
-    rows: state.node_runs.map((node) => {
-      const progress = progressByNode[node.id] ?? []
-      const latest = progress.at(-1)
-      const display = latestDisplayProgress(progress)
-      const observedAt = latest?.at ?? node.reported_at ?? node.started_at
-      return {
-        node_id: node.id,
-        task_id: node.task_id,
-        agent: node.agent,
-        phase: node.phase,
-        durable_status: node.status,
-        activity_status: node.status === "running" && isWaitingPermission(liveStatusBySession[node.session_id])
-          ? "waiting_permission"
-          : node.status === "running" && isStalled(observedAt, now)
-            ? "stalled"
-            : "active",
-        session_id: node.session_id,
-        live_status: liveStatusBySession[node.session_id] ?? "unknown",
-        latest_summary: display?.summary ?? "no progress recorded",
-        latest_detail: display?.detail,
-        updated_at: display?.at,
-        observed_at: observedAt,
-        observed_age: formatAge(observedAt, now),
-      }
-    }),
+    rows,
     tasks: progressTaskRows(state),
   }
 }
@@ -168,6 +196,8 @@ export function renderRunningSessionsText(model: ProgressPanelViewModel, maxRows
 export function renderSidebarProgressText(model: ProgressPanelViewModel, maxRows = 6): string {
   if (!model.active) return ""
   const lines = [renderWorkflowStatusText(model, 160)]
+  if (model.session_counts) lines.push(sessionCountsText(model.session_counts))
+  if (model.selector_hint) lines.push(`selectors: ${model.selector_hint}`)
   if (model.pending_question) {
     lines.push("waiting user")
     if (model.pending_question.source_node_id) lines.push(`source: ${model.pending_question.source_node_id}`)
@@ -183,11 +213,10 @@ export function renderSidebarProgressText(model: ProgressPanelViewModel, maxRows
     }
     return lines.join("\n")
   }
-  const running = model.rows.filter((row) => row.durable_status === "running")
-  if (running.length > 0) {
+  if (model.rows.length > 0) {
     lines.push("child sessions")
-    lines.push(...running.slice(0, maxRows).map(renderSidebarRow))
-    if (running.length > maxRows) lines.push(`+${running.length - maxRows} more`)
+    lines.push(...model.rows.slice(0, maxRows).map(renderSidebarRow))
+    if (model.rows.length > maxRows) lines.push(`+${model.rows.length - maxRows} more`)
     const planned = plannedTaskRows(model)
     if (planned.length > 0) {
       lines.push("planned sessions")
@@ -220,7 +249,10 @@ function renderSidebarRow(row: ProgressPanelRow): string {
   const task = row.task_id ? ` ${row.task_id}` : ""
   const age = row.observed_age ? ` (${row.observed_age})` : ""
   const detail = row.latest_detail ? `\n  ${truncateLine(row.latest_detail, 180)}` : ""
-  return `${row.agent}${task}: ${displaySessionStatus(row)} - ${row.latest_summary}${age}${detail}`
+  const marker = row.focused ? ">" : " "
+  const shortcut = row.shortcut ? `[${row.shortcut}] ` : ""
+  const attention = row.attention ? ` | attention ${row.attention}` : ""
+  return `${marker} ${shortcut}${row.agent}${task}: ${displaySessionStatus(row)} - ${row.latest_summary}${age} | node ${row.node_id} | session ${row.session_id}${attention}${detail}`
 }
 
 function renderPlannedTaskRow(task: ProgressPanelTaskRow): string {
@@ -235,7 +267,8 @@ function displaySessionStatus(row: ProgressPanelRow): string {
 }
 
 function childSessionSummary(model: ProgressPanelViewModel): string {
-  const runningRows = model.rows.filter((row) => row.durable_status === "running")
+  const rows = model.rows
+  const runningRows = rows.filter((row) => row.durable_status === "running")
   const running = runningRows.filter((row) => row.activity_status === "active").length
   const stalled = runningRows.filter((row) => row.activity_status === "stalled").length
   const waitingPermission = runningRows.filter((row) => row.activity_status === "waiting_permission").length
@@ -278,6 +311,77 @@ function isDisplayProgress(entry: NodeProgressEntry): boolean {
 
 function isWaitingPermission(status: string | undefined): boolean {
   return status === "waiting_permission" || status === "waiting permission"
+}
+
+function sortSessionRows(rows: ProgressPanelRow[]): ProgressPanelRow[] {
+  return [...rows].sort((left, right) => {
+    const attention = rowPriority(left) - rowPriority(right)
+    if (attention !== 0) return attention
+    const updated = timestamp(right.observed_at) - timestamp(left.observed_at)
+    if (updated !== 0) return updated
+    return left.node_id.localeCompare(right.node_id)
+  })
+}
+
+function rowPriority(row: ProgressPanelRow): number {
+  if (row.durable_status === "running" && row.activity_status === "active") return 0
+  if (row.durable_status === "running" && row.activity_status === "waiting_permission") return 1
+  if (row.durable_status === "needs_user") return 2
+  if (row.durable_status === "blocked") return 3
+  if (row.durable_status === "dispatch_failed" || row.durable_status === "notification_failed") return 4
+  if (row.durable_status === "failed") return 5
+  if (row.durable_status === "running" && row.activity_status === "stalled") return 6
+  return 10
+}
+
+function rowAttention(
+  status: ProgressPanelRow["durable_status"],
+  activityStatus: ProgressPanelRow["activity_status"],
+): ProgressPanelRow["attention"] | undefined {
+  if (status === "running" && activityStatus === "waiting_permission") return "waiting_permission"
+  if (status === "running" && activityStatus === "stalled") return "stalled"
+  if (status === "running") return "running"
+  if (status === "needs_user") return "waiting"
+  if (status === "blocked") return "blocked"
+  if (status === "failed") return "failed"
+  if (status === "dispatch_failed" || status === "notification_failed") return "fallback"
+  return undefined
+}
+
+function selectFocusedSessionID(rows: ProgressPanelRow[], requested?: string): string | undefined {
+  if (requested && rows.some((row) => row.session_id === requested)) return requested
+  return rows.find((row) => row.durable_status === "running" && row.activity_status === "active")?.session_id
+    ?? rows.find((row) => row.durable_status === "running")?.session_id
+    ?? rows.find((row) => row.durable_status === "needs_user")?.session_id
+    ?? rows.at(0)?.session_id
+}
+
+function selectorHint(rows: ProgressPanelRow[]): string | undefined {
+  if (rows.length === 0) return undefined
+  const visibleCount = Math.min(rows.length, 9)
+  return `⌘1..⌘${visibleCount}, ⌘[/⌘]`
+}
+
+function sessionCounts(rows: ProgressPanelRow[]): ProgressPanelViewModel["session_counts"] {
+  return {
+    total: rows.length,
+    running: rows.filter((row) => row.durable_status === "running").length,
+    waiting: rows.filter((row) => row.durable_status === "needs_user" || row.activity_status === "waiting_permission").length,
+    blocked: rows.filter((row) => row.durable_status === "blocked").length,
+    failed: rows.filter((row) => row.durable_status === "failed").length,
+    fallback_attention: rows.filter((row) => row.durable_status === "dispatch_failed" || row.durable_status === "notification_failed").length,
+  }
+}
+
+function sessionCountsText(counts: NonNullable<ProgressPanelViewModel["session_counts"]>): string {
+  const attention = counts.waiting + counts.blocked + counts.failed + counts.fallback_attention
+  const parts = []
+  if (counts.waiting > 0) parts.push(`waiting ${counts.waiting}`)
+  if (counts.blocked > 0) parts.push(`blocked ${counts.blocked}`)
+  if (counts.failed > 0) parts.push(`failed ${counts.failed}`)
+  if (counts.fallback_attention > 0) parts.push(`fallback ${counts.fallback_attention}`)
+  const detail = parts.length > 0 ? ` (${parts.join(", ")})` : ""
+  return `sessions total ${counts.total} | running ${counts.running} | attention ${attention}${detail}`
 }
 
 function formatAge(value: string | undefined, now: Date): string | undefined {
@@ -328,7 +432,7 @@ function progressTaskRows(state: WorkflowState): ProgressPanelTaskRow[] {
 }
 
 function plannedTaskRows(model: ProgressPanelViewModel): ProgressPanelTaskRow[] {
-  return model.tasks.filter((task) => [
+  return model.tasks.filter((task) => !task.node_id && [
     "pending",
     "blocked",
     "needs_user",

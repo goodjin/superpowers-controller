@@ -140,13 +140,13 @@ describe("progress panel view model", () => {
     expect(renderCompactProgressText(model, 44)).toBe("SP: sp-implementer T1 running - bash running")
     expect(renderWorkflowStatusText(model, 160)).toBe("SP: feature running@implement | tasks 0/2 done | children 1 active (1 running) | sp-implementer T1 running - bash running (5s ago)")
     expect(renderRunningSessionsText(model)).toContain("sp-implementer T1: running - bash running")
-    expect(renderSidebarProgressText(model)).toBe([
-      "SP: feature running@implement | tasks 0/2 done | children 1 active (1 running) | sp-implementer T1 running - bash running (5s ago)",
-      "child sessions",
-      "sp-implementer T1: running - bash running (5s ago)\n  bun run test",
-      "planned sessions",
-      "T2: pending - Document progress surface",
-    ].join("\n"))
+    const sidebar = renderSidebarProgressText(model)
+    expect(sidebar).toContain("SP: feature running@implement | tasks 0/2 done | children 1 active (1 running)")
+    expect(sidebar).toContain("sessions total 1 | running 1 | attention 0")
+    expect(sidebar).toContain("selectors: ⌘1..⌘1, ⌘[/⌘]")
+    expect(sidebar).toContain("> [⌘1] sp-implementer T1: running - bash running (5s ago) | node 001-implement-T1 | session session-child")
+    expect(sidebar).toContain("bun run test")
+    expect(sidebar).toContain("T2: pending - Document progress surface")
   })
 
   test("session idle does not hide the latest meaningful child activity", () => {
@@ -372,6 +372,7 @@ describe("progress panel view model", () => {
 
     expect(renderSidebarProgressText(model)).toBe([
       "SP: feature intake@intake | nodes 0 | children 0 active (0 running)",
+      "sessions total 0 | running 0 | attention 0",
       "waiting for node dispatch",
     ].join("\n"))
   })
@@ -462,6 +463,156 @@ describe("progress panel view model", () => {
     expect(sidebar).toContain("sp-doc-writer T3: pending - Update progress docs")
   })
 
+  test("sidebar progress prioritizes attention rows and renders stable session selector hints", () => {
+    const state: WorkflowState = {
+      id: "run-1",
+      project: "/repo",
+      session: "session-main",
+      parent_session_id: "session-main",
+      activation: "active",
+      workflow: "feature",
+      entrypoint: "execute",
+      limited_context: true,
+      mode: "execute",
+      phase: "implement",
+      current_phase: "implement",
+      status: "running",
+      goal: "Implement feature",
+      created_at: "2026-06-19T00:00:00.000Z",
+      updated_at: "2026-06-19T00:03:00.000Z",
+      gates: {},
+      artifacts: {},
+      task_graph: {
+        tasks: [
+          { id: "T1", title: "Implement API", summary: "Build API", depends_on: [], agent: "sp-implementer" },
+          { id: "T2", title: "Review API", summary: "Review API", depends_on: ["T1"], agent: "sp-reviewer" },
+          { id: "T3", title: "Fix tests", summary: "Fix tests", depends_on: ["T1"], agent: "sp-implementer" },
+          { id: "T4", title: "Fallback check", summary: "Check fallback", depends_on: ["T3"], agent: "sp-verifier" },
+        ],
+      },
+      node_runs: [
+        {
+          id: "001-implement-T1",
+          task_id: "T1",
+          phase: "implement",
+          agent: "sp-implementer",
+          session_id: "session-running",
+          status: "running",
+          attempts: 1,
+          started_at: "2026-06-19T00:02:00.000Z",
+        },
+        {
+          id: "002-review-T2",
+          task_id: "T2",
+          phase: "review",
+          agent: "sp-reviewer",
+          session_id: "session-user",
+          status: "needs_user",
+          attempts: 1,
+          started_at: "2026-06-19T00:01:00.000Z",
+          reported_at: "2026-06-19T00:02:30.000Z",
+        },
+        {
+          id: "003-implement-T3",
+          task_id: "T3",
+          phase: "implement",
+          agent: "sp-implementer",
+          session_id: "session-failed",
+          status: "failed",
+          attempts: 1,
+          started_at: "2026-06-19T00:00:00.000Z",
+          ended_at: "2026-06-19T00:01:00.000Z",
+        },
+        {
+          id: "004-verify-T4",
+          task_id: "T4",
+          phase: "verify",
+          agent: "sp-verifier",
+          session_id: "session-fallback",
+          status: "dispatch_failed",
+          attempts: 1,
+          started_at: "2026-06-19T00:00:30.000Z",
+          ended_at: "2026-06-19T00:01:30.000Z",
+        },
+      ],
+      history: [{ at: "2026-06-19T00:00:00.000Z", event: "created", to: "feature" }],
+    }
+
+    const model = buildProgressPanelViewModel(
+      state,
+      {
+        "001-implement-T1": [{
+          at: "2026-06-19T00:03:00.000Z",
+          kind: "tool_running",
+          session_id: "session-running",
+          node_id: "001-implement-T1",
+          agent: "sp-implementer",
+          phase: "implement",
+          task_id: "T1",
+          summary: "editing API",
+        }],
+        "002-review-T2": [{
+          at: "2026-06-19T00:02:30.000Z",
+          kind: "question",
+          session_id: "session-user",
+          node_id: "002-review-T2",
+          agent: "sp-reviewer",
+          phase: "review",
+          task_id: "T2",
+          summary: "approval needed",
+        }],
+        "003-implement-T3": [{
+          at: "2026-06-19T00:01:00.000Z",
+          kind: "session_error",
+          session_id: "session-failed",
+          node_id: "003-implement-T3",
+          agent: "sp-implementer",
+          phase: "implement",
+          task_id: "T3",
+          summary: "test failed",
+        }],
+        "004-verify-T4": [{
+          at: "2026-06-19T00:01:30.000Z",
+          kind: "dispatch_failed",
+          session_id: "session-fallback",
+          node_id: "004-verify-T4",
+          agent: "sp-verifier",
+          phase: "verify",
+          task_id: "T4",
+          summary: "fallback required",
+        }],
+      },
+      { "session-running": "busy" },
+      new Date("2026-06-19T00:03:05.000Z"),
+      "session-running",
+    )
+
+    expect(model.focused_session_id).toBe("session-running")
+    expect(model.session_counts).toEqual({
+      total: 4,
+      running: 1,
+      waiting: 1,
+      blocked: 0,
+      failed: 1,
+      fallback_attention: 1,
+    })
+    expect(model.rows.map((row) => row.session_id)).toEqual([
+      "session-running",
+      "session-user",
+      "session-fallback",
+      "session-failed",
+    ])
+    expect(model.rows.map((row) => row.shortcut)).toEqual(["⌘1", "⌘2", "⌘3", "⌘4"])
+
+    const sidebar = renderSidebarProgressText(model)
+    expect(sidebar).toContain("sessions total 4 | running 1 | attention 3 (waiting 1, failed 1, fallback 1)")
+    expect(sidebar).toContain("selectors: ⌘1..⌘4, ⌘[/⌘]")
+    expect(sidebar).toMatch(/> \[⌘1\] sp-implementer T1: running - editing API .*session session-running/)
+    expect(sidebar).toMatch(/  \[⌘2\] sp-reviewer T2: needs_user - approval needed .*session session-user/)
+    expect(sidebar).toMatch(/  \[⌘3\] sp-verifier T4: dispatch_failed - fallback required .*session session-fallback/)
+    expect(sidebar).toMatch(/  \[⌘4\] sp-implementer T3: failed - test failed .*session session-failed/)
+  })
+
   test("prefers the latest running retry node over an interrupted old node", () => {
     const state: WorkflowState = {
       id: "run-1",
@@ -540,7 +691,7 @@ describe("progress panel view model", () => {
 
     expect(renderCompactProgressText(model)).toBe("SP: sp-implementer T3 running - bash running")
     expect(renderSidebarProgressText(model)).toContain("sp-implementer T3: running - bash running")
-    expect(renderSidebarProgressText(model)).not.toContain("session error: Aborted")
+    expect(renderSidebarProgressText(model)).toContain("session error: Aborted")
     expect(model.tasks[0]?.status).toBe("running")
   })
 })

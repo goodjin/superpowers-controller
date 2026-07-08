@@ -105,10 +105,19 @@ describe("controller intake", () => {
 })
 
 describe("sp_prepare and sp_start tools", () => {
-  test("sp_start reports that a confirmed workflow run started", async () => {
+  test("sp_start reports that a confirmed prepared workflow run started", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-start-progress-"))
     try {
       const store = createProjectStore(project)
+      const prepared = store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add workflow gates",
+        request: "# Request\n\nAdd workflow gates.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-main",
+        prepareMode: "proposal_only",
+      })
       const progress: Array<{ stage: string; message: string }> = []
       const start = createStartTool(store, undefined, {
         async report(input) {
@@ -118,10 +127,13 @@ describe("sp_prepare and sp_start tools", () => {
 
       await start.execute(
         {
-          request: "Add workflow gates",
-          workflow: "feature",
-          entrypoint: "feature",
-          proposal: "# Proposal\n\nRun feature workflow.",
+          prepared_task_id: prepared.id,
+          action: "start_prepared_task",
+          confirmation: { user_confirmed: true },
+          start_config: {
+            kind: "built_in_workflow",
+            workflow_id: "single-agent",
+          },
         },
         toolContext,
       )
@@ -129,7 +141,7 @@ describe("sp_prepare and sp_start tools", () => {
       expect(progress).toEqual([
         {
           stage: "run_started",
-          message: "feature workflow run started from feature.",
+          message: "single-agent workflow run started from implement.",
         },
       ])
     } finally {
@@ -160,6 +172,10 @@ describe("sp_prepare and sp_start tools", () => {
           workflow: "feature",
           entrypoint: "feature",
           proposal: "# Proposal\n\nPrepare feature workflow.",
+          design_participation: {
+            mode: "design",
+            reason: "Need a candidate spec before planning.",
+          },
         },
         toolContext,
       )
@@ -168,6 +184,23 @@ describe("sp_prepare and sp_start tools", () => {
       expect(result.state.activation).toBe("draft")
       expect(result.prepare_mode).toBe("managed_design")
       expect(result.state.current_phase).toBe("design")
+      const workflowSpec = JSON.parse(readFileSync(join(store.root, "runs", result.prepared_task_id, "workflow-spec.json"), "utf8"))
+      expect(workflowSpec.orchestration.nodes).toEqual([
+        expect.objectContaining({
+          id: "prepare-designer",
+          agent: "sp-designer",
+          phase: "design",
+          output_documents: ["artifacts/spec.md"],
+          report_contract: ["event:design", "status:passed", "artifacts.spec", "gates.spec_written"],
+        }),
+      ])
+      expect(workflowSpec.orchestration.documents).toEqual([
+        expect.objectContaining({
+          id: "candidate_spec",
+          kind: "gate_document_contract",
+          status: "candidate",
+        }),
+      ])
       expect(result.dispatches).toEqual([
         {
           action: "create_session",
@@ -183,7 +216,8 @@ describe("sp_prepare and sp_start tools", () => {
         session_id: "session-designer",
         status: "running",
       })
-      expect(result.next).toContain("approve_design")
+      expect(result.next).toContain("sp_start(action=\"start_prepared_task\")")
+      expect(result.next).not.toContain("approve_design")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -259,6 +293,11 @@ describe("sp_prepare and sp_start tools", () => {
         {
           prepared_task_id: prepared.prepared_task_id,
           action: "start_prepared_task",
+          confirmation: {
+            user_confirmed: true,
+            user_message: "确认执行",
+            confirmed_by_session_id: "session-main",
+          },
           start_config: {
             kind: "built_in_workflow",
             workflow_id: "single-agent",
@@ -271,7 +310,68 @@ describe("sp_prepare and sp_start tools", () => {
       expect(started.state.workflow).toBe("single-agent")
       expect(started.state.workflow_spec.template_id).toBe("single-agent")
       expect(readFileSync(join(runRoot, "workflow-spec.json"), "utf8")).toContain("single-agent")
+      const events = readFileSync(join(runRoot, "events.jsonl"), "utf8")
+      expect(events).toContain("prepared_task_confirmed")
+      expect(events).toContain('"user_message":"确认执行"')
+      expect(events).toContain('"confirmed_by_session_id":"session-main"')
       expect(dispatched.at(-1)).toEqual({ agent: "sp-implementer", phase: "implement" })
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start start_prepared_task requires prepared_task_id confirmation and start_config", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-v5-start-required-"))
+    try {
+      const store = createProjectStore(project)
+      const prepared = store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add strict start protocol",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+        prepareMode: "proposal_only",
+      })
+      const start = createStartTool(store)
+
+      await expect(start.execute({
+        action: "start_prepared_task",
+        confirmation: { user_confirmed: true },
+        start_config: { kind: "built_in_workflow", workflow_id: "single-agent" },
+      }, toolContext)).rejects.toThrow("sp_start start_prepared_task requires prepared_task_id.")
+
+      await expect(start.execute({
+        action: "start_prepared_task",
+        prepared_task_id: prepared.id,
+        start_config: { kind: "built_in_workflow", workflow_id: "single-agent" },
+      }, toolContext)).rejects.toThrow("sp_start start_prepared_task requires confirmation.user_confirmed true.")
+
+      await expect(start.execute({
+        action: "start_prepared_task",
+        prepared_task_id: prepared.id,
+        confirmation: { user_confirmed: true },
+      }, toolContext)).rejects.toThrow("sp_start start_prepared_task requires start_config.")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start rejects legacy direct start payload without a prepared task", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-v5-reject-direct-start-"))
+    try {
+      const store = createProjectStore(project)
+      const start = createStartTool(store)
+
+      await expect(start.execute(
+        {
+          request: "Add workflow gates",
+          workflow: "feature",
+          entrypoint: "feature",
+          proposal: "# Proposal\n\nRun feature workflow.",
+        },
+        toolContext,
+      )).rejects.toThrow("sp_start no longer accepts direct request/workflow/entrypoint/proposal payloads. Call sp_prepare first, ask the user to confirm, then call sp_start(action=\"start_prepared_task\") with prepared_task_id, confirmation, and start_config.")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -308,28 +408,41 @@ describe("sp_prepare and sp_start tools", () => {
     }
   })
 
-  test("sp_start creates a run and writes request, proposal, and changelog files", async () => {
+  test("sp_start activates a prepared run and preserves request, proposal, and changelog files", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-start-"))
     try {
       const store = createProjectStore(project)
+      const prepared = store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add workflow gates",
+        request: "# Request\n\nAdd workflow gates.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-main",
+        prepareMode: "proposal_only",
+      })
       const start = createStartTool(store)
 
       const output = await start.execute(
         {
-          request: "Add workflow gates",
-          workflow: "feature",
-          entrypoint: "feature",
-          proposal: "# Proposal\n\nRun feature workflow.",
+          prepared_task_id: prepared.id,
+          action: "start_prepared_task",
+          confirmation: { user_confirmed: true },
+          start_config: {
+            kind: "built_in_workflow",
+            workflow_id: "single-agent",
+          },
         },
         toolContext,
       )
 
       const state = JSON.parse(toolOutput(output)).state
       const runRoot = join(store.root, "runs", state.id)
-      expect(store.readCurrent()?.id).toBe(state.id)
+      expect(state.id).toBe(prepared.id)
+      expect(store.readCurrent()?.id).toBe(prepared.id)
       expect(readFileSync(join(runRoot, "request.md"), "utf8")).toContain("Add workflow gates")
       expect(readFileSync(join(runRoot, "proposal.md"), "utf8")).toContain("Run feature workflow")
-      expect(readFileSync(join(runRoot, "changelog.md"), "utf8")).toContain("created")
+      expect(readFileSync(join(runRoot, "changelog.md"), "utf8")).toContain("activated")
       expect(existsSync(join(runRoot, "artifacts"))).toBe(true)
       expect(existsSync(join(runRoot, "nodes"))).toBe(true)
     } finally {
@@ -361,6 +474,11 @@ describe("sp_prepare and sp_start tools", () => {
           },
         },
       })
+      store.approvePlan({
+        runID: prepared.id,
+        parentSessionID: "session-main",
+        approvedBySessionID: "session-main",
+      })
 
       const start = createStartTool(
         store,
@@ -377,7 +495,16 @@ describe("sp_prepare and sp_start tools", () => {
 
       const output = await start.execute(
         {
-          run_id: prepared.id,
+          prepared_task_id: prepared.id,
+          action: "start_prepared_task",
+          confirmation: {
+            user_confirmed: true,
+            user_message: "Confirmed.",
+          },
+          start_config: {
+            kind: "built_in_workflow",
+            workflow_id: "feature",
+          },
         },
         toolContext,
       )
@@ -399,7 +526,7 @@ describe("sp_prepare and sp_start tools", () => {
     }
   })
 
-  test("v4 approval promotion keeps candidate outputs out of canonical artifacts until approval", async () => {
+  test("migration/internal store approval promotion keeps candidate outputs out of canonical artifacts until approval", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-start-v4-approval-"))
     try {
       const store = createProjectStore(project)
@@ -437,31 +564,24 @@ describe("sp_prepare and sp_start tools", () => {
       expect(existsSync(join(runRoot, "artifacts", "spec.md"))).toBe(false)
       expect(readFileSync(join(runRoot, "nodes", design.id, "record.json"), "utf8")).toContain("Approved behavior")
 
-      const dispatched: string[] = []
-      const start = createStartTool(store, {
-        async dispatch(args) {
-          dispatched.push(args.decision.agent)
-          return {
-            action: args.decision.action,
-            session_id: "session-planner",
-            task_markdown: "# Planner task",
-          }
-        },
+      const designApproved = store.approveDesign({
+        runID: prepared.id,
+        parentSessionID: "session-main",
+        approvedBySessionID: "session-main",
       })
-      const designApproved = JSON.parse(toolOutput(await start.execute({
-        run_id: prepared.id,
-        start_action: "approve_design",
-        expected_state_version: afterDesign.state_version,
-      }, toolContext)))
-      expect(dispatched).toEqual(["sp-planner"])
-      expect(designApproved.controller_feedback.artifact_mode).toBe("canonical")
+      expect(designApproved.artifacts.spec).toBe("spec.md")
       expect(readFileSync(join(runRoot, "artifacts", "spec.md"), "utf8")).toContain("Approved behavior")
       expect(readFileSync(join(runRoot, "events.jsonl"), "utf8")).toContain("design_approved")
 
-      const planner = store.readCurrent()?.node_runs.find((run) => run.agent === "sp-planner")
-      expect(planner?.session_id).toBe("session-planner")
+      const planner = store.addNodeRun({
+        phase: "plan",
+        agent: "sp-planner",
+        primary_skill: "superpowers-writing-plans",
+        session_id: "session-planner",
+        task_markdown: "# Planner task",
+      })
       const afterPlan = store.recordNodeResult({
-        nodeID: planner?.id,
+        nodeID: planner.id,
         sessionID: "session-planner",
         agent: "sp-planner",
         input: {
@@ -479,20 +599,11 @@ describe("sp_prepare and sp_start tools", () => {
       expect(afterPlan.task_graph).toBeUndefined()
       expect(existsSync(join(runRoot, "artifacts", "plan.md"))).toBe(false)
 
-      const planApproved = JSON.parse(toolOutput(await start.execute({
-        run_id: prepared.id,
-        start_action: "approve_plan",
-        expected_state_version: afterPlan.state_version,
-      }, toolContext)))
-      expect(planApproved.dispatches).toEqual([
-        {
-          action: "create_session",
-          phase: "implement",
-          agent: "sp-implementer",
-          task_id: "T1",
-          session_id: "session-planner",
-        },
-      ])
+      store.approvePlan({
+        runID: prepared.id,
+        parentSessionID: "session-main",
+        approvedBySessionID: "session-main",
+      })
       expect(store.readCurrent()?.activation).toBe("active")
       expect(store.readCurrent()?.task_graph?.tasks[0].id).toBe("T1")
       expect(readFileSync(join(runRoot, "artifacts", "plan.md"), "utf8")).toContain("Implement T1")
@@ -537,17 +648,53 @@ describe("sp_prepare and sp_start tools", () => {
     }
   })
 
+  test("sp_start rejects legacy public approval actions", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-legacy-approval-reject-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Reject legacy approval",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+        prepareMode: "proposal_only",
+      })
+      const start = createStartTool(store, {
+        async dispatch() {
+          throw new Error("legacy approval must not dispatch")
+        },
+      })
+
+      await expect(start.execute({
+        run_id: state.id,
+        start_action: "approve_design",
+      }, toolContext)).rejects.toThrow("legacy public path")
+
+      await expect(start.execute({
+        run_id: state.id,
+        action: "approve_plan",
+      }, toolContext)).rejects.toThrow("sp_prepare -> user confirmation -> sp_start")
+
+      expect(store.readCurrent()?.node_runs).toEqual([])
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("sp_start with execute entrypoint dispatches implementation instead of design", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-start-execute-entrypoint-"))
     try {
       const store = createProjectStore(project)
-      const state = store.startRun({
+      const state = store.prepareRun({
         workflow: "feature",
         entrypoint: "execute",
         goal: "Implement an approved task",
         request: "# Request\n\nImplement the approved task.",
         proposal: "# Proposal\n\nRun execution workflow.",
         parentSessionID: "session-main",
+        prepareMode: "proposal_only",
       })
       const start = createStartTool(store, {
         async dispatch(args) {
@@ -559,7 +706,25 @@ describe("sp_prepare and sp_start tools", () => {
         },
       })
 
-      const output = await start.execute({ run_id: state.id }, toolContext)
+      const output = await start.execute({
+        action: "start_prepared_task",
+        prepared_task_id: state.id,
+        confirmation: {
+          user_confirmed: true,
+          user_message: "确认执行",
+        },
+        start_config: {
+          kind: "orchestration",
+          orchestration: {
+            id: "execute-only",
+            nodes: [{
+              id: "implement-approved-task",
+              agent: "sp-implementer",
+              phase: "implement",
+            }],
+          },
+        },
+      }, toolContext)
       const result = JSON.parse(toolOutput(output))
 
       expect(result.dispatches).toEqual([
@@ -653,7 +818,7 @@ describe("sp_prepare and sp_start tools", () => {
     }
   })
 
-  test("sp_start approval from a foreground child preserves the original parent session", async () => {
+  test("migration/internal approval from a foreground child preserves the original parent session", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-start-child-approval-parent-"))
     try {
       const store = createProjectStore(project)
@@ -685,26 +850,14 @@ describe("sp_prepare and sp_start tools", () => {
           gates: { design_approved: true, spec_written: true },
         },
       })
-      const start = createStartTool(store, {
-        async dispatch(args) {
-          return {
-            action: args.decision.action,
-            session_id: "session-plan",
-            task_markdown: "# Plan task",
-          }
-        },
+      const result = store.approveDesign({
+        runID: prepared.id,
+        parentSessionID: "session-main",
+        approvedBySessionID: "session-design",
       })
 
-      const result = JSON.parse(toolOutput(await start.execute({
-        run_id: prepared.id,
-        start_action: "approve_design",
-        expected_state_version: afterDesign.state_version,
-      }, {
-        ...toolContext,
-        sessionID: "session-design",
-      })))
-
-      expect(result.state.parent_session_id).toBe("session-main")
+      expect(afterDesign.state_version).toBeDefined()
+      expect(result.parent_session_id).toBe("session-main")
       expect(store.readCurrent()?.parent_session_id).toBe("session-main")
       const events = readFileSync(join(store.root, "runs", prepared.id, "events.jsonl"), "utf8")
       expect(events).toContain('"approved_by_session_id":"session-design"')

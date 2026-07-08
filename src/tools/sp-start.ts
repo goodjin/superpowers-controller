@@ -1,5 +1,4 @@
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
-import { prepareExplicitStartRun } from "../controller/intake"
 import { noopProgressReporter, type ProgressReporter } from "../progress/reporter"
 import { AGENT_SKILL_MAP, type NodeAgentName } from "../router/modes"
 import { decideNextDispatches } from "../router/transition"
@@ -26,8 +25,8 @@ export function createStartTool(
       proposal: tool.schema.string().optional().describe("Proposal markdown that was confirmed by the user"),
       run_id: tool.schema.string().optional().describe("Prepared run id to activate after plan review"),
       prepared_task_id: tool.schema.string().optional().describe("V5 alias for run_id."),
-      action: tool.schema.enum(["start_prepared_task", "start_entrypoint", "approve_design", "approve_plan", "resume_user_input", "retry_node", "resolve_controller_decision"]).optional().describe("V5 explicit action. start_prepared_task aliases start_entrypoint."),
-      start_action: tool.schema.enum(["start_prepared_task", "start_entrypoint", "approve_design", "approve_plan", "resume_user_input", "retry_node", "resolve_controller_decision"]).optional().describe("Explicit start action."),
+      action: tool.schema.enum(["start_prepared_task", "resume_user_input", "retry_node", "resolve_controller_decision"]).optional().describe("V5 explicit action."),
+      start_action: tool.schema.enum(["start_prepared_task", "resume_user_input", "retry_node", "resolve_controller_decision"]).optional().describe("Explicit v5 start action."),
       start_config: tool.schema
         .object({
           kind: tool.schema.enum(["built_in_workflow", "orchestration"]).describe("Whether to use a built-in template or controller-provided orchestration."),
@@ -62,6 +61,14 @@ export function createStartTool(
         })
         .optional()
         .describe("V5 workflow start configuration."),
+      confirmation: tool.schema
+        .object({
+          user_confirmed: tool.schema.boolean().optional().describe("Must be true after explicit user confirmation."),
+          user_message: tool.schema.string().optional().describe("Original or summarized user confirmation message."),
+          confirmed_by_session_id: tool.schema.string().optional().describe("Session id that captured the confirmation."),
+        })
+        .optional()
+        .describe("V5 user confirmation required for start_prepared_task."),
       expected_state_version: tool.schema.string().optional().describe("Optional optimistic concurrency guard for approval or retry actions."),
       task_id: tool.schema.string().optional().describe("Optional task id to resume when activating a prepared plan"),
       session: tool.schema.string().optional().describe("Controller session id"),
@@ -148,6 +155,7 @@ export function createStartTool(
       const currentForVersion = runID ? store.readRun(runID) : store.readCurrent()
       const parentSessionID = currentForVersion?.parent_session_id ?? callerSessionID
       const currentStateVersion = currentForVersion?.state_version ?? (currentForVersion ? `${currentForVersion.updated_at}:legacy` : undefined)
+      const requestedAction = normalizeStartAction(args.action ?? args.start_action)
       if (args.expected_state_version && currentForVersion && args.expected_state_version !== currentStateVersion) {
         return JSON.stringify(
           {
@@ -159,12 +167,28 @@ export function createStartTool(
           2,
         )
       }
-      const requestedAction = normalizeStartAction((args.action ?? args.start_action) as StartAction | undefined)
+      if (requestedAction === "start_prepared_task") {
+        validateStartPreparedTaskArgs({
+          preparedTaskID: args.prepared_task_id,
+          confirmation: args.confirmation,
+          startConfig: args.start_config,
+        })
+      }
+      if (!runID && hasLegacyDirectStartPayload(args)) {
+        throw new Error("sp_start no longer accepts direct request/workflow/entrypoint/proposal payloads. Call sp_prepare first, ask the user to confirm, then call sp_start(action=\"start_prepared_task\") with prepared_task_id, confirmation, and start_config.")
+      }
       const startAction = currentForVersion ? inferStartAction(currentForVersion, {
         start_action: requestedAction,
         resume_input: args.resume_input,
         task_id: args.task_id,
-      }) : requestedAction ?? "start_entrypoint"
+      }) : requestedAction ?? "start_prepared_task"
+      if (!requestedAction && startAction === "start_prepared_task" && currentForVersion?.activation === "active" && currentForVersion.status === "intake") {
+        validateStartPreparedTaskArgs({
+          preparedTaskID: args.prepared_task_id,
+          confirmation: args.confirmation,
+          startConfig: args.start_config,
+        })
+      }
 
       if (startAction === "resolve_controller_decision") {
         if (!runID) throw new Error("sp_start resolve_controller_decision requires run_id or prepared_task_id.")
@@ -265,50 +289,21 @@ export function createStartTool(
       let startMode: "new" | "resume" = "new"
       if (runID) {
         startMode = "resume"
-        if (startAction === "approve_design") {
-          state = store.approveDesign({
+        if (startAction === "start_prepared_task") {
+          const confirmation = normalizeStartConfirmation(args.confirmation)
+          store.recordPreparedTaskConfirmation({
             runID,
             parentSessionID,
-            approvedBySessionID: callerSessionID,
-          })
-          dispatches = await dispatchStart({
-            store,
-            orchestrator,
-            state,
-            startMode,
-            decisions: [createPlanDecision()],
-          })
-        } else if (startAction === "approve_plan") {
-          state = store.approvePlan({
-            runID,
-            parentSessionID,
-            approvedBySessionID: callerSessionID,
-          })
-          dispatches = await dispatchStart({
-            store,
-            orchestrator,
-            state,
-            taskID: args.task_id,
-            startMode,
-          })
-        } else {
-          state = store.activateRun({
-            runID,
-            parentSessionID,
+            userMessage: confirmation.user_message,
+            confirmedBySessionID: confirmation.confirmed_by_session_id ?? callerSessionID,
           })
         }
-      } else {
-        if (!args.request || !args.workflow || !args.entrypoint || !args.proposal) {
-          throw new Error("sp_start requires request, workflow, entrypoint, and proposal when run_id is not provided.")
-        }
-        const start = prepareExplicitStartRun({
-          request: args.request,
-          workflow: args.workflow as WorkflowKind,
-          entrypoint: args.entrypoint as WorkflowEntrypoint,
-          proposal: args.proposal,
+        state = store.activateRun({
+          runID,
           parentSessionID,
         })
-        state = store.startRun(start)
+      } else {
+        throw new Error("sp_start requires prepared_task_id, confirmation, and start_config. Call sp_prepare first, ask the user to confirm, then call sp_start(action=\"start_prepared_task\").")
       }
       const workflowSpec = buildWorkflowSpecFromStartConfig({
         runID: state.id,
@@ -324,7 +319,7 @@ export function createStartTool(
           entrypoint: entrypointForWorkflowSpec(workflowSpec, state.entrypoint),
         })
       }
-      if (dispatches.length === 0 && startAction !== "approve_design" && startAction !== "approve_plan") {
+      if (dispatches.length === 0) {
         dispatches = await dispatchStart({
           store,
           orchestrator,
@@ -563,23 +558,55 @@ function retryDecisionForNode(state: WorkflowState, nodeIDOrTaskID?: string) {
   }
 }
 
-function createPlanDecision() {
-  return {
-    action: "create_session" as const,
-    phase: "plan",
-    agent: "sp-planner" as const,
-    primary_skill: AGENT_SKILL_MAP["sp-planner"],
-    reason: "approved design is ready for planning",
-  }
-}
-
 function isNodeAgentName(agent: string): agent is NodeAgentName {
   return agent in AGENT_SKILL_MAP
 }
 
-function normalizeStartAction(action: StartAction | undefined): StartAction | undefined {
-  if (action === "start_prepared_task") return "start_entrypoint"
-  return action
+function normalizeStartAction(action: unknown): StartAction | undefined {
+  if (action === undefined) return undefined
+  if (action === "approve_design" || action === "approve_plan" || action === "start_entrypoint") {
+    throw new Error(
+      `sp_start action "${action}" is a legacy public path and is no longer supported. Use v5: sp_prepare -> user confirmation -> sp_start(action="start_prepared_task", prepared_task_id, confirmation, start_config), or sp_start(action="resolve_controller_decision") with an allowed controller_decision.`,
+    )
+  }
+  return action as StartAction
+}
+
+function hasLegacyDirectStartPayload(args: Record<string, unknown>): boolean {
+  return Boolean(args.request || args.workflow || args.entrypoint || args.proposal)
+}
+
+type NormalizedStartConfirmation = {
+  user_confirmed: boolean
+  user_message?: string
+  confirmed_by_session_id?: string
+}
+
+function validateStartPreparedTaskArgs(args: {
+  preparedTaskID: unknown
+  confirmation: unknown
+  startConfig: unknown
+}): void {
+  if (typeof args.preparedTaskID !== "string" || !args.preparedTaskID.trim()) {
+    throw new Error("sp_start start_prepared_task requires prepared_task_id.")
+  }
+  const confirmation = normalizeStartConfirmation(args.confirmation)
+  if (!confirmation.user_confirmed) {
+    throw new Error("sp_start start_prepared_task requires confirmation.user_confirmed true.")
+  }
+  if (!normalizeStartConfig(args.startConfig)) {
+    throw new Error("sp_start start_prepared_task requires start_config.")
+  }
+}
+
+function normalizeStartConfirmation(value: unknown): NormalizedStartConfirmation {
+  if (!value || typeof value !== "object") return { user_confirmed: false }
+  const input = value as Record<string, unknown>
+  return {
+    user_confirmed: input.user_confirmed === true,
+    user_message: typeof input.user_message === "string" ? input.user_message : undefined,
+    confirmed_by_session_id: typeof input.confirmed_by_session_id === "string" ? input.confirmed_by_session_id : undefined,
+  }
 }
 
 type StartConfigInput = {

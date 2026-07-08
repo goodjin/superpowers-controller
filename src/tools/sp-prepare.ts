@@ -6,6 +6,7 @@ import type { ProjectStore } from "../state/store"
 import type { PrepareMode, WorkflowEntrypoint, WorkflowKind } from "../state/types"
 import { AGENT_SKILL_MAP } from "../router/modes"
 import { buildControllerFeedback } from "../controller/feedback"
+import { createWorkflowSpec } from "../capabilities/workflows"
 import { dispatchWorkflowDecisions } from "./sp-start"
 
 export function createPrepareTool(
@@ -94,10 +95,21 @@ export function createPrepareTool(
         sourceWorkflowID: args.source_workflow_id,
         prepareMode,
       })
+      const preparedState = shouldWritePrepareStageSpec(designParticipation)
+        ? store.setWorkflowSpec({
+            runID: state.id,
+            parentSessionID: args.session ?? context.sessionID,
+            workflowSpec: buildPrepareStageWorkflowSpec({
+              runID: state.id,
+              workflow,
+              designParticipation,
+            }),
+          })
+        : state
       const dispatches = await dispatchWorkflowDecisions({
         store,
         orchestrator,
-        state,
+        state: preparedState,
         startMode: "resume",
         decisions: prepareDispatchDecisions(prepareMode),
       })
@@ -108,7 +120,7 @@ export function createPrepareTool(
         variant: "success",
       })
 
-      const fresh = store.readCurrent() ?? state
+      const fresh = store.readCurrent() ?? preparedState
       return JSON.stringify(
         {
           state: fresh,
@@ -182,14 +194,58 @@ function prepareDispatchDecisions(mode: PrepareMode) {
   return []
 }
 
+function shouldWritePrepareStageSpec(designParticipation?: NormalizedDesignParticipation): boolean {
+  return Boolean(designParticipation?.mode && designParticipation.mode !== "none")
+}
+
+function buildPrepareStageWorkflowSpec(args: {
+  runID: string
+  workflow: WorkflowKind
+  designParticipation?: NormalizedDesignParticipation
+}) {
+  return createWorkflowSpec({
+    id: `${args.runID}-prepare-stage-workflow-spec`,
+    kind: "orchestration",
+    title: "Prepare-stage designer workflow",
+    orchestration: {
+      id: "prepare-stage-designer",
+      title: "Prepare-stage designer",
+      nodes: [
+        {
+          id: "prepare-designer",
+          title: "Prepare candidate design",
+          agent: "sp-designer",
+          phase: "design",
+          input_documents: ["request.md", "task.md", "proposal.md"],
+          output_documents: ["artifacts/spec.md"],
+          report_contract: ["event:design", "status:passed", "artifacts.spec", "gates.spec_written"],
+        },
+      ],
+      documents: [
+        {
+          id: "candidate_spec",
+          path: "artifacts/spec.md",
+          kind: "gate_document_contract",
+          producer: "node",
+          consumer: ["controller", "sp-planner"],
+          status: "candidate",
+        },
+      ],
+      completion_policy: "Designer must report a candidate design with artifacts.spec and gates.spec_written before controller approval.",
+    },
+    autoExpansionAllow: false,
+    autoExpansionReason: `Prepare-stage designer participation is ${args.designParticipation?.mode ?? "requested"} for ${args.workflow}; controller approval is required before start.`,
+  })
+}
+
 function nextMessageForPrepareMode(mode: PrepareMode): string {
   switch (mode) {
     case "managed_design":
-      return "Wait for the designer candidate output. Approve it with sp_start(run_id, start_action=\"approve_design\") or request a revision."
+      return "Wait for the designer candidate output. After user confirmation, continue through the v5 path: sp_prepare for the confirmed task, then sp_start(action=\"start_prepared_task\") with confirmation and start_config; otherwise request a revision."
     case "managed_planning":
-      return "Wait for the planner candidate output. Approve it with sp_start(run_id, start_action=\"approve_plan\") or request a revision."
+      return "Wait for the planner candidate output. After user confirmation, continue through the v5 path: sp_prepare for the confirmed task, then sp_start(action=\"start_prepared_task\") with confirmation and start_config; otherwise request a revision."
     default:
-      return "Ask the user to approve, revise, or cancel the proposal. Start with sp_start(run_id, start_action=\"start_entrypoint\") only after approval."
+      return "Ask the user to approve, revise, or cancel the proposal. After approval, call sp_start(action=\"start_prepared_task\", prepared_task_id, confirmation, start_config)."
   }
 }
 

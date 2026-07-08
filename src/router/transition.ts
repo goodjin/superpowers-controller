@@ -191,7 +191,7 @@ function dispatchEntrypoint(state: WorkflowState): DispatchDecision[] {
 }
 
 function planDispatches(state: WorkflowState, record: SpRecordInput): DispatchDecision[] {
-  const graph = record.task_graph ?? state.task_graph
+  const graph = state.task_graph
   if (!graph) return [{ action: "blocked", reason: "plan passed without task graph" }]
   const normalized = normalizeTaskGraph(graph)
   const { passed, running, failed } = taskRunSetsForWorkflow({ ...state, task_graph: normalized })

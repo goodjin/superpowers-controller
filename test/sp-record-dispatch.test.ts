@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createSessionOrchestrator } from "../src/session/orchestrator"
@@ -110,6 +110,8 @@ describe("sp_report dispatch integration", () => {
         store,
         orchestrator: {
           async dispatch(args) {
+            const spec = JSON.parse(readFileSync(join(project, ".opencode", "superpowers", "runs", state.id, "workflow-spec.json"), "utf8"))
+            expect(spec.orchestration.nodes.some((node: { task_id?: string }) => node.task_id === args.decision.task_id)).toBe(true)
             dispatched.push(args.decision.task_id ?? args.decision.phase)
             return {
               action: args.decision.action,
@@ -133,6 +135,8 @@ describe("sp_report dispatch integration", () => {
       })
 
       expect(store.readCurrent()?.task_graph?.tasks.map((task) => task.id)).toEqual(["T1"])
+      const workflowSpec = JSON.parse(readFileSync(join(project, ".opencode", "superpowers", "runs", state.id, "workflow-spec.json"), "utf8"))
+      expect(workflowSpec.orchestration.nodes.map((node: { task_id?: string }) => node.task_id).filter(Boolean)).toEqual(["T1"])
       expect(dispatched).toEqual(["T1"])
       expect(store.readCurrent()?.node_runs.at(-1)?.agent).toBe("sp-implementer")
     } finally {
@@ -144,13 +148,26 @@ describe("sp_report dispatch integration", () => {
     const project = mkdtempSync(join(tmpdir(), "sp-record-dispatch-"))
     try {
       const store = createProjectStore(project)
-      store.startRun({
+      const started = store.startRun({
         workflow: "feature",
         entrypoint: "feature",
         goal: "Add gates",
         request: "# Request",
         proposal: "# Proposal",
         parentSessionID: "session-main",
+      })
+      store.setWorkflowSpec({
+        runID: started.id,
+        parentSessionID: "session-main",
+        workflowSpec: createWorkflowSpec({
+          id: `${started.id}-workflow-spec`,
+          kind: "orchestration",
+          title: "Planned feature",
+          autoExpansionAllow: true,
+          orchestration: {
+            nodes: [{ id: "01-plan", agent: "sp-planner", phase: "plan" }],
+          },
+        }),
       })
 
       const dispatched: string[] = []
@@ -159,6 +176,8 @@ describe("sp_report dispatch integration", () => {
         store,
         orchestrator: {
           async dispatch(args) {
+            const spec = JSON.parse(readFileSync(join(project, ".opencode", "superpowers", "runs", started.id, "workflow-spec.json"), "utf8"))
+            expect(spec.orchestration.nodes.some((node: { task_id?: string }) => node.task_id === args.decision.task_id)).toBe(true)
             dispatched.push(args.packet.agent)
             return {
               action: args.decision.action,
@@ -196,6 +215,8 @@ describe("sp_report dispatch integration", () => {
       expect(dispatched).toEqual(["sp-implementer", "sp-implementer"])
       expect(result.dispatches).toHaveLength(2)
       expect(state?.node_runs.map((node) => node.task_id)).toEqual(["T1", "T2"])
+      const workflowSpec = JSON.parse(readFileSync(join(project, ".opencode", "superpowers", "runs", started.id, "workflow-spec.json"), "utf8"))
+      expect(workflowSpec.orchestration.nodes.map((node: { task_id?: string }) => node.task_id).filter(Boolean)).toEqual(["T1", "T2"])
       expect(state?.node_runs.every((node) => node.status === "running")).toBe(true)
       expect(progress).toEqual([
         {
@@ -273,6 +294,8 @@ describe("sp_report dispatch integration", () => {
         task_id: "T1",
         status: "running",
       })
+      const workflowSpec = JSON.parse(readFileSync(join(project, ".opencode", "superpowers", "runs", state?.id ?? "", "workflow-spec.json"), "utf8"))
+      expect(workflowSpec.orchestration.nodes.map((node: { task_id?: string }) => node.task_id).filter(Boolean)).toEqual(["T1"])
       expect(prompts).toEqual(["session-impl-1"])
     } finally {
       rmSync(project, { recursive: true, force: true })
@@ -406,7 +429,9 @@ describe("sp_report dispatch integration", () => {
       expect(notifications[0].agent).toBe("sp-designer")
       expect(notifications[0].prompt).toContain("design waiting for approval")
       expect(notifications[0].prompt).toContain("current foreground child conversation")
-      expect(notifications[0].prompt).toContain('"start_action": "approve_design"')
+      expect(notifications[0].prompt).toContain('"start_action": "resolve_controller_decision"')
+      expect(notifications[0].prompt).toContain('"kind": "request_reprepare"')
+      expect(notifications[0].prompt).not.toContain("approve_design")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -522,7 +547,9 @@ describe("sp_report dispatch integration", () => {
       expect(notifications[0].agent).toBe("sp-planner")
       expect(notifications[0].prompt).toContain("plan waiting for approval")
       expect(notifications[0].prompt).toContain("current foreground child conversation")
-      expect(notifications[0].prompt).toContain('"start_action": "approve_plan"')
+      expect(notifications[0].prompt).toContain('"start_action": "resolve_controller_decision"')
+      expect(notifications[0].prompt).toContain('"kind": "request_reprepare"')
+      expect(notifications[0].prompt).not.toContain("approve_plan")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

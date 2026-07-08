@@ -67,9 +67,6 @@ export type PrepareMode = "proposal_only" | "managed_design" | "managed_planning
 
 export type StartAction =
   | "start_prepared_task"
-  | "start_entrypoint"
-  | "approve_design"
-  | "approve_plan"
   | "resume_user_input"
   | "retry_node"
   | "resolve_controller_decision"
@@ -161,8 +158,21 @@ export type WorkflowAutoExpansionPolicy = {
   reason?: string
 }
 
+export type WorkflowStage = "prepare" | "planning" | "execution" | "review" | "finish" | "recovery"
+
+export type WorkflowSpecSource =
+  | { kind: "prepare"; prepared_task_id?: string }
+  | { kind: "built_in_template"; workflow_id: WorkflowKind }
+  | { kind: "controller_orchestration" }
+  | { kind: "report_expansion"; source_node_id?: string }
+  | { kind: "controller_decision"; decision_id?: string }
+
 export type WorkflowSpec = {
   id: string
+  version?: "v5"
+  spec_version?: number
+  stage?: WorkflowStage
+  source?: WorkflowSpecSource
   template_id?: WorkflowKind
   kind: "built_in_workflow" | "orchestration"
   title: string
@@ -170,6 +180,12 @@ export type WorkflowSpec = {
   orchestration: WorkflowOrchestration
   created_at: string
   updated_at: string
+}
+
+export type StartConfirmation = {
+  user_confirmed: true
+  user_message?: string
+  confirmed_by_session_id?: string
 }
 
 export type WorkflowExpansionPatch = {
@@ -270,6 +286,7 @@ export type WorkflowState = {
   artifacts: Partial<Record<WorkflowArtifact, string>>
   task_graph?: TaskGraph
   workflow_spec?: WorkflowSpec
+  start_confirmation?: StartConfirmation
   pending_workflow_expansion?: WorkflowExpansionPatch
   documents?: WorkflowDocumentSpec[]
   fallback_summaries?: Array<{

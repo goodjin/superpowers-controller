@@ -71,7 +71,6 @@ export function buildControllerUserInputPrompt(
   if (state.status === "awaiting_design_approval") {
     return buildApprovalPrompt(state, {
       kind: "design",
-      action: "approve_design",
       artifact: "spec",
       conversation: options.conversation ?? "main",
     })
@@ -79,7 +78,6 @@ export function buildControllerUserInputPrompt(
   if (state.status === "awaiting_plan_approval") {
     return buildApprovalPrompt(state, {
       kind: "plan",
-      action: "approve_plan",
       artifact: "plan",
       conversation: options.conversation ?? "main",
     })
@@ -135,7 +133,6 @@ function buildApprovalPrompt(
   state: WorkflowState,
   args: {
     kind: "design" | "plan"
-    action: "approve_design" | "approve_plan"
     artifact: "spec" | "plan"
     conversation: "main" | "foreground"
   },
@@ -151,13 +148,17 @@ function buildApprovalPrompt(
     `The candidate ${args.kind} is ready. Show the user the candidate ${args.artifact} summary already produced by this node, then ask whether to approve, revise, or cancel.`,
     `Ask in the ${place}. Do not approve or revise on the user's behalf.`,
     "",
-    "If the user approves, call sp_start with this run_id and start_action.",
+    "If the user accepts the candidate, do not call legacy approve actions. Return to the v5 controller path: either prepare a revised confirmed task with sp_prepare and then call sp_start(start_prepared_task) with confirmation and start_config, or resolve the current run with an allowed controller decision.",
     "",
     "```json",
     JSON.stringify({
       run_id: state.id,
-      start_action: args.action,
+      start_action: "resolve_controller_decision",
       expected_state_version: state.state_version,
+      controller_decision: {
+        kind: "request_reprepare",
+        reason: `User accepted the candidate ${args.kind}; restart through the v5 prepared-task confirmation path.`,
+      },
     }, null, 2),
     "```",
     "",

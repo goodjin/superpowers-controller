@@ -429,7 +429,10 @@ function progressModel(
   if (typeof sessionID === "string" && state && !isWorkflowSession(state, sessionID) && !allowControllerFallback) {
     return buildProgressPanelViewModel(null, {}, {})
   }
-  return buildProgressPanelViewModel(state, progress, liveStatusBySession(api, state))
+  const focusedSessionID = typeof sessionID === "string" && state && isWorkflowSession(state, sessionID)
+    ? sessionID
+    : undefined
+  return buildProgressPanelViewModel(state, progress, liveStatusBySession(api, state), new Date(), focusedSessionID)
 }
 
 function isWorkflowSession(state: WorkflowState, sessionID: string): boolean {

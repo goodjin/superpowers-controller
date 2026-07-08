@@ -62,6 +62,8 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 - `pending_question`
 - `pending_workflow_expansion`
 - `workflow_spec`
+- `start_confirmation`
+- `start_config`
 - `documents`
 - `fallback_summaries`
 - `state_version`
@@ -74,30 +76,32 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 字段语义：
 
 - `workflow` 是流程定义种类，决定允许的 agent、task graph policy、检查顺序和汇总方式。
+- `prepare_mode` 是旧 v4 兼容字段；v5 新判断优先使用 `workflow_spec` / `start_config`。
 - `entrypoint` 是启动入口，描述用户确认从哪里进入流程；它不应覆盖 `phase/current_phase` 的恢复判断。
 - `mode` 是兼容旧测试和 OpenCode mode 的粗粒度入口；新的 runtime 判断优先看 `workflow`、`entrypoint`、`current_phase`、`status` 和 `node_runs`。
 - `phase` 与 `current_phase` 当前保持同义，用于 durable state、UI 和测试读取。未来如果需要保留历史兼容字段，新的判断应优先读 `current_phase`。
 - `status` 是 workflow 级状态，例如 `running`、`awaiting_design_approval`、`awaiting_plan_approval`、`waiting_user`、`waiting_user_decision`、`waiting_controller_decision`、`blocked`、`failed`、`passed`、`canceled`、`recovered_unknown`。
 - `pending_question` 只保存等待用户回答的问题；问题回答后必须通过 `sp_start(run_id, resume_input)` 清空并恢复原 child session。
 - `pending_workflow_expansion` 保存 auto expansion policy 不允许时等待主控裁决的 `sp_report.workflow_expansion`。
-- `workflow_spec` 保存 `sp_start(start_config=...)` 解析后的内置 workflow template 或自定义 orchestration。
+- `workflow_spec` 保存 prepare-stage workflow spec，以及用户确认启动时由 `StartConfig` 选择或覆盖的内置 workflow template / 自定义 orchestration。
+- `start_confirmation` 保存用户确认 prepared task 的结构化证据，例如确认摘要、确认来源 session 和确认时间。
+- `start_config` 保存本次启动选择的内置 workflow id 或自定义 orchestration；runtime dispatch 以落盘后的 `workflow_spec` 为准。
 - `documents` 和 run 根目录下的 `documents.json` 是 run-local artifact 索引，不是项目交付文件。
 - `task_graph` 是结构化任务图。runtime 不从 `plan.md` 反推任务图。
 - `state_version` 是状态版本。批准 design/plan、resume 用户输入、dispatch node、cancel 和 startup reconciliation 都会推进版本；`sp_start(expected_state_version=...)` 用它避免 stale approval。
 
-## Candidate And Canonical Artifacts
+## Prepared Context And Canonical Artifacts
 
-draft 状态下的 design/plan 输出先作为 candidate 保存：
+draft 状态下的 prepare-stage design/plan 输出先作为 candidate context 保存：
 
 - candidate design: `nodes/<designer-node>/record.json` 和 `output.md`
 - candidate plan: `nodes/<planner-node>/record.json` 和 `output.md`
 
-candidate 不会直接写入 `artifacts/spec.md`、`artifacts/plan.md`、`task_graph.json` 或 `tasks.json`。promotion 只发生在：
+candidate 不会绕过用户确认直接启动正式执行。v5 主路径由 `sp_prepare` 生成 confirmation summary 和 prepare-stage `workflow-spec.json`，用户确认后由 `sp_start(action="start_prepared_task", confirmation, start_config)` 激活；启动时 runtime 根据 confirmed workflow spec 生成或更新 canonical artifacts、task graph 和 dispatch state。
 
-- `sp_start(start_action="approve_design")`：读取 latest passed design candidate，写入 `artifacts/spec.md` 和 flat `spec.md`，设置 `design_approved/spec_written` gate，并记录 `design_approved` event。
-- `sp_start(start_action="approve_plan")`：读取 latest passed plan candidate，校验 task graph，写入 `artifacts/plan.md`、flat `plan.md`、`task_graph.json` 和 `tasks.json`，设置 `plan_written` gate，并记录 `plan_approved` event。
+旧 v4 candidate promotion 只保留在 `ProjectStore` 内部迁移方法里，用于读取历史 latest passed candidate 并做 canonical promotion；public `sp_start` 不再暴露 `approve_design` 或 `approve_plan`。相关测试只能覆盖内部迁移行为，不能把它描述为当前 v5 主路径。
 
-下游 planner/implementer/checker 只消费 canonical artifacts。candidate output 只用于用户 review、controller feedback、恢复和审计。
+下游 planner/implementer/checker 只消费 confirmed workflow spec 和 canonical artifacts。candidate output 只用于用户 review、controller feedback、恢复和审计。
 
 ## Record Status Semantics
 
@@ -122,7 +126,7 @@ candidate 不会直接写入 `artifacts/spec.md`、`artifacts/plan.md`、`task_g
 - `documents`：追加 run-local document registry 条目。
 - `reason`：记录扩展原因，写入 history/events。
 
-如果当前 `workflow_spec.auto_expansion.allow === true`，runtime 会应用 expansion，写入 `workflow-expansion-latest.json`、`task_graph.json` / `tasks.json` 和 `workflow-spec.json`，再按 transition 派发 runnable task。任务可以通过 `agent` 指定目标 node agent；未指定时默认按 implementer 处理。
+如果当前 `workflow_spec.auto_expansion.allow === true`，runtime 会应用 expansion，写入 `workflow-expansion-latest.json`、`task_graph.json` / `tasks.json`，并先 patch `workflow-spec.json`。只有 patch 后的 spec 和 task graph 持久化成功，runtime 才按 transition 派发 runnable task。任务可以通过 `agent` 指定目标 node agent；未指定时默认按 implementer 处理。
 
 如果 auto expansion 不允许，runtime 不应用 expansion，而是把 workflow 置为 `waiting_controller_decision`，保存 `pending_workflow_expansion`，并通过 `controller_feedback.allowed_controller_decisions` 暴露 `apply_workflow_patch`、`mark_blocked`、`request_reprepare` 等裁决。
 
