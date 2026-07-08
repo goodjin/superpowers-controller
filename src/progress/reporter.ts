@@ -12,6 +12,7 @@ export type ProgressStage =
   | "node_running"
   | "node_resumed"
   | "parent_notified"
+  | "parent_progress"
   | "parent_progress_failed"
   | "run_resumed"
   | "controller_decision_resolved"

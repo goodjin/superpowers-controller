@@ -4,11 +4,12 @@ import { join } from "node:path"
 import { describe, expect, test } from "bun:test"
 import { createNodeProgressStore } from "../src/progress/node-progress"
 import { createParentProgressNotifier } from "../src/session/parent-progress-notifier"
+import type { ProgressUpdate } from "../src/progress/reporter"
 import type { SessionAdapter } from "../src/session/adapter"
 import type { WorkflowState } from "../src/state/types"
 
 describe("parent progress notifier", () => {
-  test("sends a short parent-session progress prompt every interval from durable progress", async () => {
+  test("publishes progress without appending a parent-session prompt", async () => {
     const project = tempProject()
     try {
       const state = runningState(project)
@@ -25,7 +26,8 @@ describe("parent progress notifier", () => {
       })
       const timer = createManualTimer()
       const prompts: Array<{ sessionID: string; agent: string; prompt: string }> = []
-      const notifier = createParentProgressNotifier(adapterWithPrompts(prompts), {
+      const progress: ProgressUpdate[] = []
+      const notifier = createParentProgressNotifier(adapterWithPrompts(prompts, progress), {
         timer,
         now: () => new Date("2026-07-02T00:00:30.000Z"),
       })
@@ -38,15 +40,16 @@ describe("parent progress notifier", () => {
       expect(timer.intervals()).toEqual([10_000])
       await timer.tick()
 
-      expect(prompts).toHaveLength(1)
-      expect(prompts[0]).toMatchObject({
-        sessionID: "session-main",
-        agent: "super-agent",
+      expect(prompts).toEqual([])
+      expect(progress).toHaveLength(1)
+      expect(progress[0]).toMatchObject({
+        stage: "parent_progress",
+        title: "Superpowers workflow",
+        variant: "info",
       })
-      expect(prompts[0]?.prompt).toContain("Superpowers progress update")
-      expect(prompts[0]?.prompt).toContain("tasks 0/1 done")
-      expect(prompts[0]?.prompt).toContain("sp-implementer T1 running - bash running")
-      expect(prompts[0]?.prompt).toContain("bun test test/session-orchestrator.test.ts")
+      expect(progress[0]?.message).toContain("tasks 0/1 done")
+      expect(progress[0]?.message).toContain("sp-implementer T1 running - bash running")
+      expect(progress[0]?.message).toContain("bun test test/session-orchestrator.test.ts")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -58,14 +61,51 @@ describe("parent progress notifier", () => {
       const state = runningState(project)
       const timer = createManualTimer()
       const prompts: Array<{ sessionID: string; agent: string; prompt: string }> = []
-      const notifier = createParentProgressNotifier(adapterWithPrompts(prompts), { timer })
+      const progress: ProgressUpdate[] = []
+      const notifier = createParentProgressNotifier(adapterWithPrompts(prompts, progress), { timer })
 
       notifier.start({ project, runID: state.id, readState: () => state })
       notifier.start({ project, runID: state.id, readState: () => state })
       await timer.tick()
 
       expect(timer.activeCount()).toBe(1)
-      expect(prompts).toHaveLength(1)
+      expect(prompts).toEqual([])
+      expect(progress).toHaveLength(1)
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("does not republish unchanged progress on later ticks", async () => {
+    const project = tempProject()
+    try {
+      const state = runningState(project)
+      createNodeProgressStore(project).append(state.id, {
+        at: "2026-07-02T00:00:10.000Z",
+        kind: "tool_running",
+        session_id: "session-child",
+        node_id: "001-implement-T1",
+        agent: "sp-implementer",
+        phase: "implement",
+        task_id: "T1",
+        summary: "bash running",
+      })
+      const timer = createManualTimer()
+      let now = new Date("2026-07-02T00:00:40.000Z")
+      const prompts: Array<{ sessionID: string; agent: string; prompt: string }> = []
+      const progress: ProgressUpdate[] = []
+      const notifier = createParentProgressNotifier(adapterWithPrompts(prompts, progress), {
+        timer,
+        now: () => now,
+      })
+
+      notifier.start({ project, runID: state.id, readState: () => state })
+      await timer.tick()
+      now = new Date("2026-07-02T00:00:50.000Z")
+      await timer.tick()
+
+      expect(prompts).toEqual([])
+      expect(progress).toHaveLength(1)
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -77,7 +117,8 @@ describe("parent progress notifier", () => {
       let state = runningState(project)
       const timer = createManualTimer()
       const prompts: Array<{ sessionID: string; agent: string; prompt: string }> = []
-      const notifier = createParentProgressNotifier(adapterWithPrompts(prompts), { timer })
+      const progress: ProgressUpdate[] = []
+      const notifier = createParentProgressNotifier(adapterWithPrompts(prompts, progress), { timer })
 
       notifier.start({ project, runID: state.id, readState: () => state })
       state = {
@@ -88,6 +129,7 @@ describe("parent progress notifier", () => {
       await timer.tick()
 
       expect(prompts).toEqual([])
+      expect(progress).toEqual([])
       expect(timer.activeCount()).toBe(0)
     } finally {
       rmSync(project, { recursive: true, force: true })
@@ -99,7 +141,8 @@ describe("parent progress notifier", () => {
     try {
       const timer = createManualTimer()
       const prompts: Array<{ sessionID: string; agent: string; prompt: string }> = []
-      const notifier = createParentProgressNotifier(adapterWithPrompts(prompts), { timer })
+      const progress: ProgressUpdate[] = []
+      const notifier = createParentProgressNotifier(adapterWithPrompts(prompts, progress), { timer })
       const state = {
         ...runningState(project),
         current_phase: "design",
@@ -132,6 +175,7 @@ describe("parent progress notifier", () => {
 
       expect(timer.activeCount()).toBe(0)
       expect(prompts).toEqual([])
+      expect(progress).toEqual([])
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -144,7 +188,10 @@ function tempProject(): string {
   return project
 }
 
-function adapterWithPrompts(prompts: Array<{ sessionID: string; agent: string; prompt: string }>): SessionAdapter {
+function adapterWithPrompts(
+  prompts: Array<{ sessionID: string; agent: string; prompt: string }>,
+  progress: ProgressUpdate[],
+): SessionAdapter {
   return {
     async createNodeSession() {
       return "session-child"
@@ -152,7 +199,9 @@ function adapterWithPrompts(prompts: Array<{ sessionID: string; agent: string; p
     async continueNodeSession(input) {
       prompts.push(input)
     },
-    async showProgress() {},
+    async showProgress(input) {
+      progress.push(input)
+    },
   }
 }
 

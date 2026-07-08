@@ -4,6 +4,7 @@ import type { WorkflowState } from "../state/types"
 import {
   buildProgressPanelViewModel,
   renderSidebarProgressText,
+  type ProgressPanelViewModel,
 } from "../tui/progress-panel"
 
 export const PARENT_PROGRESS_INTERVAL_MS = 10_000
@@ -20,6 +21,7 @@ export type ParentProgressNotifier = ReturnType<typeof createParentProgressNotif
 type ParentProgressEntry = {
   handle: TimerHandle
   inFlight: boolean
+  lastProgressKey?: string
   readState: () => WorkflowState | null
   project: string
 }
@@ -52,14 +54,19 @@ export function createParentProgressNotifier(
       stop(runID)
       return
     }
-    const prompt = buildParentProgressPrompt(state, entry.project, now())
+    const model = buildParentProgressModel(state, entry.project, now())
+    const progressKey = stableProgressKey(model)
+    if (entry.lastProgressKey === progressKey) return
+    const message = renderSidebarProgressText(model)
     entry.inFlight = true
     try {
-      await adapter.continueNodeSession({
-        sessionID: state.parent_session_id,
-        agent: "super-agent",
-        prompt,
+      await adapter.showProgress({
+        stage: "parent_progress",
+        title: "Superpowers workflow",
+        message,
+        variant: "info",
       })
+      entry.lastProgressKey = progressKey
     } catch (error) {
       await adapter.showProgress({
         stage: "parent_progress_failed",
@@ -96,6 +103,7 @@ export function createParentProgressNotifier(
       active.set(args.runID, {
         handle,
         inFlight: false,
+        lastProgressKey: undefined,
         readState: args.readState,
         project: args.project,
       })
@@ -108,8 +116,7 @@ export function createParentProgressNotifier(
 }
 
 export function buildParentProgressPrompt(state: WorkflowState, project: string, now = new Date()): string {
-  const progress = createNodeProgressStore(project).readRun(state)
-  const model = buildProgressPanelViewModel(state, progress, {}, now)
+  const model = buildParentProgressModel(state, project, now)
   return [
     "Superpowers progress update",
     "",
@@ -117,6 +124,37 @@ export function buildParentProgressPrompt(state: WorkflowState, project: string,
     "",
     renderSidebarProgressText(model),
   ].join("\n").trim()
+}
+
+function buildParentProgressModel(state: WorkflowState, project: string, now: Date): ProgressPanelViewModel {
+  const progress = createNodeProgressStore(project).readRun(state)
+  return buildProgressPanelViewModel(state, progress, {}, now)
+}
+
+function stableProgressKey(model: ProgressPanelViewModel): string {
+  return JSON.stringify({
+    workflow: model.workflow,
+    status: model.status,
+    current_phase: model.current_phase,
+    pending_question: model.pending_question,
+    rows: model.rows.map((row) => ({
+      node_id: row.node_id,
+      task_id: row.task_id,
+      agent: row.agent,
+      phase: row.phase,
+      durable_status: row.durable_status,
+      activity_status: row.activity_status,
+      live_status: row.live_status,
+      latest_summary: row.latest_summary,
+      latest_detail: row.latest_detail,
+      updated_at: row.updated_at,
+    })),
+    tasks: model.tasks.map((task) => ({
+      task_id: task.task_id,
+      status: task.status,
+      node_id: task.node_id,
+    })),
+  })
 }
 
 function isParentProgressActive(state: WorkflowState | null, runID: string): state is WorkflowState {
