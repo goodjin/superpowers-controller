@@ -153,7 +153,7 @@ export function createStartTool(
       const callerSessionID = args.session ?? context.sessionID
       const runID = args.run_id ?? args.prepared_task_id
       const currentForVersion = runID ? store.readRun(runID) : store.readCurrent()
-      const parentSessionID = currentForVersion?.parent_session_id ?? callerSessionID
+      const parentSessionID = resolveParentSessionID(currentForVersion, callerSessionID)
       const currentStateVersion = currentForVersion?.state_version ?? (currentForVersion ? `${currentForVersion.updated_at}:legacy` : undefined)
       const requestedAction = normalizeStartAction(args.action ?? args.start_action)
       if (args.expected_state_version && currentForVersion && args.expected_state_version !== currentStateVersion) {
@@ -492,6 +492,14 @@ function isAllowedControllerDecision(state: WorkflowState, decision: ControllerD
     if (payloadDecision.task_id && decision.task_id && payloadDecision.task_id !== decision.task_id) return false
     return true
   })
+}
+
+function resolveParentSessionID(state: WorkflowState | null | undefined, callerSessionID: string | undefined): string {
+  if (!state) return callerSessionID ?? "unknown-session"
+  if (!callerSessionID) return state.parent_session_id
+  const callerIsChildSession = state.node_runs.some((node) => node.session_id === callerSessionID)
+  if (callerIsChildSession) return state.parent_session_id
+  return callerSessionID
 }
 
 function startDecisions(state: WorkflowState, startMode: "new" | "resume" = "new", taskID?: string) {

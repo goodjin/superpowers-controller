@@ -247,17 +247,19 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
       }
       const wasDraft = current.activation === "draft"
+      const parent = parentSessionFields(current, args.parentSessionID, new Date().toISOString())
       const next: WorkflowState = {
         ...current,
         activation: "active",
-        session: args.parentSessionID,
-        parent_session_id: args.parentSessionID,
+        session: parent.session,
+        parent_session_id: parent.parent_session_id,
         phase: wasDraft && current.phase === "awaiting-plan-approval" ? "plan-complete" : current.phase,
         current_phase: wasDraft && current.current_phase === "awaiting-plan-approval" ? "plan-complete" : current.current_phase,
         status: wasDraft && current.status === "waiting_user" ? "running" : current.status,
         pending_question: wasDraft ? undefined : current.pending_question,
         updated_at: new Date().toISOString(),
         state_version: nextStateVersion(),
+        history: parent.history,
       }
       persistCurrent(next)
       appendChangelog(root, next.id, `activated ${next.workflow} workflow from ${next.entrypoint}`)
@@ -269,14 +271,15 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
       }
       const now = new Date().toISOString()
+      const parent = parentSessionFields(current, args.parentSessionID, now)
       const next: WorkflowState = {
         ...current,
-        session: args.parentSessionID,
-        parent_session_id: args.parentSessionID,
+        session: parent.session,
+        parent_session_id: parent.parent_session_id,
         updated_at: now,
         state_version: nextStateVersion(),
         history: [
-          ...current.history,
+          ...parent.history,
           {
             at: now,
             event: "prepared_task_confirmed",
@@ -308,11 +311,12 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         throw new Error("sp_start approve_design requires the latest passed design report to include artifacts.spec.")
       }
       const now = new Date().toISOString()
+      const parent = parentSessionFields(current, args.parentSessionID, now)
       writeArtifacts(root, current.id, { spec: candidate.record.artifacts.spec })
       const next: WorkflowState = {
         ...current,
-        session: args.parentSessionID,
-        parent_session_id: args.parentSessionID,
+        session: parent.session,
+        parent_session_id: parent.parent_session_id,
         status: "running",
         phase: "design-approved",
         current_phase: "design-approved",
@@ -322,7 +326,7 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         updated_at: now,
         state_version: nextStateVersion(),
         history: [
-          ...current.history,
+          ...parent.history,
           {
             at: now,
             event: "design_approved",
@@ -358,6 +362,7 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       }
       const graph = candidate.record.task_graph ? normalizeTaskGraph(candidate.record.task_graph) : undefined
       const now = new Date().toISOString()
+      const parent = parentSessionFields(current, args.parentSessionID, now)
       writeArtifacts(root, current.id, { plan: candidate.record.artifacts.plan })
       if (graph) {
         writeJson(root, current.id, "task_graph.json", graph)
@@ -366,8 +371,8 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       const next: WorkflowState = {
         ...current,
         activation: "active",
-        session: args.parentSessionID,
-        parent_session_id: args.parentSessionID,
+        session: parent.session,
+        parent_session_id: parent.parent_session_id,
         status: current.workflow === "plan-only" ? "passed" : "running",
         phase: "plan-complete",
         current_phase: "plan-complete",
@@ -378,7 +383,7 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         updated_at: now,
         state_version: nextStateVersion(),
         history: [
-          ...current.history,
+          ...parent.history,
           {
             at: now,
             event: "plan_approved",
@@ -429,6 +434,8 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         throw new Error(`No node run found for pending question source ${expectedNodeID}.`)
       }
       const now = new Date().toISOString()
+      const parentSessionID = args.parentSessionID ?? current.parent_session_id
+      const parent = parentSessionFields(current, parentSessionID, now)
       const resumedNode: NodeRun = {
         ...sourceNode,
         status: "running",
@@ -437,8 +444,8 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       }
       const next: WorkflowState = {
         ...current,
-        session: args.parentSessionID ?? current.session,
-        parent_session_id: args.parentSessionID ?? current.parent_session_id,
+        session: parent.session,
+        parent_session_id: parent.parent_session_id,
         status: "running",
         phase: sourceNode.phase,
         current_phase: sourceNode.phase,
@@ -447,7 +454,7 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         updated_at: now,
         state_version: nextStateVersion(),
         history: [
-          ...current.history,
+          ...parent.history,
           {
             at: now,
             event: "user_input_resumed",
@@ -473,10 +480,14 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
       }
       if (args.decision.kind === "apply_workflow_patch" && (args.decision.workflow_patch || current.pending_workflow_expansion)) {
+        const now = new Date().toISOString()
+        const parentSessionID = args.parentSessionID ?? current.parent_session_id
+        const parent = parentSessionFields(current, parentSessionID, now)
         const base: WorkflowState = {
           ...current,
-          session: args.parentSessionID ?? current.session,
-          parent_session_id: args.parentSessionID ?? current.parent_session_id,
+          session: parent.session,
+          parent_session_id: parent.parent_session_id,
+          history: parent.history,
           status: "running",
         }
         const patched = applyWorkflowExpansionToState(root, base, args.decision.workflow_patch ?? current.pending_workflow_expansion as WorkflowExpansionPatch)
@@ -491,10 +502,12 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       }
       if (args.decision.kind === "replace_orchestration" && args.decision.orchestration && current.workflow_spec) {
         const now = new Date().toISOString()
+        const parentSessionID = args.parentSessionID ?? current.parent_session_id
+        const parent = parentSessionFields(current, parentSessionID, now)
         const next: WorkflowState = {
           ...current,
-          session: args.parentSessionID ?? current.session,
-          parent_session_id: args.parentSessionID ?? current.parent_session_id,
+          session: parent.session,
+          parent_session_id: parent.parent_session_id,
           status: "running",
           phase: "workflow-orchestration-replaced",
           current_phase: "workflow-orchestration-replaced",
@@ -506,7 +519,7 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
           updated_at: now,
           state_version: nextStateVersion(),
           history: [
-            ...current.history,
+            ...parent.history,
             {
               at: now,
               event: "controller_decision_replace_orchestration",
@@ -526,13 +539,15 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         return next
       }
       const now = new Date().toISOString()
+      const parentSessionID = args.parentSessionID ?? current.parent_session_id
+      const parent = parentSessionFields(current, parentSessionID, now)
       const status = statusForControllerDecision(current, args.decision)
       const phase = phaseForControllerDecision(current, args.decision)
       const summary = args.decision.reason ?? `Controller resolved workflow with ${args.decision.kind}.`
       const next: WorkflowState = {
         ...current,
-        session: args.parentSessionID ?? current.session,
-        parent_session_id: args.parentSessionID ?? current.parent_session_id,
+        session: parent.session,
+        parent_session_id: parent.parent_session_id,
         status,
         phase,
         current_phase: phase,
@@ -540,7 +555,7 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         updated_at: now,
         state_version: nextStateVersion(),
         history: [
-          ...current.history,
+          ...parent.history,
           {
             at: now,
             event: `controller_decision_${args.decision.kind}`,
@@ -569,8 +584,7 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       }
       const next: WorkflowState = {
         ...current,
-        session: args.parentSessionID ?? current.session,
-        parent_session_id: args.parentSessionID ?? current.parent_session_id,
+        ...parentSessionFields(current, args.parentSessionID ?? current.parent_session_id, new Date().toISOString()),
         workflow: args.workflow ?? current.workflow,
         entrypoint: args.entrypoint ?? current.entrypoint,
         workflow_spec: args.workflowSpec,
@@ -1592,6 +1606,30 @@ function phaseForRecordEvent(event: WorkflowRecord["event"]): string {
       return "red-test"
     default:
       return event
+  }
+}
+
+function parentSessionFields(state: WorkflowState, parentSessionID: string, at: string): Pick<WorkflowState, "session" | "parent_session_id" | "history"> {
+  if (state.parent_session_id === parentSessionID && state.session === parentSessionID) {
+    return {
+      session: state.session,
+      parent_session_id: state.parent_session_id,
+      history: state.history,
+    }
+  }
+  return {
+    session: parentSessionID,
+    parent_session_id: parentSessionID,
+    history: [
+      ...state.history,
+      {
+        at,
+        event: "parent_session_rebound",
+        from: state.phase,
+        to: state.phase,
+        summary: `Parent session rebound from ${state.parent_session_id} to ${parentSessionID}.`,
+      },
+    ],
   }
 }
 

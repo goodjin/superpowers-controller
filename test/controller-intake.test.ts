@@ -1198,6 +1198,104 @@ describe("sp_prepare and sp_start tools", () => {
     }
   })
 
+  test("sp_start retry from a new controller session rebinds workflow parent session", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-rebind-parent-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add usage records",
+        request: "# Request\n\nAdd usage records.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-old-main",
+      })
+      const oldNode = store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        session_id: "session-impl-old",
+        task_id: "T3",
+        task_markdown: "# Implement T3",
+      })
+      store.recoverInterruptedRunningNodes({
+        reason: "Plugin process started.",
+      })
+      const parentSessions: string[] = []
+      const start = createStartTool(store, {
+        async dispatch(args) {
+          parentSessions.push(args.parentSessionID)
+          return {
+            action: args.decision.action,
+            session_id: "session-impl-new",
+            task_markdown: "# Retry T3",
+          }
+        },
+      })
+
+      const output = await start.execute(
+        { run_id: state.id, task_id: "T3" },
+        { ...toolContext, sessionID: "session-new-main" },
+      )
+      const result = JSON.parse(toolOutput(output))
+      const current = store.readCurrent()
+
+      expect(result.dispatches[0]).toMatchObject({
+        action: "create_session",
+        session_id: "session-impl-new",
+      })
+      expect(parentSessions).toEqual(["session-new-main"])
+      expect(current?.parent_session_id).toBe("session-new-main")
+      expect(current?.session).toBe("session-new-main")
+      expect(current?.history.some((entry) => entry.event === "parent_session_rebound" && entry.summary.includes("session-old-main") && entry.summary.includes("session-new-main"))).toBe(true)
+      expect(current?.node_runs[0]).toMatchObject({
+        id: oldNode.id,
+        session_id: "session-impl-old",
+        status: "interrupted",
+      })
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start called from a child session does not rebind workflow parent session", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-child-no-rebind-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Add usage records",
+        request: "# Request\n\nAdd usage records.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-main",
+      })
+      store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        session_id: "session-impl",
+        task_id: "T3",
+        task_markdown: "# Implement T3",
+      })
+      const start = createStartTool(store, {
+        async dispatch() {
+          throw new Error("unexpected dispatch")
+        },
+      })
+
+      await start.execute(
+        { run_id: state.id },
+        { ...toolContext, sessionID: "session-impl", agent: "sp-implementer" },
+      )
+
+      expect(store.readCurrent()?.parent_session_id).toBe("session-main")
+      expect(store.readCurrent()?.history.some((entry) => entry.event === "parent_session_rebound")).toBe(false)
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("sp_start resume retries a user-selected interrupted task with a new node session", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-start-retry-interrupted-"))
     try {
