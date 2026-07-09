@@ -221,13 +221,8 @@ function startParentProgress(
     readState?: () => WorkflowState | null
   },
 ): void {
-  if (!parentProgress || !args.readState) return
-  if (isForegroundSerialPhase(args.phase)) return
-  parentProgress.start({
-    project: args.project,
-    runID: args.runID,
-    readState: args.readState,
-  })
+  void parentProgress
+  void args
 }
 
 function inlineRequiredArtifacts(args: {

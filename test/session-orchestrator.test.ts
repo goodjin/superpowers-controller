@@ -284,7 +284,7 @@ describe("createSessionOrchestrator", () => {
     expect(order).toEqual(["create", "register", "prompt"])
   })
 
-  test("starts parent progress after node registration and before child prompt", async () => {
+  test("does not start periodic parent progress when dispatching child prompts", async () => {
     const order: string[] = []
     const orchestrator = createSessionOrchestrator(
       {
@@ -336,7 +336,7 @@ describe("createSessionOrchestrator", () => {
       },
     })
 
-    expect(order).toEqual(["create", "register", "parent-progress", "prompt"])
+    expect(order).toEqual(["create", "register", "prompt"])
   })
 
   test("does not start parent progress for foreground serial design and plan nodes", async () => {
