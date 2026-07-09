@@ -146,17 +146,62 @@ export function createReportHandler(deps: {
       })
     }
 
+    const current = deps.store.readCurrent() ?? state
+    if (current.status === "waiting_controller_decision" && deps.orchestrator.notifyParent) {
+      const feedback = buildControllerFeedback(current)
+      try {
+        await deps.orchestrator.notifyParent({
+          sessionID: current.parent_session_id,
+          agent: "superpowers-agent",
+          prompt: buildControllerDecisionPrompt(current, feedback.allowed_controller_decisions),
+        })
+      } catch (error) {
+        await progress.report({
+          stage: "workflow_blocked",
+          title: "Superpowers workflow",
+          message: `Parent controller decision notification failed: ${errorMessage(error)}`,
+          variant: "error",
+        })
+      }
+    }
+
     return JSON.stringify(
       {
-        state: deps.store.readCurrent(),
+        state: current,
         decisions,
         dispatches,
-        controller_feedback: buildControllerFeedback(deps.store.readCurrent() ?? state),
+        controller_feedback: buildControllerFeedback(current),
       },
       null,
       2,
     )
   }
+}
+
+function buildControllerDecisionPrompt(
+  state: WorkflowState,
+  allowedControllerDecisions: ReturnType<typeof buildControllerFeedback>["allowed_controller_decisions"],
+): string {
+  const firstDecision = allowedControllerDecisions[0]
+  return [
+    "# Superpowers workflow waiting for controller decision",
+    "",
+    `Run: ${state.id}`,
+    `Workflow: ${state.workflow}`,
+    `Phase: ${state.current_phase}`,
+    `Status: ${state.status}`,
+    "",
+    "A child node finished its `sp_report`, but the runtime cannot safely continue without a controller decision.",
+    "First call `sp_status` for this run to refresh the runtime facts, then choose one of `allowed_controller_decisions` and call `sp_start(start_action=\"resolve_controller_decision\")` with that exact payload.",
+    "Do not invent a decision outside `allowed_controller_decisions`.",
+    "",
+    "Suggested first available decision:",
+    firstDecision ? `- ${firstDecision.kind}: ${firstDecision.reason}` : "- none available; call sp_status and explain the missing decision list.",
+    "",
+    firstDecision?.payload ? "```json" : "",
+    firstDecision?.payload ? JSON.stringify(firstDecision.payload, null, 2) : "",
+    firstDecision?.payload ? "```" : "",
+  ].filter(Boolean).join("\n")
 }
 
 function userInputNotificationTarget(

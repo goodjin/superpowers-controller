@@ -66,6 +66,7 @@ sp_status -> sp_prepare -> sp_start -> sp_report(terminal/control status) -> tra
 10. 节点会话完成或需要追加中间结果时调用 `sp_report`。
 11. runtime 根据 transition 规则、workflow spec 和 auto expansion policy 派发后续节点，直到 finish、waiting_user、waiting_controller_decision、blocked、failed 或 canceled。后续派发同样是 prompt 调度后返回，不能把上游 `sp_report` 卡到下一个 child session 完成。
 12. 如果节点通过 `sp_report(status="needs_user")` 请求用户输入，runtime 写入 `pending_question`、停止派发，并主动向 `parent_session_id` 投递 controller prompt。该通知调度后 `sp_report` 返回。`superpowers-agent` 在主会话里询问用户；用户回答后，`superpowers-agent` 调用 `sp_start(run_id, resume_input)`，runtime 清空 `pending_question` 并恢复原 child session。
+13. 如果节点通过 `sp_report` 触发 `waiting_controller_decision`，例如 auto expansion policy 不允许自动应用 task graph patch，runtime 保存待裁决内容并主动通知 `parent_session_id` 中的 `superpowers-agent`。通知 prompt 要求主控先调用 `sp_status` 刷新事实，再从 `allowed_controller_decisions` 中选择 payload 并用 `sp_start(start_action="resolve_controller_decision")` 执行。
 
 ## Dispatch Decision Rules
 

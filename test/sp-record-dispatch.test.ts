@@ -80,6 +80,70 @@ describe("sp_report dispatch integration", () => {
     }
   })
 
+  test("workflow expansion waiting for controller decision notifies the parent session", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-record-expansion-notify-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "single-agent",
+        entrypoint: "implement",
+        goal: "One bounded task",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+      })
+      store.setWorkflowSpec({
+        runID: state.id,
+        parentSessionID: "session-main",
+        workflowSpec: createWorkflowSpec({
+          id: `${state.id}-workflow-spec`,
+          kind: "orchestration",
+          title: "Bounded single node",
+          autoExpansionAllow: false,
+          orchestration: {
+            nodes: [{ id: "01-implement", agent: "sp-implementer", phase: "implement" }],
+          },
+        }),
+      })
+      const notifications: Array<{ sessionID: string; agent: string; prompt: string }> = []
+      const handler = createReportHandler({
+        store,
+        orchestrator: {
+          async dispatch() {
+            throw new Error("should not dispatch while waiting for controller decision")
+          },
+          async notifyParent(input: { sessionID: string; agent: string; prompt: string }) {
+            notifications.push(input)
+          },
+        } as never,
+      })
+
+      await handler({
+        event: "plan",
+        status: "passed",
+        summary: "Planner proposed extra work.",
+        artifacts: { plan: "# Plan" },
+        gates: { plan_written: true },
+        workflow_expansion: {
+          reason: "Need one follow-up task.",
+          tasks: [{ id: "T1", title: "Follow-up", summary: "Do follow-up", depends_on: [] }],
+        },
+      })
+
+      expect(store.readCurrent()?.status).toBe("waiting_controller_decision")
+      expect(notifications).toHaveLength(1)
+      expect(notifications[0].sessionID).toBe("session-main")
+      expect(notifications[0].agent).toBe("superpowers-agent")
+      expect(notifications[0].prompt).toContain("waiting for controller decision")
+      expect(notifications[0].prompt).toContain("sp_status")
+      expect(notifications[0].prompt).toContain("sp_start")
+      expect(notifications[0].prompt).toContain("resolve_controller_decision")
+      expect(notifications[0].prompt).toContain("apply_workflow_patch")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("workflow expansion creates runnable tasks when auto expansion is allowed", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-record-expansion-apply-"))
     try {
