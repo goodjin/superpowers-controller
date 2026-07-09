@@ -20,7 +20,7 @@ const EXCLUDED_SKILL_DIRS = new Set([
 
 export function mergePluginEntry(content: string, pluginEntry = PACKAGE_NAME): string {
   let output = mergePluginArray(content, pluginEntry)
-  const defaultAgentEdits = modify(output, ["default_agent"], "super-agent", {
+  const defaultAgentEdits = modify(output, ["default_agent"], "superpowers-agent", {
     formattingOptions: { insertSpaces: true, tabSize: 2 },
   })
   return applyEdits(output, defaultAgentEdits)
@@ -49,7 +49,7 @@ function mergePluginArray(content: string, pluginEntry: string): string {
   return applyEdits(output, pluginEdits)
 }
 
-export function mergeDefaultAgent(content: string, agent = "super-agent"): string {
+export function mergeDefaultAgent(content: string, agent = "superpowers-agent"): string {
   const edits = modify(content || "{}", ["default_agent"], agent, {
     formattingOptions: { insertSpaces: true, tabSize: 2 },
   })

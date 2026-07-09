@@ -57,8 +57,8 @@ export function doctor(
     },
     {
       name: "default-agent",
-      ok: parsedConfig?.default_agent === "super-agent",
-      detail: "default_agent should be super-agent",
+      ok: parsedConfig?.default_agent === "superpowers-agent",
+      detail: "default_agent should be superpowers-agent",
     },
     {
       name: "plugin-config",
@@ -73,7 +73,7 @@ export function doctor(
     {
       name: "entrypoint",
       ok: true,
-      detail: "select the super-agent agent in OpenCode",
+      detail: "select the superpowers-agent agent in OpenCode",
     },
     {
       name: "state-dir",

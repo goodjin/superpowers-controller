@@ -359,7 +359,7 @@ describe("sp_report dispatch integration", () => {
       ])
       expect(notifications).toHaveLength(1)
       expect(notifications[0].sessionID).toBe("session-main")
-      expect(notifications[0].agent).toBe("super-agent")
+      expect(notifications[0].agent).toBe("superpowers-agent")
       expect(notifications[0].prompt).toContain("waiting for user input")
       expect(notifications[0].prompt).toContain("Use strict gates?")
       expect(notifications[0].prompt).toContain("sp_start")

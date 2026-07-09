@@ -54,18 +54,18 @@ sp_status -> sp_prepare -> sp_start -> sp_report(terminal/control status) -> tra
 
 ## Control Flow
 
-1. `super-agent` 先调用 `sp_status` 判断是否有当前 workflow 或未完成历史 workflow。
-2. 新任务、需要改变任务/范围的恢复动作，或需要从 source workflow 派生新 run 时，`super-agent` 调用 `sp_prepare`，传入确认后的 `task_brief`、可选 design participation 和可选 source workflow。
+1. `superpowers-agent` 先调用 `sp_status` 判断是否有当前 workflow 或未完成历史 workflow。
+2. 新任务、需要改变任务/范围的恢复动作，或需要从 source workflow 派生新 run 时，`superpowers-agent` 调用 `sp_prepare`，传入确认后的 `task_brief`、可选 design participation 和可选 source workflow。
 3. `sp_prepare` 创建 `draft` prepared task，写入 request/task/proposal/state/documents 文件，并生成 prepare-stage `workflow-spec.json`。如果 controller 选择让 designer/planner 参与 prepare，它们的输出只补充 candidate context 和确认摘要。
-4. `super-agent` 把 `sp_prepare` 返回的 confirmation summary、workflow spec 摘要和风险/边界展示给用户。没有用户确认，runtime 不进入正式执行。
-5. 用户确认后，`super-agent` 调用 `sp_start(action="start_prepared_task", prepared_task_id, confirmation, start_config)`。`confirmation` 记录用户确认目标、时间和来源；`start_config` 记录本次要启动的内置 template 或自定义 orchestration。
+4. `superpowers-agent` 把 `sp_prepare` 返回的 confirmation summary、workflow spec 摘要和风险/边界展示给用户。没有用户确认，runtime 不进入正式执行。
+5. 用户确认后，`superpowers-agent` 调用 `sp_start(action="start_prepared_task", prepared_task_id, confirmation, start_config)`。`confirmation` 记录用户确认目标、时间和来源；`start_config` 记录本次要启动的内置 template 或自定义 orchestration。
 6. `sp_start` 校验 prepared task、confirmation、state version 和 start config，必要时把 start config 合并进 `workflow-spec.json`，将 run 激活为 `active`。
 7. runtime 根据 `workflow-spec.json`、task graph、node_runs 和 current phase 计算 dispatch。它不把 workflow kind、entrypoint 或 event 名称当成固定派发捷径。
 8. 如果节点通过 `sp_report` 提交 `workflow_expansion`，runtime 先校验并 patch `workflow-spec.json` / `task_graph.json`，再按更新后的 spec 派发下一步；不允许自动扩展时进入 `waiting_controller_decision`。
 9. `sp_start` 只等待必要的 session 创建和 node registration，不等待 child session turn 完成。
 10. 节点会话完成或需要追加中间结果时调用 `sp_report`。
 11. runtime 根据 transition 规则、workflow spec 和 auto expansion policy 派发后续节点，直到 finish、waiting_user、waiting_controller_decision、blocked、failed 或 canceled。后续派发同样是 prompt 调度后返回，不能把上游 `sp_report` 卡到下一个 child session 完成。
-12. 如果节点通过 `sp_report(status="needs_user")` 请求用户输入，runtime 写入 `pending_question`、停止派发，并主动向 `parent_session_id` 投递 controller prompt。该通知调度后 `sp_report` 返回。`super-agent` 在主会话里询问用户；用户回答后，`super-agent` 调用 `sp_start(run_id, resume_input)`，runtime 清空 `pending_question` 并恢复原 child session。
+12. 如果节点通过 `sp_report(status="needs_user")` 请求用户输入，runtime 写入 `pending_question`、停止派发，并主动向 `parent_session_id` 投递 controller prompt。该通知调度后 `sp_report` 返回。`superpowers-agent` 在主会话里询问用户；用户回答后，`superpowers-agent` 调用 `sp_start(run_id, resume_input)`，runtime 清空 `pending_question` 并恢复原 child session。
 
 ## Dispatch Decision Rules
 
@@ -126,12 +126,12 @@ workflow template 提供 controller 可选的默认 orchestration、task graph p
 - dispatch 创建失败会登记 `dispatch_failed` node，并让 workflow 进入 `waiting_user_decision`，`controller_feedback.allowed_controller_decisions` 给出可执行裁决。
 - `allowed_controller_decisions` 当前支持 `retry_node`、`continue_existing_graph`、`accept_partial_result`、`mark_blocked`、`request_reprepare`、`apply_workflow_patch`、`replace_orchestration`。主控必须选择其中一个并用 `sp_start(start_action="resolve_controller_decision")` 执行；插件会校验裁决是否仍适用于当前 `state_version` 和状态。
 - `retry_node` 会记录 `controller_decision_retry_node` 事件，并为目标 node 的 agent 创建 fresh child session。`continue_existing_graph` 会从当前结构化 state 重新计算 transition。`apply_workflow_patch` 会应用 `pending_workflow_expansion` 或传入的 `workflow_patch`；`replace_orchestration` 会替换 `workflow_spec.orchestration`。`accept_partial_result`、`mark_blocked`、`request_reprepare` 只改变 workflow state 和审计记录，不派发 child session。
-- `needs_user` 由节点通过 `sp_report` 上报。runtime 不派发后续节点，而是通知 `parent_session_id` 中的 `super-agent`。`super-agent` 只负责在主会话中向用户提问，并在用户回答后调用 `sp_start(run_id, resume_input)`；插件负责校验 `source_node_id`、清空 `pending_question`、恢复原 child session。节点 agent 不能绕过 runtime 调 OpenCode 原生 question。
+- `needs_user` 由节点通过 `sp_report` 上报。runtime 不派发后续节点，而是通知 `parent_session_id` 中的 `superpowers-agent`。`superpowers-agent` 只负责在主会话中向用户提问，并在用户回答后调用 `sp_start(run_id, resume_input)`；插件负责校验 `source_node_id`、清空 `pending_question`、恢复原 child session。节点 agent 不能绕过 runtime 调 OpenCode 原生 question。
 
 ## Control-Plane Invariants
 
 - 插件是 workflow state machine 的所有者；模型不能用 prompt 自己决定下一个 node。
-- `super-agent` 只负责用户交互、确认和调用 public tools，不直接做节点工作。
+- `superpowers-agent` 只负责用户交互、确认和调用 public tools，不直接做节点工作。
 - 节点 agent 只处理自己的 node packet，结束时通过 `sp_report` 交回结构化结果。
 - transition 只读取结构化 state、record 和 task graph；markdown artifacts 是审计和上下文，不是状态判断来源。
 - 创建 child session 前必须先准备可审计 packet，session 创建后必须登记 `node_runs`，再发送 child prompt。
@@ -139,13 +139,13 @@ workflow template 提供 controller 可选的默认 orchestration、task graph p
 - progress 是 UI/log side-channel，不是 workflow transition 输入。
 - `sp_status` 可以返回 durable、progress 和 live 三层信息：durable 是已加载到 runtime memory 的快照，progress 是 child session 事件日志，live 只有 host API 可访问时才代表当前内存状态；工具上下文拿不到 live API 时必须标注 unavailable，不能把 durable `running` 伪装成 live busy。
 - `allowed_controller_decisions` 是插件给主控的安全边界，不是插件替主控做智能判断。插件只列出当前状态下 runtime 能执行且能落盘审计的动作；是否重试、接受部分结果、重新 prepare 或阻塞，由主控结合用户目标决定。
-- 用户问 workflow 或 child session 当前进展时，`super-agent` 使用 `sp_status(include_progress=true)` 查询，并把返回的 `progress_digest` 简短总结给用户。这个 digest 是主会话灰色工具结果的按需摘要，不是实时流式进度入口。
+- 用户问 workflow 或 child session 当前进展时，`superpowers-agent` 使用 `sp_status(include_progress=true)` 查询，并把返回的 `progress_digest` 简短总结给用户。这个 digest 是主会话灰色工具结果的按需摘要，不是实时流式进度入口。
 
 ## Notes
 
 - public tool surface 只包含 `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
 - `sp_prepare` 是 prepared task 和 prepare-stage workflow spec 的入口；`sp_start` 只启动已确认 workflow/task，不负责重新拆任务。
 - `entrypoint=execute` 会启动 `feature` workflow 的执行入口。没有更具体 durable state 时，它从 `sp-implementer` 开始；已有 active run 的恢复仍由 state、node_runs 和 task graph 决定。
-- proposal markdown 给用户和 super-agent 读；插件判断只依赖结构化字段。
+- proposal markdown 给用户和 superpowers-agent 读；插件判断只依赖结构化字段。
 - progress 是 side-channel UI/log 提示，不进入模型上下文，也不改变确认语义。
 - 产品展示名是 `Superpowers Controller`。当前模块运行在 OpenCode adapter 上，但 controller 的职责描述不应绑定单一 harness。

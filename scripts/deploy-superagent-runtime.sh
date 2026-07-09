@@ -108,7 +108,7 @@ export HOME="\$ROOT/home"
 export XDG_CONFIG_HOME="\$ROOT/home/.config"
 if [[ \$# -eq 0 ]]; then
   mkdir -p "\$PROJECT_DIR"
-  exec "$OPENCODE_BIN" "\$PROJECT_DIR" --agent "super-agent"
+  exec "$OPENCODE_BIN" "\$PROJECT_DIR" --agent "superpowers-agent"
 fi
 exec "$OPENCODE_BIN" "\$@"
 SH
@@ -231,7 +231,7 @@ wait_for_assets() {
 
 verify_runtime() {
   "$LAUNCHER" --version
-  "$LAUNCHER" agent list | grep -E '^(super-agent|sp-)' >/dev/null
+  "$LAUNCHER" agent list | grep -E '^(superpowers-agent|sp-)' >/dev/null
 }
 
 deploy() {

@@ -17,7 +17,7 @@ export type NodeAgentName = keyof typeof AGENT_SKILL_MAP
 export type ModeDefinition = {
   mode: WorkflowMode
   phase: string
-  agent: "super-agent" | NodeAgentName
+  agent: "superpowers-agent" | NodeAgentName
   skills: string[]
   primary_skill?: string
   required_gates: WorkflowGate[]
@@ -43,7 +43,7 @@ export const MODE_DEFINITIONS: Record<WorkflowMode, ModeDefinition> = {
   idle: {
     mode: "idle",
     phase: "clarify",
-    agent: "super-agent",
+    agent: "superpowers-agent",
     skills: [],
     required_gates: [],
     next: "Clarify intent, detect existing workflow state, and ask for confirmation before dispatch.",

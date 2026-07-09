@@ -562,7 +562,7 @@ describe("createSessionOrchestrator", () => {
 
     await withTimeout(orchestrator.notifyParent({
       sessionID: "session-main",
-      agent: "super-agent",
+      agent: "superpowers-agent",
       prompt: "Workflow is waiting for user input.",
     }))
 

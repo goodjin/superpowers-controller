@@ -48,8 +48,8 @@ export function evaluateToolGate(args: {
     return resultForMode(args.config.tdd, "red_test_seen gate is required before production code writes")
   }
 
-  if (args.agent === "super-agent") {
-    return resultForMode(args.config.mode, "super-agent cannot execute mutating production tools")
+  if (args.agent === "superpowers-agent") {
+    return resultForMode(args.config.mode, "superpowers-agent cannot execute mutating production tools")
   }
 
   return allow()
@@ -64,15 +64,15 @@ function isNativeTaskTool(tool: string): boolean {
 }
 
 function isSuperpowersAgent(agent: string | undefined): boolean {
-  return agent === "super-agent" || agent?.startsWith("sp-") === true
+  return agent === "superpowers-agent" || agent?.startsWith("sp-") === true
 }
 
 function evaluateSkillToolGate(agent: string | undefined, toolArgs: Record<string, unknown>): GateResult {
-  if (agent === "super-agent") {
+  if (agent === "superpowers-agent") {
     return {
       allowed: false,
       severity: "blocked",
-      reason: "super-agent cannot load skills; use sp_prepare or sp_start so node agents load plugin-assigned primary skills",
+      reason: "superpowers-agent cannot load skills; use sp_prepare or sp_start so node agents load plugin-assigned primary skills",
     }
   }
   if (isNodeAgentName(agent)) {

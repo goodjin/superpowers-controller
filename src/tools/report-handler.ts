@@ -181,7 +181,7 @@ function userInputNotificationTarget(
   }
   return {
     sessionID: state.parent_session_id,
-    agent: "super-agent",
+    agent: "superpowers-agent",
     conversation: "main",
     label: "Parent",
   }

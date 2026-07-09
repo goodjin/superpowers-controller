@@ -85,7 +85,7 @@ describe("evaluateToolGate", () => {
     expect(result.reason).toContain("red_test_seen")
   })
 
-  test("super-agent cannot execute mutating production tools", () => {
+  test("superpowers-agent cannot execute mutating production tools", () => {
     const state = createInitialState({
       id: "run-1",
       project: "/repo",
@@ -98,17 +98,17 @@ describe("evaluateToolGate", () => {
     const result = evaluateToolGate({
       config: { ...DEFAULT_CONFIG, mode: "strict" },
       state,
-      agent: "super-agent",
+      agent: "superpowers-agent",
       tool: "edit",
       args: { filePath: "src/plugin.ts" },
     })
 
     expect(result.allowed).toBe(false)
-    expect(result.reason).toContain("super-agent")
+    expect(result.reason).toContain("superpowers-agent")
   })
 
   test("superpowers agents cannot call native task even without active state", () => {
-    for (const agent of ["super-agent", "sp-implementer"]) {
+    for (const agent of ["superpowers-agent", "sp-implementer"]) {
       const result = evaluateToolGate({
         config: { ...DEFAULT_CONFIG, mode: "off" },
         state: null,
@@ -123,18 +123,18 @@ describe("evaluateToolGate", () => {
     }
   })
 
-  test("super-agent cannot call native skill even without active state", () => {
+  test("superpowers-agent cannot call native skill even without active state", () => {
     const result = evaluateToolGate({
       config: { ...DEFAULT_CONFIG, mode: "off" },
       state: null,
-      agent: "super-agent",
+      agent: "superpowers-agent",
       tool: "skill",
       args: { skill: "superpowers-brainstorming" },
     })
 
     expect(result.allowed).toBe(false)
     expect(result.severity).toBe("blocked")
-    expect(result.reason).toContain("super-agent cannot load skills")
+    expect(result.reason).toContain("superpowers-agent cannot load skills")
   })
 
   test("node agents can only call their assigned primary skill", () => {

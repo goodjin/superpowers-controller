@@ -41,7 +41,7 @@ describe("sp_status tool", () => {
         {
           sessionID: "session-main",
           messageID: "message-1",
-          agent: "super-agent",
+          agent: "superpowers-agent",
           directory: project,
           worktree: project,
           abort: new AbortController().signal,
@@ -93,7 +93,7 @@ describe("sp_status tool", () => {
         {
           sessionID: "session-1",
           messageID: "message-1",
-          agent: "super-agent",
+          agent: "superpowers-agent",
           directory: project,
           worktree: project,
           abort: new AbortController().signal,
@@ -167,7 +167,7 @@ describe("sp_status tool", () => {
         {
           sessionID: "session-main",
           messageID: "message-1",
-          agent: "super-agent",
+          agent: "superpowers-agent",
           directory: project,
           worktree: project,
           abort: new AbortController().signal,
@@ -253,7 +253,7 @@ describe("sp_status tool", () => {
         {
           sessionID: "session-main",
           messageID: "message-1",
-          agent: "super-agent",
+          agent: "superpowers-agent",
           directory: project,
           worktree: project,
           abort: new AbortController().signal,
@@ -335,7 +335,7 @@ describe("sp_status tool", () => {
         {
           sessionID: "session-main",
           messageID: "message-1",
-          agent: "super-agent",
+          agent: "superpowers-agent",
           directory: project,
           worktree: project,
           abort: new AbortController().signal,
@@ -417,7 +417,7 @@ describe("sp_status tool", () => {
         {
           sessionID: "session-main",
           messageID: "message-1",
-          agent: "super-agent",
+          agent: "superpowers-agent",
           directory: project,
           worktree: project,
           abort: new AbortController().signal,
@@ -475,7 +475,7 @@ describe("sp_status tool", () => {
         {
           sessionID: "session-main",
           messageID: "message-1",
-          agent: "super-agent",
+          agent: "superpowers-agent",
           directory: project,
           worktree: project,
           abort: new AbortController().signal,
@@ -559,7 +559,7 @@ describe("sp_cancel tool", () => {
         {
           sessionID: "session-main",
           messageID: "message-1",
-          agent: "super-agent",
+          agent: "superpowers-agent",
           directory: project,
           worktree: project,
           abort: new AbortController().signal,

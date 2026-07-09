@@ -74,6 +74,6 @@ describe("routeWorkflow", () => {
 
     expect(route.mode).toBe("idle")
     expect(route.phase).toBe("clarify")
-    expect(route.agent).toBe("super-agent")
+    expect(route.agent).toBe("superpowers-agent")
   })
 })

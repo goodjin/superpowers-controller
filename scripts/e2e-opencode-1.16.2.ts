@@ -29,7 +29,7 @@ if (agents.status !== 0) {
 }
 
 for (const name of [
-  "super-agent",
+  "superpowers-agent",
   "sp-designer",
   "sp-planner",
   "sp-debugger",

@@ -24,7 +24,7 @@ describe("mergePluginEntry", () => {
     expect(output).toContain('"model": "anthropic/claude"')
     expect(output).toContain('"other-plugin"')
     expect(output).toContain('"superpowers-controller"')
-    expect(output).toContain('"default_agent": "super-agent"')
+    expect(output).toContain('"default_agent": "superpowers-agent"')
     expect(output).toContain('"agent"')
   })
 
@@ -40,13 +40,13 @@ describe("mergePluginEntry", () => {
     expect(matches).toHaveLength(1)
   })
 
-  test("sets the OpenCode default agent to super-agent", () => {
+  test("sets the OpenCode default agent to superpowers-agent", () => {
     const output = mergeDefaultAgent(`{
   "default_agent": "general"
 }
 `)
 
-    expect(output).toContain('"default_agent": "super-agent"')
+    expect(output).toContain('"default_agent": "superpowers-agent"')
     expect(output).not.toContain('"general"')
   })
 
@@ -160,7 +160,7 @@ describe("mergePluginEntry", () => {
     const tuiMatches = tuiConfig.match(/superpowers-controller\/tui/g) ?? []
     expect(matches).toHaveLength(1)
     expect(tuiMatches).toHaveLength(1)
-    expect(config).toContain('"default_agent": "super-agent"')
+    expect(config).toContain('"default_agent": "superpowers-agent"')
     expect(existsSync(join(home, ".config", "opencode", "superpowers-controller.jsonc"))).toBe(true)
     expect(readdirSync(join(home, ".config", "opencode", "skills")).filter((entry) => entry.startsWith("superpowers-")).length).toBeGreaterThan(0)
     expect(existsSync(join(cacheRoot, "superpowers-controller", "node_modules", "superpowers-controller", "package.json"))).toBe(true)

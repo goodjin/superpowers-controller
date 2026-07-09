@@ -7,7 +7,7 @@ import { createServer } from "node:net"
 import type { AddressInfo } from "node:net"
 
 describe("deploy-superagent-runtime", () => {
-  test("persists global allow permissions and writes a super-agent TUI launcher", () => {
+  test("persists global allow permissions and writes a superpowers-agent TUI launcher", () => {
     const tempHome = mkdtempSync(join(tmpdir(), "sp-superagent-home-"))
     const runtimeRoot = mkdtempSync(join(tmpdir(), "sp-superagent-runtime-"))
 
@@ -46,7 +46,7 @@ describe("deploy-superagent-runtime", () => {
     expect(launcher).toContain(`DEPLOY_SCRIPT="${process.cwd()}/scripts/deploy-superagent-runtime.sh"`)
     expect(launcher).toContain('start|stop|restart|status)')
     expect(launcher).toContain('exec "$DEPLOY_SCRIPT" "$1"')
-    expect(launcher).toContain('--agent "super-agent"')
+    expect(launcher).toContain('--agent "superpowers-agent"')
   }, 180_000)
 
   test("stop falls back to the port listener when the pid file is stale", async () => {

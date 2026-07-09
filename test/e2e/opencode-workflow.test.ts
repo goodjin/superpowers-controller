@@ -313,14 +313,14 @@ describe("OpenCode 工作流 e2e", () => {
     )
   }, 120_000)
 
-  test("super-agent 原生 task 调用被 Controller 拦截", async () => {
+  test("superpowers-agent 原生 task 调用被 Controller 拦截", async () => {
     await e2eLog.scenario(
-      "super-agent native task 阻断",
-      "super-agent 不能绕过 Controller 直接创建子会话；原生 task 应从可用工具中移除或被硬阻断。",
+      "superpowers-agent native task 阻断",
+      "superpowers-agent 不能绕过 Controller 直接创建子会话；原生 task 应从可用工具中移除或被硬阻断。",
       async (log) => {
-        log.step("创建隔离 OpenCode harness", "以 --agent super-agent 启动，模拟 superagent 主会话")
+        log.step("创建隔离 OpenCode harness", "以 --agent superpowers-agent 启动，模拟 superagent 主会话")
         harness = await createOpencodeE2EHarness()
-        const requestId = "super-agent-native-task-block"
+        const requestId = "superpowers-agent-native-task-block"
 
         log.step("注册 mock LLM 响应", "第一轮故意调用原生 task，第二轮在工具错误返回后结束")
         await harness.mock.expect([
@@ -335,8 +335,8 @@ describe("OpenCode 工作流 e2e", () => {
         log.step("运行 opencode", "native task 应该不可用，或被 tool.execute.before 硬阻断")
         const result = await harness.runOpencode({
           title: "Native task block",
-          agent: "super-agent",
-          message: `[e2e_trace_id:super-agent-native-task-block] [llm_request_id:${requestId}] 直接派发 T5`,
+          agent: "superpowers-agent",
+          message: `[e2e_trace_id:superpowers-agent-native-task-block] [llm_request_id:${requestId}] 直接派发 T5`,
         })
 
         expect(result.code).toBe(0)
@@ -1120,23 +1120,23 @@ describe("OpenCode 工作流 e2e", () => {
     )
   }, 70_000)
 
-  test("super-agent 严格走 prepare-review-start 和完整执行链路", async () => {
+  test("superpowers-agent 严格走 prepare-review-start 和完整执行链路", async () => {
     await e2eLog.scenario(
       "prepare 到 start 的完整链路",
-      "super-agent 先路由和确认，再 prepare 生成正式计划，审查通过后调用 sp_start(run_id)，随后由插件驱动实现、评审、验证和结束节点。",
+      "superpowers-agent 先路由和确认，再 prepare 生成正式计划，审查通过后调用 sp_start(run_id)，随后由插件驱动实现、评审、验证和结束节点。",
       async (log) => {
         log.step("创建启用子节点 prompt 的 harness", "需要记录 planner 和后续节点的真实任务 prompt")
         harness = await createOpencodeE2EHarness({ enableChildPrompts: true } as never)
         const routeRequestId = "feature-prepare-route"
 
-        log.step("第一轮只查询状态和确认提示", "super-agent 应先检查当前 workflow，而不是直接进入实现")
+        log.step("第一轮只查询状态和确认提示", "superpowers-agent 应先检查当前 workflow，而不是直接进入实现")
         await harness.mock.expect([
           toolCall(routeRequestId, "sp_status", {}),
           textResponse(routeRequestId, "No active workflow. I need confirmation before prepare."),
         ])
 
         const routeResult = await harness.runOpencode({
-          agent: "super-agent",
+          agent: "superpowers-agent",
           title: "Feature route",
           message:
             "[e2e_trace_id:feature-prepare-route] [llm_request_id:feature-prepare-route] 给任务运行面板增加按状态筛选和批量重试确认流程",
@@ -1174,7 +1174,7 @@ describe("OpenCode 工作流 e2e", () => {
         ])
 
         const prepareResult = await harness.runOpencode({
-          agent: "super-agent",
+          agent: "superpowers-agent",
           title: "Feature prepare",
           timeoutMs: 60_000,
           message:
@@ -1317,7 +1317,7 @@ describe("OpenCode 工作流 e2e", () => {
         ])
 
         const startResult = await harness.runOpencode({
-          agent: "super-agent",
+          agent: "superpowers-agent",
           title: "Feature start",
           timeoutMs: 90_000,
           message:
@@ -1383,7 +1383,7 @@ describe("OpenCode 工作流 e2e", () => {
           event: "verification",
           status: "passed",
         })
-        log.verify("super-agent 只负责管控，prepare-review-start 之后由插件按预期节点链路完成执行")
+        log.verify("superpowers-agent 只负责管控，prepare-review-start 之后由插件按预期节点链路完成执行")
       },
     )
   }, 120_000)

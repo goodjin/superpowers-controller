@@ -522,7 +522,7 @@ main() {
   log "Validate OpenCode can see the agent with: opencode agent list"
   log "Validate TUI config with: test -f ~/.config/opencode/tui.json -o -f ~/.config/opencode/tui.jsonc"
   log "Restart OpenCode after installation so the TUI plugin is loaded."
-  log "Start with: opencode --agent super-agent"
+  log "Start with: opencode --agent superpowers-agent"
   log_timing "install total" "$total_start"
 }
 

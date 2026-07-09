@@ -2,7 +2,7 @@
 
 Superpowers Controller is a plugin for using the Superpowers framework through an Agent.
 
-After installation, the default entrypoint is set to `super-agent`.
+After installation, the default entrypoint is set to `superpowers-agent`.
 
 This Agent follows the Superpowers rules and workflow, and automatically uses the relevant Skills without manual triggering.
 
@@ -25,7 +25,7 @@ bunx superpowers-controller doctor
 opencode agent list
 ```
 
-The installer sets OpenCode `default_agent` to `super-agent`. Start normally:
+The installer sets OpenCode `default_agent` to `superpowers-agent`. Start normally:
 
 ```bash
 opencode
@@ -34,7 +34,7 @@ opencode
 You can also select it explicitly:
 
 ```bash
-opencode --agent super-agent
+opencode --agent superpowers-agent
 ```
 
 To build this repository and install from source:
@@ -53,7 +53,7 @@ This local install path uses the CLI from the current checkout to write OpenCode
 
 The original Superpowers approach mainly carries working methods through Skills. Skills are lightweight and easy to extend, but long-running work makes the cost visible: too many Skills in one main conversation produce longer, noisier context. Subagents can isolate individual nodes, but orchestration, result collection, failure handling, and continuation still tend to fall back to the main conversation.
 
-Superpowers Controller wraps Skill usage inside an Agent flow. The user selects `super-agent`; the Agent calls the right Skill for the current step; the plugin runtime saves workflow state, validates gates, records artifacts, schedules the next step, and recovers after restarts.
+Superpowers Controller wraps Skill usage inside an Agent flow. The user selects `superpowers-agent`; the Agent calls the right Skill for the current step; the plugin runtime saves workflow state, validates gates, records artifacts, schedules the next step, and recovers after restarts.
 
 Persistence is part of the design. Prepare, start, report, gates, node results, and exceptional states are written to project-local files, so interrupted work can resume and later sessions can audit why the workflow moved to a given step.
 
@@ -62,13 +62,13 @@ Think of it as a dynamic workflow implementation. The controller can generate or
 ## Components
 
 ```text
-super-agent -> Node Session -> Node Agent -> Primary Skill
+superpowers-agent -> Node Session -> Node Agent -> Primary Skill
       |
       v
 State / Router / Gate / Session Control
 ```
 
-- **super-agent**: user entrypoint. It understands the request, prepares the task, restores state, and creates or reuses node sessions.
+- **superpowers-agent**: user entrypoint. It understands the request, prepares the task, restores state, and creates or reuses node sessions.
 - **Node agent**: focused role such as `sp-debugger`, `sp-implementer`, or `sp-verifier`.
 - **Primary skill**: node method, such as systematic debugging, TDD, or verification.
 - **Plugin runtime**: owns state, routing, gates, session control, artifact recording, and recovery.

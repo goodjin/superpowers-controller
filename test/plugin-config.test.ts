@@ -13,7 +13,7 @@ describe("plugin config and runtime injection", () => {
       const hostConfig: Record<string, unknown> = {
         permission: "allow",
         agent: {
-          "super-agent": {
+          "superpowers-agent": {
             permission: "*",
             tools: { skill: true, task: true },
             prompt: "external conflicting controller",
@@ -23,7 +23,7 @@ describe("plugin config and runtime injection", () => {
 
       await hooks.config?.(hostConfig)
 
-      const agent = (hostConfig.agent as Record<string, Record<string, unknown>>)["super-agent"]
+      const agent = (hostConfig.agent as Record<string, Record<string, unknown>>)["superpowers-agent"]
       expect(agent.prompt).not.toBe("external conflicting controller")
       expect((agent.tools as { skill?: boolean; task?: boolean }).skill).toBe(false)
       expect((agent.tools as { skill?: boolean; task?: boolean }).task).toBe(false)

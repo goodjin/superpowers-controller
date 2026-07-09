@@ -525,7 +525,7 @@ describe("Superpowers TUI plugin", () => {
         { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
       )
 
-      const controllerSidebar = sidebarSlot({ session: { id: "session-new-controller", agent: "super-agent" } }) as { type: string; value: string }
+      const controllerSidebar = sidebarSlot({ session: { id: "session-new-controller", agent: "superpowers-agent" } }) as { type: string; value: string }
       expect(controllerSidebar.type).toBe("text")
       expect(controllerSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
       expect(controllerSidebar.value).toContain("sp-implementer T1: running - controller fallback progress")

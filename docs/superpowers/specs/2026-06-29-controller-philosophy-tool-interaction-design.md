@@ -50,7 +50,7 @@ controller 设计启动配置时应从任务性质选择这些纪律。例如 bu
 
 ### 2.4 Controller 只控流，不做节点工作
 
-`super-agent` 是总控，不是实现者。它应该理解需求、规划 workflow、解释状态、向用户确认关键点，并通过 public tools 推进运行时。
+`superpowers-agent` 是总控，不是实现者。它应该理解需求、规划 workflow、解释状态、向用户确认关键点，并通过 public tools 推进运行时。
 
 边界要求：
 
@@ -82,7 +82,7 @@ controller 设计启动配置时应从任务性质选择这些纪律。例如 bu
 
 ## 3. Controller Prompt 设计
 
-应在 `super-agent` prompt 中加入一个独立的 Superpowers Operating Principles 区块。该区块要指导 controller 先 prepare，再 start，而不是重复固定 v4 流程。
+应在 `superpowers-agent` prompt 中加入一个独立的 Superpowers Operating Principles 区块。该区块要指导 controller 先 prepare，再 start，而不是重复固定 v4 流程。
 
 建议 prompt 文案如下，后续实现可直接改写进 `src/agents/index.ts`：
 
@@ -295,7 +295,7 @@ When runtime state is confusing, call sp_status and follow controller_feedback. 
 
 插件在 OpenCode config 阶段注入：
 
-- `super-agent` 总控 agent。
+- `superpowers-agent` 总控 agent。
 - `sp-*` node agents。
 - public tools: `sp_status`、`sp_prepare`、`sp_start`、`sp_cancel`、`sp_report`。
 - agent permissions: controller 禁止 native task 和业务 skill；node 禁止 native task/question，只允许指定 primary skill。
@@ -304,7 +304,7 @@ When runtime state is confusing, call sp_status and follow controller_feedback. 
 
 ### 5.2 主会话控制循环
 
-主会话里的 `super-agent` 只做控制循环：
+主会话里的 `superpowers-agent` 只做控制循环：
 
 ```text
 user request
@@ -353,9 +353,9 @@ node prompt 应包含 scoped task、required context、source artifacts、expect
 node agent -> sp_report(status="needs_user", question=...)
 plugin writes pending_question
 plugin notifies parent controller session and updates TUI focus/attention
-super-agent asks user in main conversation, or TUI keeps the focused child session available for direct user reply
+superpowers-agent asks user in main conversation, or TUI keeps the focused child session available for direct user reply
 user answers
-super-agent -> sp_start(resume_input)
+superpowers-agent -> sp_start(resume_input)
 plugin resumes original child session
 ```
 
@@ -757,8 +757,8 @@ node 通过 `consumes` 和 `produces` 引用 document id。`kind="workflow_artif
 
 从现有代码看，后续实现至少需要补齐这些点：
 
-- `src/agents/index.ts` 的 `super-agent` prompt 仍强调 v4 planning-driven 固定顺序，需要替换成动态 workflow principles。
-- `super-agent` prompt 需要加入 prepare-first 工具协议、prepare 阶段 designer 参与判断、built-in workflow templates 和常用 workflow 示例，但明确 templates/examples 不是插件智能建议。
+- `src/agents/index.ts` 的 `superpowers-agent` prompt 仍强调 v4 planning-driven 固定顺序，需要替换成动态 workflow principles。
+- `superpowers-agent` prompt 需要加入 prepare-first 工具协议、prepare 阶段 designer 参与判断、built-in workflow templates 和常用 workflow 示例，但明确 templates/examples 不是插件智能建议。
 - `sp_prepare` 当前仍围绕固定 kind / prepare mode，需要改为 task preparation、既有 artifact persistence、confirmation summary，并支持 prepare-phase designer participation 和 prepare-stage `workflow-spec.json`。
 - `sp_start` 需要支持 `prepared_task_id`、`StartConfirmation`、`StartConfig`，以及 `built_in_workflow` / `orchestration` 两类启动配置；orchestration 允许只有一个 node。
 - transition 仍主要由固定 router/workflow 规则驱动，需要改为读取 `state.json`、`workflow-spec.json` 和 node result。
@@ -794,7 +794,7 @@ node 通过 `consumes` 和 `produces` 引用 document id。`kind="workflow_artif
 
 实现可以分五步：
 
-1. 先改 `super-agent` prompt 和 agent catalog 文档，让 controller 规划理念先对齐 v5。
+1. 先改 `superpowers-agent` prompt 和 agent catalog 文档，让 controller 规划理念先对齐 v5。
 2. 扩展 `sp_prepare` / state schema，支持 task preparation、既有 artifact persistence、confirmation summary、prepare-phase designer participation、prepare-stage `workflow-spec.json` 和 `documents` 注册。
 3. 扩展 `sp_start` / transition，支持 `StartConfirmation`、built-in workflow id、自定义 orchestration、单节点 orchestration，以及基于 `*-only` 默认值的 auto expansion policy。
 4. 改 document promotion 与 fallback runtime，使 workflow-spec、文档 contract、`sp_report` 和 fallback summary 进入统一调度入口。

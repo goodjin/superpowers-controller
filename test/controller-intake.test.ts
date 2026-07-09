@@ -13,7 +13,7 @@ import { createCancelTool } from "../src/tools/sp-cancel"
 const toolContext = {
   sessionID: "session-main",
   messageID: "message-1",
-  agent: "super-agent",
+  agent: "superpowers-agent",
   directory: "/repo",
   worktree: "/repo",
   abort: new AbortController().signal,

@@ -31,7 +31,7 @@ export function createAgentConfig(options: AgentConfigOptions = {}): AgentConfig
     ? allowWorkflowPermission({ task: "deny", skill: "deny" })
     : mergePermissionRules(defaultControllerPermission(), options.globalPermission, { task: "deny", skill: "deny" })
   return {
-    "super-agent": {
+    "superpowers-agent": {
       description: "Primary controller for Superpowers workflow state and dispatch.",
       mode: "primary",
       color: "accent",
@@ -42,7 +42,7 @@ export function createAgentConfig(options: AgentConfigOptions = {}): AgentConfig
       },
       prompt: [
         "You are Superpowers Controller for OpenCode.",
-        "First response rule: in every new super-agent session, the first assistant response must start exactly with this sentence: 欢迎使用superpowers主控插件，我将按superpowers工作流程完成您的任务。 This also applies when the user's first request is status, recovery, or progress inspection. Do not repeat it after the first assistant response in the same session.",
+        "First response rule: in every new superpowers-agent session, the first assistant response must start exactly with this sentence: 欢迎使用superpowers主控插件，我将按superpowers工作流程完成您的任务。 This also applies when the user's first request is status, recovery, or progress inspection. Do not repeat it after the first assistant response in the same session.",
         "Understand user intent, inspect active workflow state, clarify missing constraints, and keep the user in control of every start, resume, and confirmation point.",
         "Do not directly implement code, edit files, or perform node work.",
         "Do not load business or development skills. The controller has no primary skill; node agents load their own plugin-assigned primary skill.",

@@ -16,7 +16,7 @@ describe("createAgentConfig", () => {
       "sp-investigator",
       "sp-planner",
       "sp-verifier",
-      "super-agent",
+      "superpowers-agent",
     ])
   })
 
@@ -41,7 +41,7 @@ describe("createAgentConfig", () => {
   })
 
   test("controller cannot mutate code directly", () => {
-    const controller = createAgentConfig()["super-agent"]
+    const controller = createAgentConfig()["superpowers-agent"]
 
     expect(controller?.mode).toBe("primary")
     expect((controller?.permission as { edit?: string } | undefined)?.edit).toBe("deny")
@@ -62,11 +62,11 @@ describe("createAgentConfig", () => {
   })
 
   test("controller prompt requires the v5 first-response greeting and workflow protocol", () => {
-    const controller = createAgentConfig()["super-agent"]
+    const controller = createAgentConfig()["superpowers-agent"]
     const prompt = String(controller?.prompt ?? "")
 
     expect(prompt).toContain("欢迎使用superpowers主控插件，我将按superpowers工作流程完成您的任务。")
-    expect(prompt).toContain("every new super-agent session")
+    expect(prompt).toContain("every new superpowers-agent session")
     expect(prompt).toContain("sp_status(include_capabilities=true)")
     expect(prompt).toContain("action=start_prepared_task")
     expect(prompt).toContain("design-only/plan-only/review-only")
@@ -81,8 +81,8 @@ describe("createAgentConfig", () => {
       expect(permission.edit, `${agentName} edit permission`).toBe("allow")
       expect(permission.bash, `${agentName} bash permission`).toBe("allow")
       expect(permission.task, `${agentName} task permission`).toBe("deny")
-      expect(permission.skill, `${agentName} skill permission`).toBe(agentName === "super-agent" ? "deny" : "allow")
-      expect(permission.question, `${agentName} question permission`).toBe(agentName === "super-agent" ? "allow" : "deny")
+      expect(permission.skill, `${agentName} skill permission`).toBe(agentName === "superpowers-agent" ? "deny" : "allow")
+      expect(permission.question, `${agentName} question permission`).toBe(agentName === "superpowers-agent" ? "allow" : "deny")
       expect(permission.plan_enter, `${agentName} plan enter permission`).toBe("allow")
       expect(permission.plan_exit, `${agentName} plan exit permission`).toBe("allow")
       expect(permission.external_directory, `${agentName} external directory permission`).toBe("allow")
@@ -91,14 +91,14 @@ describe("createAgentConfig", () => {
       expect((permission.read as Record<string, string>)["*.env"], `${agentName} env read permission`).toBe("allow")
       expect((permission.read as Record<string, string>)["*.env.*"], `${agentName} env variant read permission`).toBe("allow")
       expect((agent.tools as { task?: boolean } | undefined)?.task, `${agentName} native task tool`).toBe(false)
-      if (agentName !== "super-agent") {
+      if (agentName !== "superpowers-agent") {
         expect((agent.tools as { question?: boolean } | undefined)?.question, `${agentName} native question tool`).toBe(false)
       }
     }
 
-    expect((agents["super-agent"]?.tools as { skill?: boolean; task?: boolean } | undefined)?.skill).toBe(false)
-    expect((agents["super-agent"]?.tools as { skill?: boolean; task?: boolean } | undefined)?.task).toBe(false)
-    expect(String(agents["super-agent"]?.prompt ?? "")).toContain("Never call the native task tool")
+    expect((agents["superpowers-agent"]?.tools as { skill?: boolean; task?: boolean } | undefined)?.skill).toBe(false)
+    expect((agents["superpowers-agent"]?.tools as { skill?: boolean; task?: boolean } | undefined)?.task).toBe(false)
+    expect(String(agents["superpowers-agent"]?.prompt ?? "")).toContain("Never call the native task tool")
   })
 
   test("inherits granular host permission rules while preserving control-plane denies", () => {
@@ -122,7 +122,7 @@ describe("createAgentConfig", () => {
       },
     })
 
-    const controllerPermission = agents["super-agent"]?.permission as Record<string, unknown>
+    const controllerPermission = agents["superpowers-agent"]?.permission as Record<string, unknown>
     const implementerPermission = agents["sp-implementer"]?.permission as Record<string, unknown>
 
     expect(controllerPermission.edit).toEqual({ "*": "ask", "src/**": "allow" })
