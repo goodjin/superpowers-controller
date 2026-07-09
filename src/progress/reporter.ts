@@ -10,6 +10,7 @@ export type ProgressStage =
   | "dispatch_started"
   | "dispatch_failed"
   | "node_running"
+  | "child_waiting_permission"
   | "node_resumed"
   | "parent_notified"
   | "parent_progress"

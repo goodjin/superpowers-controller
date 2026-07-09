@@ -64,7 +64,19 @@ export function createPluginModule(): PluginModule {
     return {
       tool: createTools(store, orchestrator, progress),
       event: async ({ event }) => {
-        nodeProgress.recordEvent(store.readCurrent(), event)
+        const entry = nodeProgress.recordEvent(store.readCurrent(), event)
+        if (entry && isWaitingPermissionEvent(event)) {
+          await adapter.selectSession?.({
+            sessionID: entry.session_id,
+            reason: "child session waiting for permission",
+          })
+          await adapter.showProgress({
+            stage: "child_waiting_permission",
+            title: "Superpowers workflow",
+            message: `Child session ${entry.session_id} is waiting for permission.`,
+            variant: "warning",
+          })
+        }
       },
       config: async (hostConfig: Record<string, unknown>) => {
         const globalPermission = resolveGlobalPermission(hostConfig.permission)
@@ -108,4 +120,12 @@ export function createPluginModule(): PluginModule {
     id: "superpowers-controller",
     server,
   }
+}
+
+function isWaitingPermissionEvent(event: { type: string; properties?: unknown }): boolean {
+  if (event.type !== "session.status") return false
+  const properties = event.properties
+  if (!properties || typeof properties !== "object") return false
+  const status = (properties as { status?: unknown }).status
+  return Boolean(status && typeof status === "object" && (status as { type?: unknown }).type === "waiting_permission")
 }

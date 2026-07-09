@@ -67,4 +67,71 @@ describe("plugin event progress hook", () => {
       rmSync(project, { recursive: true, force: true })
     }
   })
+
+  test("selects a child session when it starts waiting on permission", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-plugin-event-permission-"))
+    try {
+      const workflow = createProjectStore(project)
+      workflow.startRun({
+        workflow: "feature",
+        entrypoint: "execute",
+        goal: "Implement task",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+      })
+      workflow.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        session_id: "session-child",
+        task_id: "T1",
+        task_markdown: "# Task",
+      })
+
+      const selected: unknown[] = []
+      const toasts: unknown[] = []
+      const plugin = createPluginModule()
+      const hooks = await plugin.server({
+        directory: project,
+        worktree: project,
+        project: { id: "project-1" },
+        serverUrl: new URL("http://127.0.0.1:4096"),
+        $: {},
+        experimental_workspace: { register() {} },
+        client: {
+          session: {},
+          tui: {
+            async selectSession(input: unknown) {
+              selected.push(input)
+            },
+            async showToast(input: unknown) {
+              toasts.push(input)
+            },
+          },
+          app: { async log() {} },
+        },
+      } as never)
+
+      await hooks.event?.({
+        event: {
+          type: "session.status",
+          properties: {
+            sessionID: "session-child",
+            status: { type: "waiting_permission" },
+          },
+        },
+      })
+
+      expect(selected).toEqual([{ sessionID: "session-child" }])
+      expect(toasts[0]).toMatchObject({
+        body: {
+          stage: "child_waiting_permission",
+          variant: "warning",
+        },
+      })
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
 })

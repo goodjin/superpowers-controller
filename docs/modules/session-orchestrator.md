@@ -96,6 +96,8 @@ node session 不再用 OpenCode 原生 `parentID` 创建。这样 foreground chi
 
 进入 task graph implementation / acceptance / verification / code-review 等阶段后，orchestrator 不再把 route 固定回 parent。每次创建或复用 node session 后，都会请求 TUI 选择该 child session，让用户能看到实际运行日志和 OpenCode 原生权限确认。并行 child、等待 controller decision、等待用户输入归属不明确或 host focus 不可靠时，workflow correctness 仍依赖 durable state；sidebar 的 session list、live status 和 shortcut hints 负责暴露可切换目标。
 
+如果 child session 后续进入 `waiting_permission`，插件事件 hook 会再次请求选择该 child session。这不是新的 dispatch，也不修改 `node_runs` 状态；它只是在权限确认发生时补一次可见性聚焦，避免用户停留在 parent 时看不到 OpenCode 原生 permission prompt。
+
 TUI session 选择是可见性和交互优化，不是 workflow 正确性的前提。adapter 优先调用 `tui.selectSession({ sessionID })`；如果 host 只支持事件发布，则 fallback 到 `tui.publish({ type: "tui.session.select", ... })`；两者都不可用时只发 warning progress，不阻塞 dispatch。
 
 ## Progress Behavior

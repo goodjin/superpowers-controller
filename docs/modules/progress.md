@@ -126,6 +126,8 @@ running node 的最新 progress 如果超过显示阈值没有更新，会在 co
 
 当 child session live status 是 `waiting_permission` 时，TUI 行摘要优先显示 `waiting permission`，优先级高于 stalled。这样用户能区分“模型长时间无进展”和“OpenCode 正在等权限确认”。
 
+插件事件 hook 会记录 child `session.status` 变化；当已登记 child 进入 `waiting_permission` 时，会再次请求 OpenCode TUI 切到该 child session，并发出 warning toast。这条二次聚焦用于覆盖 dispatch 后用户切走、host 未执行前一次 session select、或旧版本派发的 child 后续才触发权限确认的情况。
+
 TUI 行摘要优先使用最新的可读进展事件。`session_status` 和 `session_idle` 仍作为活跃度时间来源，但不会覆盖最近的 text/tool/patch/reasoning 摘要；这样 child session 刚变成 idle 时，底部和侧栏仍会显示刚才实际做了什么，而不是只显示 `session idle`。
 
 slot render 必须返回 OpenTUI/Solid element，而不是裸字符串。TUI 入口会加载 `@opentui/solid/runtime-plugin-support`，再使用 `@opentui/solid` 创建 `text` element，并对 workflow/progress 读取异常做 fail-closed 处理；读取失败时只显示 `SP: progress unavailable`，避免异常进入 host TUI 渲染器。resident slot registration 必须带 `id: "superpowers-controller"`，以满足 OpenCode TUI slot runtime 对 plugin id 的校验。
