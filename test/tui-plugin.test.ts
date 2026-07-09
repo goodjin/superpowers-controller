@@ -100,7 +100,7 @@ describe("Superpowers TUI plugin", () => {
       expect(slots.home_bottom).toBeUndefined()
       expect(typeof slots.app_bottom).toBe("function")
       expect(typeof slots.session_prompt).toBe("function")
-      expect(slots.session_prompt?.(undefined, { session_id: "session-main" })).toBeNull()
+      expect(slots.session_prompt?.(undefined, { session_id: "session-main" })).toBe("SP foreground child: sp-implementer T1")
       expect(slots.session_prompt_right).toBeUndefined()
       expect(slots.home_prompt).toBeUndefined()
       expect(slots.home_prompt_right).toBeUndefined()
@@ -555,6 +555,22 @@ describe("Superpowers TUI plugin", () => {
               expect(sessionID).toBe("session-child")
               return { type: "waiting_permission" }
             },
+            permission(sessionID: string) {
+              expect(sessionID).toBe("session-child")
+              return [{ id: "per-1", permission: "edit" }]
+            },
+            question() {
+              return []
+            },
+            messages(sessionID: string) {
+              expect(sessionID).toBe("session-child")
+              return [
+                {
+                  info: { id: "msg-1", role: "assistant" },
+                  parts: [{ type: "text", text: "Waiting for edit permission." }],
+                },
+              ]
+            },
           },
         },
       } as never
@@ -575,6 +591,10 @@ describe("Superpowers TUI plugin", () => {
 
       const sidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
       expect(sidebar.value).toContain("sp-implementer T1: waiting permission - checking local tools")
+      expect(sidebar.value).toContain("foreground child")
+      expect(sidebar.value).toContain("live: waiting_permission")
+      expect(sidebar.value).toContain("permissions: 1 pending")
+      expect(sidebar.value).toContain("assistant: Waiting for edit permission.")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

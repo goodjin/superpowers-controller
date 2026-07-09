@@ -92,9 +92,9 @@ TUI 目标是让主内容区域自动聚焦当前 running child session。创建
 
 node session 不再用 OpenCode 原生 `parentID` 创建。这样 foreground child 进入的是普通 OpenCode session shell，host 应继续挂载底部输入框、右侧 sidebar 和 live transcript。Controller 仍把它当作 workflow child：parent 身份、恢复目标、进度聚合和后续派发全部以 durable state 为准。
 
-这不会改变 workflow 的 parent 身份。`sp_start` 对已有 run 会优先使用 durable `parent_session_id`，调用者 session 只作为审计信息。这样 foreground child 可以承接用户观察和必要输入，但 parent session 仍是恢复、controller decision 和 closeout 的稳定控制面。
+这不会改变 workflow 的 parent 身份。`sp_start` 对已有 run 会重新判断调用者身份：非 child 的 controller session 会把 `parent_session_id` 重绑到当前 controller；已登记的 child session 调用则保留原 parent。这样 foreground child 可以承接用户观察、权限确认和必要输入，但 parent session 仍是恢复、controller decision 和 closeout 的稳定控制面。
 
-进入 task graph implementation / acceptance / verification / code-review 等阶段后，orchestrator 不再假设这些都是 parent-led 且应固定回 parent。当前只有一个明显 running child 时可以聚焦 child；并行 child、等待 controller decision、等待用户输入归属不明确或 host focus 不可靠时，保留 parent 作为控制面，并依赖 sidebar 的 session list 和 shortcut hints 暴露可切换目标。
+进入 task graph implementation / acceptance / verification / code-review 等阶段后，orchestrator 不再把 route 固定回 parent。每次创建或复用 node session 后，都会请求 TUI 选择该 child session，让用户能看到实际运行日志和 OpenCode 原生权限确认。并行 child、等待 controller decision、等待用户输入归属不明确或 host focus 不可靠时，workflow correctness 仍依赖 durable state；sidebar 的 session list、live status 和 shortcut hints 负责暴露可切换目标。
 
 TUI session 选择是可见性和交互优化，不是 workflow 正确性的前提。adapter 优先调用 `tui.selectSession({ sessionID })`；如果 host 只支持事件发布，则 fallback 到 `tui.publish({ type: "tui.session.select", ... })`；两者都不可用时只发 warning progress，不阻塞 dispatch。
 

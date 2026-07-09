@@ -435,7 +435,7 @@ describe("createSessionOrchestrator", () => {
     expect(selected).toEqual(["session-sp-designer"])
   })
 
-  test("selects the parent session for parent-led parallel dispatch", async () => {
+  test("selects implement children in the foreground", async () => {
     const selected: string[] = []
     const orchestrator = createSessionOrchestrator({
       async createNodeSession() {
@@ -474,7 +474,7 @@ describe("createSessionOrchestrator", () => {
       },
     })
 
-    expect(selected).toEqual(["session-main"])
+    expect(selected).toEqual(["session-implement"])
   })
 
   test("reuses an existing node session for retry dispatch", async () => {

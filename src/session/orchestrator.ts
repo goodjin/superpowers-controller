@@ -201,15 +201,10 @@ async function selectWorkflowSession(
   },
 ): Promise<void> {
   if (!adapter.selectSession) return
-  const sessionID = isForegroundSerialPhase(args.phase) ? args.sessionID : args.parentSessionID
   await adapter.selectSession({
-    sessionID,
-    reason: isForegroundSerialPhase(args.phase) ? `foreground ${args.phase} child` : "parent-led parallel workflow",
+    sessionID: args.sessionID,
+    reason: `foreground ${args.phase} child`,
   })
-}
-
-function isForegroundSerialPhase(phase: string): boolean {
-  return phase === "design" || phase === "plan"
 }
 
 function startParentProgress(

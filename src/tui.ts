@@ -450,7 +450,7 @@ function foregroundChildNode(state: WorkflowState): WorkflowState["node_runs"][n
   if (state.status === "awaiting_plan_approval") {
     return [...state.node_runs].reverse().find((node) => node.phase === "plan")
   }
-  return [...state.node_runs].reverse().find((node) => node.status === "running" && isForegroundSerialPhase(node.phase))
+  return [...state.node_runs].reverse().find((node) => node.status === "running")
 }
 
 function isForegroundSerialPhase(phase: string): boolean {
