@@ -1,4 +1,11 @@
 import type { ControllerDecision, ControllerDecisionKind, NodeRun, StartAction, WorkflowState } from "../state/types"
+import {
+  buildParallelContext,
+  latestAttentionNode,
+  needsControllerAttention,
+  type ParallelContext,
+} from "../runtime/workflow-attention"
+import { STALLED_PROGRESS_AFTER_MS } from "../tui/progress-panel"
 
 export type RecommendedNext =
   | { action: "wait_running_node"; run_id: string; node_id: string; session_id: string }
@@ -38,6 +45,14 @@ export type ControllerFeedback = {
   }>
   blocking_reason?: string
   artifact_mode?: "candidate" | "canonical" | "none"
+  parallel_context?: ParallelContext
+  inspection_hints?: Array<{
+    tool: "sp_status"
+    args: Record<string, unknown>
+    reason: string
+  }>
+  permission_context?: { session_id: string; hint: string }
+  stall_context?: { node_id: string; session_id: string; idle_ms: number }
 }
 
 export type AllowedControllerDecision = {
@@ -50,6 +65,17 @@ export type AllowedControllerDecision = {
 }
 
 export function buildRecommendedNext(state: WorkflowState): RecommendedNext[] {
+  const parallel = buildParallelContext(state)
+  const attention = latestAttentionNode(state)
+  if (parallel && parallel.running_nodes.length > 0 && attention) {
+    const running = state.node_runs.find((node) => node.id === parallel.running_nodes[0]?.node_id)
+    return [
+      { action: "retry_node", run_id: state.id, task_id: attention.task_id, phase: attention.phase },
+      ...(running ? [{ action: "wait_running_node" as const, run_id: state.id, node_id: running.id, session_id: running.session_id }] : []),
+      { action: "cancel_workflow", run_id: state.id },
+    ]
+  }
+
   const running = state.node_runs.find((node) => node.status === "running")
   if (running) {
     return [{ action: "wait_running_node", run_id: state.id, node_id: running.id, session_id: running.session_id }]
@@ -69,7 +95,7 @@ export function buildRecommendedNext(state: WorkflowState): RecommendedNext[] {
   const dispatchFailed = [...state.node_runs].reverse().find((node) => node.status === "dispatch_failed")
   if (dispatchFailed) {
     return [
-      { action: "retry_dispatch", run_id: state.id, node_id: dispatchFailed.id },
+      { action: "retry_node", run_id: state.id, task_id: dispatchFailed.task_id, phase: dispatchFailed.phase },
       { action: "cancel_node", run_id: state.id, node_id: dispatchFailed.id },
       { action: "cancel_workflow", run_id: state.id },
     ]
@@ -91,9 +117,12 @@ export function buildRecommendedNext(state: WorkflowState): RecommendedNext[] {
 }
 
 export function buildAllowedControllerDecisions(state: WorkflowState): AllowedControllerDecision[] {
-  if (state.status === "running" || state.status === "intake") return []
-  if (state.status === "waiting_user") return []
   if (state.status === "passed" || state.status === "canceled") return []
+  if (state.status === "waiting_user") return []
+
+  if ((state.status === "running" || state.status === "intake") && !needsControllerAttention(state)) {
+    return []
+  }
 
   const decisions: AllowedControllerDecision[] = []
   const failedNode = latestDecisionNode(state)
@@ -111,18 +140,6 @@ export function buildAllowedControllerDecisions(state: WorkflowState): AllowedCo
     }))
   }
 
-  if (state.status === "waiting_user_decision") {
-    decisions.push(decisionOption(state, {
-      kind: "continue_existing_graph",
-      reason: "Continue by recalculating runnable nodes from the current graph.",
-    }, {
-      reason: "Ask runtime to continue from current structured state without changing scope.",
-      risk: "medium",
-      tool: "sp_start",
-      requiresUserConfirmation: true,
-    }))
-  }
-
   if (state.status === "waiting_controller_decision" && state.pending_workflow_expansion) {
     decisions.push(decisionOption(state, {
       kind: "apply_workflow_patch",
@@ -130,6 +147,18 @@ export function buildAllowedControllerDecisions(state: WorkflowState): AllowedCo
       reason: state.pending_workflow_expansion.reason ?? "Apply pending workflow expansion after controller review.",
     }, {
       reason: "Apply the pending node-reported workflow expansion.",
+      risk: "medium",
+      tool: "sp_start",
+      requiresUserConfirmation: true,
+    }))
+  }
+
+  if (state.status === "waiting_user_decision" || state.status === "waiting_controller_decision" || (state.status === "running" && failedNode && buildParallelContext(state)?.running_nodes.length)) {
+    decisions.push(decisionOption(state, {
+      kind: "continue_existing_graph",
+      reason: "Continue by recalculating runnable nodes from the current graph.",
+    }, {
+      reason: "Ask runtime to continue from current structured state without changing scope.",
       risk: "medium",
       tool: "sp_start",
       requiresUserConfirmation: true,
@@ -177,14 +206,18 @@ export function buildAllowedControllerDecisions(state: WorkflowState): AllowedCo
 }
 
 export function buildControllerFeedback(state: WorkflowState, override?: Partial<ControllerFeedback>): ControllerFeedback {
+  const parallelContext = buildParallelContext(state)
   const recommendedNext = override?.recommended_next ?? buildRecommendedNext(state)
   const needsApproval = state.status === "awaiting_design_approval" || state.status === "awaiting_plan_approval"
   const waitingUser = state.status === "waiting_user"
-  const terminal = state.status === "passed" || state.status === "failed" || state.status === "canceled"
-  const blocked = state.status === "blocked" || state.status === "waiting_user_decision" || state.status === "waiting_controller_decision" || state.status === "recovered_unknown"
+  const terminal = state.status === "passed" || state.status === "canceled"
+  const attention = needsControllerAttention(state)
+  const blocked = state.status === "blocked" || state.status === "waiting_user_decision" || state.status === "waiting_controller_decision" || state.status === "recovered_unknown" || attention
+  const stalled = stalledRunningNode(state)
   return {
     outcome: override?.outcome ?? (
       terminal ? "terminal" :
+      state.status === "failed" ? "failed" :
       needsApproval ? "needs_approval" :
       waitingUser ? "needs_user" :
       blocked ? "blocked" :
@@ -201,8 +234,16 @@ export function buildControllerFeedback(state: WorkflowState, override?: Partial
     requires_user: override?.requires_user ?? userRequirementForState(state),
     approval_target: override?.approval_target ?? approvalTargetForState(state),
     autonomous_options: override?.autonomous_options,
-    blocking_reason: override?.blocking_reason,
+    blocking_reason: override?.blocking_reason ?? blockingReasonForState(state, parallelContext, stalled),
     artifact_mode: override?.artifact_mode ?? artifactModeForState(state),
+    parallel_context: override?.parallel_context ?? parallelContext,
+    inspection_hints: override?.inspection_hints ?? inspectionHintsForState(state, stalled),
+    permission_context: override?.permission_context,
+    stall_context: stalled ? {
+      node_id: stalled.node_id,
+      session_id: stalled.session_id,
+      idle_ms: stalled.idle_ms,
+    } : override?.stall_context,
   }
 }
 
@@ -289,4 +330,37 @@ function decisionOption(
     },
     requires_user_confirmation: meta.requiresUserConfirmation,
   }
+}
+
+function blockingReasonForState(
+  state: WorkflowState,
+  parallel: ParallelContext | undefined,
+  stalled: { node_id: string; session_id: string; idle_ms: number } | undefined,
+): string | undefined {
+  if (parallel && parallel.running_nodes.length > 0 && parallel.failed_nodes.length > 0) {
+    return `Parallel workflow has ${parallel.failed_nodes.length} failed node(s) while ${parallel.running_nodes.length} node(s) are still running.`
+  }
+  if (state.status === "waiting_controller_decision") return "Controller needs to apply, replace, retry, block, reprepare, or cancel."
+  if (state.status === "recovered_unknown") return "Startup recovery found previously running nodes that may no longer be live."
+  if (stalled) return `Running node ${stalled.node_id} has had no progress for at least ${stalled.idle_ms}ms.`
+  const attention = latestAttentionNode(state)
+  if (attention) return `${attention.phase} node ${attention.id} is ${attention.status}.`
+  return undefined
+}
+
+function inspectionHintsForState(
+  state: WorkflowState,
+  stalled: { node_id: string; session_id: string; idle_ms: number } | undefined,
+): ControllerFeedback["inspection_hints"] {
+  if (!stalled) return undefined
+  return [{
+    tool: "sp_status",
+    args: { run_id: state.id, include_progress: true },
+    reason: `Inspect stalled node ${stalled.node_id} before retrying or canceling.`,
+  }]
+}
+
+function stalledRunningNode(_state: WorkflowState): { node_id: string; session_id: string; idle_ms: number } | undefined {
+  void STALLED_PROGRESS_AFTER_MS
+  return undefined
 }

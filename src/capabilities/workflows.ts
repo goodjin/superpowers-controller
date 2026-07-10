@@ -25,6 +25,7 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: BuiltInWorkflowTemplate[] = [
     title: "Feature",
     description: "从设计/计划进入实现、验收、验证、代码审查和收尾的完整开发流程。",
     agents: [
+      ["design", "sp-designer"],
       ["plan", "sp-planner"],
       ["implement", "sp-implementer"],
       ["acceptance", "sp-acceptance-reviewer"],
@@ -240,16 +241,36 @@ function template(args: {
     },
     customization_points: args.customization_points,
     risk_notes: args.risk_notes,
-    orchestration: {
-      id: args.id,
-      title: args.title,
-      nodes: args.agents.map(([phase, agent], index) => ({
-        id: `${String(index + 1).padStart(2, "0")}-${phase}`,
-        phase,
-        agent,
-        depends_on: index === 0 ? [] : [`${String(index).padStart(2, "0")}-${args.agents[index - 1]?.[0]}`],
-        report_contract: ["sp_report"],
-      })),
-    },
+    orchestration: buildTemplateOrchestration(args.id, args.title, args.agents),
+  }
+}
+
+function buildTemplateOrchestration(
+  id: string,
+  title: string,
+  agents: Array<[phase: string, agent: keyof typeof AGENT_SKILL_MAP]>,
+): BuiltInWorkflowTemplate["orchestration"] {
+  const nodes = agents.map(([phase, agent], index) => ({
+    id: `${String(index + 1).padStart(2, "0")}-${phase}`,
+    phase,
+    agent,
+    depends_on: index === 0 ? [] : [`${String(index).padStart(2, "0")}-${agents[index - 1]?.[0]}`],
+    report_contract: ["sp_report"],
+  }))
+  const edges: NonNullable<BuiltInWorkflowTemplate["orchestration"]["edges"]> = []
+  for (let index = 0; index < agents.length - 1; index += 1) {
+    const from = `${String(index + 1).padStart(2, "0")}-${agents[index][0]}`
+    const to = `${String(index + 2).padStart(2, "0")}-${agents[index + 1][0]}`
+    edges.push({ from, to, condition: "passed" })
+    if (["acceptance", "verification", "code-review"].includes(agents[index][0])) {
+      const implementNode = nodes.find((node) => node.phase === "implement")
+      if (implementNode) edges.push({ from, to: implementNode.id, condition: "failed" })
+    }
+  }
+  return {
+    id,
+    title,
+    nodes,
+    edges,
   }
 }

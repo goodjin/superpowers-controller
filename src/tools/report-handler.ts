@@ -47,6 +47,16 @@ export function createReportHandler(deps: {
               prompt: buildControllerUserInputPrompt(current, { conversation: target.conversation }),
             })
           } catch (error) {
+            const current = deps.store.readCurrent() ?? state
+            const sourceNode = current.pending_question?.source_node_id
+              ? current.node_runs.find((node) => node.id === current.pending_question?.source_node_id)
+              : undefined
+            if (sourceNode) {
+              deps.store.markNotificationFailed({
+                node_id: sourceNode.id,
+                error,
+              })
+            }
             await progress.report({
               stage: "workflow_blocked",
               title: "Superpowers workflow",
@@ -109,6 +119,12 @@ export function createReportHandler(deps: {
               task_markdown: input.taskMarkdown,
             })
             nodeRegistered = true
+          },
+          async onPromptDeliveryFailed(input) {
+            deps.store.markPromptDeliveryFailed({
+              session_id: input.sessionID,
+              error: input.error,
+            })
           },
         })
       } catch (error) {

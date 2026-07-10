@@ -7,7 +7,8 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 ## Files
 
 - `src/state/types.ts`：workflow、record、task graph、gate、artifact 和 `NodeRun` 类型。
-- `src/state/store.ts`：读写 current pointer、run directory、state、artifacts、nodes 和 changelog。
+- `src/state/store.ts`：读写 current pointer、run directory、state、artifacts、nodes 和 changelog；含 `markPromptDeliveryFailed`、`markSessionError`、`markNotificationFailed`。
+- `src/runtime/workflow-attention.ts`：并行混合态、技术异常后的 workflow status 和 `parallel_context` 辅助逻辑。
 - `src/state/transitions.ts`：把 `sp_report` 应用到 workflow state，校验 gate 和 artifact 关系。
 - `src/state/record-schema.ts`：严格解析 `sp_report` 输入，拒绝 control-plane 字段。
 - `src/state/task-graph.ts`：校验 task dependency、加入共享写文件隐式依赖、计算 runnable tasks。
@@ -151,7 +152,8 @@ candidate 不会绕过用户确认直接启动正式执行。v5 主路径由 `sp
 
 v4 新增 node 状态：
 
-- `dispatch_failed`：child session 创建或调度失败，workflow 进入 `waiting_user_decision`，等待 retry/cancel。
+- `dispatch_failed`：child session 创建或 prompt 投递失败；若仍有其他 `running` sibling，workflow 保持 `running` 并返回 `parallel_context`；否则进入 `waiting_controller_decision`。
+- `notification_failed`：notify parent/child 失败，保留 `pending_question`，主控可用 `sp_status` + `resume_user_input` 继续。
 - `notification_failed`：node 已请求用户输入，但 parent notification 失败；`pending_question` 仍是事实来源。
 - `canceled`：用户取消了 node/session；workflow 不能保持无 live node 的 `running`。
 

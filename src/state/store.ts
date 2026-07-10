@@ -3,6 +3,9 @@ import { dirname, join } from "node:path"
 import { randomUUID } from "node:crypto"
 import { applyRecord, createInitialState } from "./transitions"
 import { normalizeTaskGraph } from "./task-graph"
+import { buildTaskGraphSpecEdges, buildTaskGraphSpecNodes } from "../router/workflow-spec-dispatch"
+import { createWorkflowSpec, findBuiltInWorkflowTemplate } from "../capabilities/workflows"
+import { resolveWorkflowStatusAfterNodeReport, sessionErrorNodeStatus, workflowStatusAfterNodeFailure } from "../runtime/workflow-attention"
 import type {
   ControllerDecision,
   NodeRun,
@@ -73,6 +76,18 @@ export type ProjectStore = {
     task_markdown?: string
     error: unknown
   }): NodeRun
+  markPromptDeliveryFailed(args: {
+    session_id: string
+    error: unknown
+  }): NodeRun | null
+  markSessionError(args: {
+    session_id: string
+    error: unknown
+  }): NodeRun | null
+  markNotificationFailed(args: {
+    node_id: string
+    error: unknown
+  }): NodeRun | null
   recoverInterruptedRunningNodes(args: { reason: string }): WorkflowState | null
   consumePendingQuestion(args: {
     runID: string
@@ -662,10 +677,15 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         ...next,
         node_runs: nodeRuns,
         pending_question: pendingQuestion,
+        status: resolveWorkflowStatusAfterNodeReport(
+          { ...next, node_runs: nodeRuns },
+          nodeID,
+          args.input.status,
+        ),
       }
       const recordTaskGraphExpansion = args.input.task_graph && !isDraftCandidateRecord(current, args.input)
         ? {
-            mode: "replace" as const,
+            mode: "append" as const,
             reason: `${args.input.event} report produced task_graph.`,
             tasks: args.input.task_graph.tasks,
           }
@@ -800,7 +820,7 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       }
       const next: WorkflowState = {
         ...current,
-        status: "waiting_user_decision",
+        status: workflowStatusAfterNodeFailure(current, [...current.node_runs, node]),
         phase: "dispatch-failed",
         current_phase: "dispatch-failed",
         node_runs: [...current.node_runs, node],
@@ -829,6 +849,147 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       })
       appendChangelog(root, current.id, `dispatch failed for ${node.agent} ${node.task_id ?? node.phase}: ${errorMessage(args.error)}`)
       return node
+    },
+    markPromptDeliveryFailed(args) {
+      const current = this.readCurrent()
+      if (!current) return null
+      const target = current.node_runs.find((run) => run.session_id === args.session_id && run.status === "running")
+      if (!target) return null
+      const now = new Date().toISOString()
+      const nodeRuns = current.node_runs.map((run) => {
+        if (run.id !== target.id) return run
+        return {
+          ...run,
+          status: "dispatch_failed" as const,
+          reported_at: now,
+          closed_at: now,
+          ended_at: now,
+        }
+      })
+      const next: WorkflowState = {
+        ...current,
+        status: workflowStatusAfterNodeFailure(current, nodeRuns),
+        phase: "prompt-delivery-failed",
+        current_phase: "prompt-delivery-failed",
+        node_runs: nodeRuns,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...current.history,
+          {
+            at: now,
+            event: "prompt_delivery_failed",
+            from: current.phase,
+            to: "prompt-delivery-failed",
+            summary: errorMessage(args.error),
+          },
+        ],
+      }
+      persistCurrent(next)
+      appendEvent(root, current.id, {
+        type: "prompt_delivery_failed",
+        node_id: target.id,
+        task_id: target.task_id,
+        agent: target.agent,
+        session_id: target.session_id,
+        error: errorMessage(args.error),
+      })
+      appendChangelog(root, current.id, `prompt delivery failed for ${target.agent} ${target.task_id ?? target.phase}: ${errorMessage(args.error)}`)
+      return nodeRuns.find((run) => run.id === target.id) ?? null
+    },
+    markSessionError(args) {
+      const current = this.readCurrent()
+      if (!current) return null
+      const target = current.node_runs.find((run) => run.session_id === args.session_id && run.status === "running")
+      if (!target) return null
+      const now = new Date().toISOString()
+      const message = errorMessage(args.error)
+      const nodeStatus = sessionErrorNodeStatus(message)
+      const nodeRuns = current.node_runs.map((run) => {
+        if (run.id !== target.id) return run
+        return {
+          ...run,
+          status: nodeStatus,
+          reported_at: now,
+          closed_at: now,
+          ended_at: now,
+        }
+      })
+      const next: WorkflowState = {
+        ...current,
+        status: workflowStatusAfterNodeFailure(current, nodeRuns),
+        phase: "session-error",
+        current_phase: "session-error",
+        node_runs: nodeRuns,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...current.history,
+          {
+            at: now,
+            event: "session_error",
+            from: current.phase,
+            to: "session-error",
+            summary: message,
+          },
+        ],
+      }
+      persistCurrent(next)
+      appendEvent(root, current.id, {
+        type: "session_error",
+        node_id: target.id,
+        task_id: target.task_id,
+        agent: target.agent,
+        session_id: target.session_id,
+        error: message,
+      })
+      appendChangelog(root, current.id, `session error for ${target.agent} ${target.task_id ?? target.phase}: ${message}`)
+      return nodeRuns.find((run) => run.id === target.id) ?? null
+    },
+    markNotificationFailed(args) {
+      const current = this.readCurrent()
+      if (!current) return null
+      const target = current.node_runs.find((run) => run.id === args.node_id)
+      if (!target) return null
+      const now = new Date().toISOString()
+      const nodeRuns = current.node_runs.map((run) => {
+        if (run.id !== target.id) return run
+        return {
+          ...run,
+          status: "notification_failed" as const,
+          reported_at: now,
+          closed_at: now,
+          ended_at: now,
+        }
+      })
+      const next: WorkflowState = {
+        ...current,
+        status: current.pending_question ? "waiting_user" : workflowStatusAfterNodeFailure(current, nodeRuns),
+        node_runs: nodeRuns,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...current.history,
+          {
+            at: now,
+            event: "notification_failed",
+            from: current.phase,
+            to: current.phase,
+            summary: errorMessage(args.error),
+          },
+        ],
+      }
+      persistCurrent(next)
+      appendEvent(root, current.id, {
+        type: "notification_failed",
+        node_id: target.id,
+        task_id: target.task_id,
+        agent: target.agent,
+        session_id: target.session_id,
+        error: errorMessage(args.error),
+      })
+      appendChangelog(root, current.id, `notification failed for ${target.agent} ${target.task_id ?? target.phase}: ${errorMessage(args.error)}`)
+      return nodeRuns.find((run) => run.id === target.id) ?? null
     },
     reset() {
       const currentPath = join(root, "current.json")
@@ -970,11 +1131,12 @@ function applyWorkflowExpansionToState(
   expansion: WorkflowExpansionPatch,
 ): WorkflowState {
   const now = new Date().toISOString()
-  const allowed = state.workflow_spec?.auto_expansion.allow ?? !state.workflow.endsWith("-only")
+  const stateWithBaseline = state.workflow_spec ? state : withBaselineWorkflowSpec(state)
+  const allowed = stateWithBaseline.workflow_spec?.auto_expansion.allow ?? !stateWithBaseline.workflow.endsWith("-only")
   writeJson(root, state.id, "workflow-expansion-latest.json", expansion)
   if (!allowed) {
     return {
-      ...state,
+      ...stateWithBaseline,
       status: "waiting_controller_decision",
       pending_workflow_expansion: expansion,
       next: "Controller must decide whether to apply workflow_expansion, replace orchestration, retry, or mark blocked.",
@@ -993,7 +1155,7 @@ function applyWorkflowExpansionToState(
     }
   }
 
-  const existingTasks = state.task_graph?.tasks ?? []
+  const existingTasks = stateWithBaseline.task_graph?.tasks ?? []
   const nextTasks = expansion.tasks?.length
     ? expansion.mode === "replace"
       ? expansion.tasks
@@ -1001,30 +1163,35 @@ function applyWorkflowExpansionToState(
     : existingTasks
   const expansionNodes = [
     ...(expansion.nodes ?? []),
-    ...(nextTasks.length ? workflowNodesForTasks(nextTasks) : []),
+    ...(nextTasks.length ? workflowNodesForTasks(nextTasks, stateWithBaseline.workflow_spec?.orchestration.nodes.find((node) => node.agent === "sp-planner")?.id) : []),
   ]
-  const nextWorkflowSpec = state.workflow_spec
+  const planNodeID = stateWithBaseline.workflow_spec?.orchestration.nodes.find((node) => node.agent === "sp-planner")?.id
+  const expansionEdges = nextTasks.length ? buildTaskGraphSpecEdges(workflowNodesForTasks(nextTasks, planNodeID), planNodeID) ?? [] : []
+  const nextWorkflowSpec = stateWithBaseline.workflow_spec
     ? (expansionNodes.length || expansion.documents?.length)
       ? {
-        ...state.workflow_spec,
-        spec_version: nextSpecVersion(state.workflow_spec.spec_version),
+        ...stateWithBaseline.workflow_spec,
+        spec_version: nextSpecVersion(stateWithBaseline.workflow_spec.spec_version),
         updated_at: now,
         orchestration: {
-          ...state.workflow_spec.orchestration,
+          ...stateWithBaseline.workflow_spec.orchestration,
           nodes: expansion.mode === "replace"
             ? expansionNodes
-            : mergeNodes(state.workflow_spec.orchestration.nodes, expansionNodes),
+            : mergeNodes(stateWithBaseline.workflow_spec.orchestration.nodes, expansionNodes),
+          edges: expansion.mode === "replace"
+            ? expansionEdges
+            : mergeEdges(stateWithBaseline.workflow_spec.orchestration.edges ?? [], expansionEdges),
           documents: expansion.documents?.length
-            ? mergeDocuments(state.workflow_spec.orchestration.documents ?? [], expansion.documents)
-            : state.workflow_spec.orchestration.documents,
+            ? mergeDocuments(stateWithBaseline.workflow_spec.orchestration.documents ?? [], expansion.documents)
+            : stateWithBaseline.workflow_spec.orchestration.documents,
         },
       }
-      : state.workflow_spec
+      : stateWithBaseline.workflow_spec
     : expansionNodes.length
-      ? createWorkflowSpecFromExpansion(state, expansionNodes, expansion.documents ?? [], allowed, now)
+      ? createWorkflowSpecFromExpansion(stateWithBaseline, expansionNodes, expansion.documents ?? [], allowed, now)
       : undefined
   const next: WorkflowState = {
-    ...state,
+    ...stateWithBaseline,
     pending_workflow_expansion: undefined,
     task_graph: nextTasks.length ? normalizeTaskGraph({ tasks: nextTasks }) : state.task_graph,
     workflow_spec: nextWorkflowSpec,
@@ -1074,45 +1241,45 @@ function mergeDocuments(existing: WorkflowDocumentSpec[], incoming: WorkflowDocu
   return [...byID.values()]
 }
 
-function workflowNodesForTasks(tasks: NonNullable<WorkflowState["task_graph"]>["tasks"]): WorkflowNodeSpec[] {
-  return tasks.map((task) => ({
-    id: workflowNodeIDForTask(task.id),
-    title: task.title,
-    agent: task.agent ?? "sp-implementer",
-    phase: phaseForWorkflowNodeAgent(task.agent),
-    task_id: task.id,
-    depends_on: task.depends_on.map(workflowNodeIDForTask),
-    input_documents: ["request", "plan", "task_graph"],
-    output_documents: [`report:${task.id}`],
-    report_contract: ["sp_report"],
-  }))
-}
-
-function workflowNodeIDForTask(taskID: string): string {
-  return `task-${taskID}`
-}
-
-function phaseForWorkflowNodeAgent(agent: string | undefined): string {
-  switch (agent) {
-    case "sp-designer":
-      return "design"
-    case "sp-planner":
-      return "plan"
-    case "sp-debugger":
-      return "debug"
-    case "sp-investigator":
-      return "investigate"
-    case "sp-acceptance-reviewer":
-      return "acceptance"
-    case "sp-code-reviewer":
-      return "code-review"
-    case "sp-verifier":
-      return "verification"
-    case "sp-finisher":
-      return "finish"
-    default:
-      return "implement"
+function mergeEdges(
+  existing: NonNullable<WorkflowState["workflow_spec"]>["orchestration"]["edges"],
+  incoming: NonNullable<WorkflowState["workflow_spec"]>["orchestration"]["edges"],
+) {
+  const safeExisting = existing ?? []
+  const seen = new Set(safeExisting.map((edge) => `${edge.from}->${edge.to}:${edge.condition ?? "passed"}`))
+  const merged = [...safeExisting]
+  for (const edge of incoming ?? []) {
+    const key = `${edge.from}->${edge.to}:${edge.condition ?? "passed"}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(edge)
   }
+  return merged
+}
+
+function withBaselineWorkflowSpec(state: WorkflowState): WorkflowState {
+  if (state.workflow_spec) return state
+  const template = findBuiltInWorkflowTemplate(state.workflow)
+  if (!template) return state
+  const workflowSpec = createWorkflowSpec({
+    id: `${state.id}-workflow-spec`,
+    kind: "built_in_workflow",
+    templateID: template.id,
+    orchestration: template.orchestration,
+    autoExpansionAllow: template.default_start_config.auto_expansion.allow,
+    autoExpansionReason: template.default_start_config.auto_expansion.reason,
+  })
+  return {
+    ...state,
+    workflow_spec: workflowSpec,
+  }
+}
+
+function workflowNodesForTasks(
+  tasks: NonNullable<WorkflowState["task_graph"]>["tasks"],
+  planNodeID?: string,
+): WorkflowNodeSpec[] {
+  return buildTaskGraphSpecNodes(tasks, planNodeID)
 }
 
 function nextSpecVersion(current: number | undefined): number {
@@ -1144,6 +1311,7 @@ function createWorkflowSpecFromExpansion(
       id: `${state.id}-orchestration`,
       title: state.goal,
       nodes,
+      edges: buildTaskGraphSpecEdges(nodes),
       documents,
     },
     created_at: now,

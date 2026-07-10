@@ -34,6 +34,7 @@ export function createSessionOrchestrator(
       decision: Extract<DispatchDecision, { action: "create_session" | "reuse_session" }>
       packet: NodeTaskPacket
       onSessionCreated?: (args: { sessionID: string; taskMarkdown: string }) => Promise<void>
+      onPromptDeliveryFailed?: (args: { sessionID: string; agent: string; nodeID: string; error: unknown }) => void | Promise<void>
       readStateForProgress?: () => WorkflowState | null
     }): Promise<SessionDispatchResult> {
       const packet = inlineRequiredArtifacts({
@@ -64,7 +65,9 @@ export function createSessionOrchestrator(
         const scheduled = scheduleNodePrompt(adapter, {
           sessionID: args.decision.session_id,
           agent: args.decision.agent,
+          nodeID: args.packet.node_id,
           prompt: taskMarkdown,
+          onPromptDeliveryFailed: args.onPromptDeliveryFailed,
           failure: {
             stage: "dispatch_failed",
             title: "Superpowers dispatch",
@@ -111,7 +114,9 @@ export function createSessionOrchestrator(
       const scheduled = scheduleNodePrompt(adapter, {
         sessionID,
         agent: args.decision.agent,
+        nodeID: args.packet.node_id,
         prompt: taskMarkdown,
+        onPromptDeliveryFailed: args.onPromptDeliveryFailed,
         failure: {
           stage: "dispatch_failed",
           title: "Superpowers dispatch",
@@ -263,7 +268,9 @@ function scheduleNodePrompt(
   args: {
     sessionID: string
     agent: string
+    nodeID?: string
     prompt: string
+    onPromptDeliveryFailed?: (args: { sessionID: string; agent: string; nodeID: string; error: unknown }) => void | Promise<void>
     failure: {
       stage: "dispatch_failed"
       title: string
@@ -280,6 +287,14 @@ function scheduleNodePrompt(
         prompt: args.prompt,
       })
     } catch (error) {
+      if (args.onPromptDeliveryFailed && args.nodeID) {
+        await args.onPromptDeliveryFailed({
+          sessionID: args.sessionID,
+          agent: args.agent,
+          nodeID: args.nodeID,
+          error,
+        })
+      }
       await adapter.showProgress({
         ...args.failure,
         message: `${args.failure.message} ${errorMessage(error)}`,

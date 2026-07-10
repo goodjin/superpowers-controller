@@ -70,7 +70,22 @@ sp_status -> sp_prepare -> sp_start -> sp_report(terminal/control status) -> tra
 
 ## Dispatch Decision Rules
 
-transition 是插件内的状态转移规则，不是模型提示。它的输入是当前 `WorkflowState` 和可选 `SpRecordInput`，输出只能是：
+transition 是插件内的状态转移规则，不是模型提示。v5 运行时以 `workflow-spec.json` 为调度事实源：`decideNextDispatches()` 读取当前 `WorkflowState`、可选 `sp_report` 和已物化的 workflow spec，通过 **nodes / edges / depends_on** 计算下一跳，而不是靠 `record.event` 的硬编码 switch。
+
+核心模块：
+
+- `src/router/workflow-spec-dispatch.ts`：解析 workflow spec、匹配 edge condition、判断 node 是否 runnable、生成 `DispatchDecision`。
+- `src/router/transition.ts`：公开入口，委托给 workflow-spec dispatch。
+- `src/capabilities/workflows.ts`：内置 template 生成 nodes + edges；task graph 扩展时追加 per-task check chain。
+
+规则摘要：
+
+- `workflow_spec` 缺失时，从内置 template 合成；`task_graph` 会合并进 spec（含 implement → acceptance → verification → code-review 链）。
+- `sp_report(status="passed")` 后，先匹配 source node，再沿 `edges` 或 `depends_on` 找 target；同一 transition 中刚 passed 的 node 可解锁直接下游，但 **跨 task 的 implement 依赖** 仍要求 `isTaskLevelPassed()`。
+- 已有 `task_graph` 时，跳过 template 里的 design/plan/generic implement 节点，改派 task-scoped nodes。
+- `task_graph` 扩展默认 `append` 到现有 spec，避免 plan 节点被 replace 掉。
+
+transition 输出只能是：
 
 - `create_session`：创建新的 node session。
 - `reuse_session`：复用已有 node session，通常用于检查失败后回派 implementer。
@@ -124,7 +139,9 @@ workflow template 提供 controller 可选的默认 orchestration、task graph p
 - 改变任务目标、范围、workflow kind 或 source workflow 的恢复，需要先重新 `sp_prepare` 生成用户可确认的 proposal；继续同一个 durable run 的恢复，使用 `sp_start(run_id)`。
 - `sp_cancel(session_id)` 只取消匹配 session。它不自动补齐下一步；恢复时必须重新计算 transition。
 - late report from interrupted/canceled/dispatch_failed child session 只作为审计写入，不覆盖 current state、canonical artifacts 或 newer attempt。
-- dispatch 创建失败会登记 `dispatch_failed` node，并让 workflow 进入 `waiting_user_decision`，`controller_feedback.allowed_controller_decisions` 给出可执行裁决。
+- dispatch 创建失败会登记 `dispatch_failed` node，并让 workflow 进入 `waiting_controller_decision`（无其他 running node 时）或保持 `running` 并附 `parallel_context`（仍有 sibling 在跑时）。`controller_feedback.allowed_controller_decisions` 给出 `retry_node`、`continue_existing_graph` 等可复制 payload。
+- child session 已创建但 prompt 投递失败时，`markPromptDeliveryFailed` 把对应 `running` node 闭合为 `dispatch_failed`，不自动重试。
+- `session.error` 事件会把匹配 `running` node 降级为 `interrupted` 或 `failed`，并进入与 dispatch 失败相同的裁决路径。
 - `allowed_controller_decisions` 当前支持 `retry_node`、`continue_existing_graph`、`accept_partial_result`、`mark_blocked`、`request_reprepare`、`apply_workflow_patch`、`replace_orchestration`。主控必须选择其中一个并用 `sp_start(start_action="resolve_controller_decision")` 执行；插件会校验裁决是否仍适用于当前 `state_version` 和状态。
 - `retry_node` 会记录 `controller_decision_retry_node` 事件，并为目标 node 的 agent 创建 fresh child session。`continue_existing_graph` 会从当前结构化 state 重新计算 transition。`apply_workflow_patch` 会应用 `pending_workflow_expansion` 或传入的 `workflow_patch`；`replace_orchestration` 会替换 `workflow_spec.orchestration`。`accept_partial_result`、`mark_blocked`、`request_reprepare` 只改变 workflow state 和审计记录，不派发 child session。
 - `needs_user` 由节点通过 `sp_report` 上报。runtime 不派发后续节点，而是通知 `parent_session_id` 中的 `superpowers-agent`。`superpowers-agent` 只负责在主会话中向用户提问，并在用户回答后调用 `sp_start(run_id, resume_input)`；插件负责校验 `source_node_id`、清空 `pending_question`、恢复原 child session。节点 agent 不能绕过 runtime 调 OpenCode 原生 question。

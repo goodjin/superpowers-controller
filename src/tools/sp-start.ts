@@ -391,6 +391,12 @@ export async function dispatchWorkflowDecisions(args: {
           })
           nodeRegistered = true
         },
+        async onPromptDeliveryFailed(input) {
+          args.store.markPromptDeliveryFailed({
+            session_id: input.sessionID,
+            error: input.error,
+          })
+        },
       })
     } catch (error) {
       args.store.markDispatchFailed({

@@ -64,7 +64,8 @@ export function createPluginModule(): PluginModule {
     return {
       tool: createTools(store, orchestrator, progress),
       event: async ({ event }) => {
-        const entry = nodeProgress.recordEvent(store.readCurrent(), event)
+        const state = store.readCurrent()
+        const entry = nodeProgress.recordEvent(state, event)
         if (entry && isWaitingPermissionEvent(event)) {
           await adapter.selectSession?.({
             sessionID: entry.session_id,
@@ -76,6 +77,23 @@ export function createPluginModule(): PluginModule {
             message: `Child session ${entry.session_id} is waiting for permission.`,
             variant: "warning",
           })
+          return
+        }
+        if (event.type === "session.error" && state) {
+          const sessionID = event.properties.sessionID
+          if (!sessionID) return
+          const updated = store.markSessionError({
+            session_id: sessionID,
+            error: event.properties.error,
+          })
+          if (updated) {
+            await adapter.showProgress({
+              stage: "workflow_blocked",
+              title: "Superpowers workflow",
+              message: `Child session ${sessionID} reported an error; node ${updated.id} is now ${updated.status}.`,
+              variant: "error",
+            })
+          }
         }
       },
       config: async (hostConfig: Record<string, unknown>) => {
