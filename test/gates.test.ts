@@ -105,6 +105,7 @@ describe("evaluateToolGate", () => {
 
     expect(result.allowed).toBe(false)
     expect(result.reason).toContain("superpowers-agent")
+    expect(result.reason).toContain("sp_prepare")
   })
 
   test("superpowers agents cannot call native task even without active state", () => {
@@ -119,7 +120,7 @@ describe("evaluateToolGate", () => {
 
       expect(result.allowed, agent).toBe(false)
       expect(result.severity, agent).toBe("blocked")
-      expect(result.reason, agent).toContain("node_runs")
+      expect(result.reason, agent).toContain("sp_prepare")
     }
   })
 

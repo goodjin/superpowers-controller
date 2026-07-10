@@ -5,7 +5,11 @@ import {
   needsControllerAttention,
   type ParallelContext,
 } from "../runtime/workflow-attention"
-import { STALLED_PROGRESS_AFTER_MS } from "../tui/progress-panel"
+import {
+  findPermissionWaitingFromProgress,
+  findStalledRunningNode,
+} from "../runtime/session-activity"
+import type { NodeProgressEntry } from "../progress/node-progress"
 
 export type RecommendedNext =
   | { action: "wait_running_node"; run_id: string; node_id: string; session_id: string }
@@ -55,6 +59,12 @@ export type ControllerFeedback = {
   stall_context?: { node_id: string; session_id: string; idle_ms: number }
 }
 
+export type ControllerFeedbackContext = {
+  progressByNode?: Record<string, NodeProgressEntry[]>
+  liveStatusBySession?: Record<string, string>
+  now?: Date
+}
+
 export type AllowedControllerDecision = {
   kind: ControllerDecisionKind
   reason: string
@@ -64,7 +74,27 @@ export type AllowedControllerDecision = {
   requires_user_confirmation?: boolean
 }
 
-export function buildRecommendedNext(state: WorkflowState): RecommendedNext[] {
+export function buildRecommendedNext(
+  state: WorkflowState,
+  permissionWaiting?: ReturnType<typeof findPermissionWaitingFromProgress>,
+  stalled?: ReturnType<typeof findStalledRunningNode>,
+): RecommendedNext[] {
+  if (permissionWaiting) {
+    return [{
+      action: "wait_running_node",
+      run_id: state.id,
+      node_id: permissionWaiting.node_id,
+      session_id: permissionWaiting.session_id,
+    }]
+  }
+  if (stalled) {
+    return [
+      { action: "wait_running_node", run_id: state.id, node_id: stalled.node_id, session_id: stalled.session_id },
+      { action: "cancel_node", run_id: state.id, node_id: stalled.node_id },
+      { action: "cancel_workflow", run_id: state.id },
+    ]
+  }
+
   const parallel = buildParallelContext(state)
   const attention = latestAttentionNode(state)
   if (parallel && parallel.running_nodes.length > 0 && attention) {
@@ -205,15 +235,24 @@ export function buildAllowedControllerDecisions(state: WorkflowState): AllowedCo
   return decisions
 }
 
-export function buildControllerFeedback(state: WorkflowState, override?: Partial<ControllerFeedback>): ControllerFeedback {
+export function buildControllerFeedback(
+  state: WorkflowState,
+  override?: Partial<ControllerFeedback>,
+  context: ControllerFeedbackContext = {},
+): ControllerFeedback {
   const parallelContext = buildParallelContext(state)
-  const recommendedNext = override?.recommended_next ?? buildRecommendedNext(state)
+  const permissionWaiting = context.progressByNode
+    ? findPermissionWaitingFromProgress(state, context.progressByNode, context.liveStatusBySession)
+    : undefined
+  const stalled = context.progressByNode
+    ? findStalledRunningNode(state, context.progressByNode, context.now)
+    : undefined
+  const recommendedNext = override?.recommended_next ?? buildRecommendedNext(state, permissionWaiting, stalled)
   const needsApproval = state.status === "awaiting_design_approval" || state.status === "awaiting_plan_approval"
   const waitingUser = state.status === "waiting_user"
   const terminal = state.status === "passed" || state.status === "canceled"
   const attention = needsControllerAttention(state)
   const blocked = state.status === "blocked" || state.status === "waiting_user_decision" || state.status === "waiting_controller_decision" || state.status === "recovered_unknown" || attention
-  const stalled = stalledRunningNode(state)
   return {
     outcome: override?.outcome ?? (
       terminal ? "terminal" :
@@ -234,11 +273,13 @@ export function buildControllerFeedback(state: WorkflowState, override?: Partial
     requires_user: override?.requires_user ?? userRequirementForState(state),
     approval_target: override?.approval_target ?? approvalTargetForState(state),
     autonomous_options: override?.autonomous_options,
-    blocking_reason: override?.blocking_reason ?? blockingReasonForState(state, parallelContext, stalled),
+    blocking_reason: override?.blocking_reason ?? blockingReasonForState(state, parallelContext, stalled, permissionWaiting),
     artifact_mode: override?.artifact_mode ?? artifactModeForState(state),
     parallel_context: override?.parallel_context ?? parallelContext,
     inspection_hints: override?.inspection_hints ?? inspectionHintsForState(state, stalled),
-    permission_context: override?.permission_context,
+    permission_context: override?.permission_context ?? (permissionWaiting
+      ? { session_id: permissionWaiting.session_id, hint: permissionWaiting.hint }
+      : undefined),
     stall_context: stalled ? {
       node_id: stalled.node_id,
       session_id: stalled.session_id,
@@ -335,8 +376,10 @@ function decisionOption(
 function blockingReasonForState(
   state: WorkflowState,
   parallel: ParallelContext | undefined,
-  stalled: { node_id: string; session_id: string; idle_ms: number } | undefined,
+  stalled: ReturnType<typeof findStalledRunningNode> | undefined,
+  permissionWaiting?: ReturnType<typeof findPermissionWaitingFromProgress>,
 ): string | undefined {
+  if (permissionWaiting) return permissionWaiting.hint
   if (parallel && parallel.running_nodes.length > 0 && parallel.failed_nodes.length > 0) {
     return `Parallel workflow has ${parallel.failed_nodes.length} failed node(s) while ${parallel.running_nodes.length} node(s) are still running.`
   }
@@ -350,7 +393,7 @@ function blockingReasonForState(
 
 function inspectionHintsForState(
   state: WorkflowState,
-  stalled: { node_id: string; session_id: string; idle_ms: number } | undefined,
+  stalled: ReturnType<typeof findStalledRunningNode> | undefined,
 ): ControllerFeedback["inspection_hints"] {
   if (!stalled) return undefined
   return [{
@@ -358,9 +401,4 @@ function inspectionHintsForState(
     args: { run_id: state.id, include_progress: true },
     reason: `Inspect stalled node ${stalled.node_id} before retrying or canceling.`,
   }]
-}
-
-function stalledRunningNode(_state: WorkflowState): { node_id: string; session_id: string; idle_ms: number } | undefined {
-  void STALLED_PROGRESS_AFTER_MS
-  return undefined
 }

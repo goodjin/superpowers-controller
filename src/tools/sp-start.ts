@@ -17,137 +17,32 @@ export function createStartTool(
   progress: ProgressReporter = noopProgressReporter,
 ): ToolDefinition {
   return tool({
-    description: "Activate a reviewed planning draft or start a confirmed workflow run.",
+    description: "V5 workflow control. Actions: start_prepared_task, resume_user_input, retry_node, resolve_controller_decision. Copy payloads from sp_status.allowed_controller_decisions.",
     args: {
-      request: tool.schema.string().optional().describe("Confirmed user request"),
-      workflow: tool.schema.string().optional().describe("Workflow kind: feature, debug, plan-only, review, verify-finish, or parallel-investigate"),
-      entrypoint: tool.schema.string().optional().describe("Confirmed entrypoint"),
-      proposal: tool.schema.string().optional().describe("Proposal markdown that was confirmed by the user"),
-      run_id: tool.schema.string().optional().describe("Prepared run id to activate after plan review"),
-      prepared_task_id: tool.schema.string().optional().describe("V5 alias for run_id."),
+      run_id: tool.schema.string().optional().describe("Prepared workflow run id."),
+      prepared_task_id: tool.schema.string().optional().describe("Alias for run_id."),
       action: tool.schema.enum(["start_prepared_task", "resume_user_input", "retry_node", "resolve_controller_decision"]).optional().describe("V5 explicit action."),
-      start_action: tool.schema.enum(["start_prepared_task", "resume_user_input", "retry_node", "resolve_controller_decision"]).optional().describe("Explicit v5 start action."),
-      start_config: tool.schema
-        .object({
-          kind: tool.schema.enum(["built_in_workflow", "orchestration"]).describe("Whether to use a built-in template or controller-provided orchestration."),
-          workflow_id: tool.schema.string().optional().describe("Built-in workflow id."),
-          auto_expansion: tool.schema
-            .object({
-              allow: tool.schema.boolean().optional(),
-              reason: tool.schema.string().optional(),
-            })
-            .optional()
-            .describe("Override template auto expansion policy."),
-          orchestration: tool.schema
-            .object({
-              id: tool.schema.string().optional(),
-              title: tool.schema.string().optional(),
-              nodes: tool.schema.array(
-                tool.schema.object({
-                  id: tool.schema.string(),
-                  title: tool.schema.string().optional(),
-                  agent: tool.schema.string(),
-                  phase: tool.schema.string().optional(),
-                  task_id: tool.schema.string().optional(),
-                  depends_on: tool.schema.array(tool.schema.string()).optional(),
-                  input_documents: tool.schema.array(tool.schema.string()).optional(),
-                  output_documents: tool.schema.array(tool.schema.string()).optional(),
-                  report_contract: tool.schema.array(tool.schema.string()).optional(),
-                }),
-              ),
-            })
-            .optional()
-            .describe("Controller-provided workflow orchestration. It may contain a single node."),
-        })
-        .optional()
-        .describe("V5 workflow start configuration."),
-      confirmation: tool.schema
-        .object({
-          user_confirmed: tool.schema.boolean().optional().describe("Must be true after explicit user confirmation."),
-          user_message: tool.schema.string().optional().describe("Original or summarized user confirmation message."),
-          confirmed_by_session_id: tool.schema.string().optional().describe("Session id that captured the confirmation."),
-        })
-        .optional()
-        .describe("V5 user confirmation required for start_prepared_task."),
-      expected_state_version: tool.schema.string().optional().describe("Optional optimistic concurrency guard for approval or retry actions."),
-      task_id: tool.schema.string().optional().describe("Optional task id to resume when activating a prepared plan"),
-      session: tool.schema.string().optional().describe("Controller session id"),
-      controller_decision: tool.schema
-        .object({
-          kind: tool.schema.enum(["continue_existing_graph", "retry_node", "accept_partial_result", "mark_blocked", "request_reprepare", "apply_workflow_patch", "replace_orchestration"]).describe("Controller decision kind"),
-          node_id: tool.schema.string().optional().describe("Node id the decision targets"),
-          task_id: tool.schema.string().optional().describe("Task id the decision targets"),
-          reason: tool.schema.string().optional().describe("Controller-facing reason for this decision"),
-          evidence_refs: tool.schema.array(tool.schema.string()).optional().describe("Durable evidence refs accepted by the controller"),
-          required_user_action: tool.schema.string().optional().describe("User action required after mark_blocked"),
-          reuse_session: tool.schema.boolean().optional().describe("Whether the controller expects session reuse"),
-          workflow_patch: tool.schema
-            .object({
-              mode: tool.schema.enum(["append", "replace"]).optional(),
-              reason: tool.schema.string().optional(),
-              tasks: tool.schema
-                .array(
-                  tool.schema.object({
-                    id: tool.schema.string(),
-                    title: tool.schema.string(),
-                    summary: tool.schema.string(),
-                    depends_on: tool.schema.array(tool.schema.string()),
-                    agent: tool.schema.string().optional(),
-                    files: tool.schema.array(tool.schema.string()).optional(),
-                    test_commands: tool.schema.array(tool.schema.string()).optional(),
-                  }),
-                )
-                .optional(),
-              nodes: tool.schema
-                .array(
-                  tool.schema.object({
-                    id: tool.schema.string(),
-                    title: tool.schema.string().optional(),
-                    agent: tool.schema.string(),
-                    phase: tool.schema.string().optional(),
-                    task_id: tool.schema.string().optional(),
-                    depends_on: tool.schema.array(tool.schema.string()).optional(),
-                    input_documents: tool.schema.array(tool.schema.string()).optional(),
-                    output_documents: tool.schema.array(tool.schema.string()).optional(),
-                    report_contract: tool.schema.array(tool.schema.string()).optional(),
-                  }),
-                )
-                .optional(),
-            })
-            .optional()
-            .describe("Workflow expansion patch selected by controller."),
-          orchestration: tool.schema
-            .object({
-              id: tool.schema.string().optional(),
-              title: tool.schema.string().optional(),
-              nodes: tool.schema.array(
-                tool.schema.object({
-                  id: tool.schema.string(),
-                  title: tool.schema.string().optional(),
-                  agent: tool.schema.string(),
-                  phase: tool.schema.string().optional(),
-                  task_id: tool.schema.string().optional(),
-                  depends_on: tool.schema.array(tool.schema.string()).optional(),
-                  input_documents: tool.schema.array(tool.schema.string()).optional(),
-                  output_documents: tool.schema.array(tool.schema.string()).optional(),
-                  report_contract: tool.schema.array(tool.schema.string()).optional(),
-                }),
-              ),
-            })
-            .optional()
-            .describe("Replacement orchestration selected by controller."),
-        })
-        .optional()
-        .describe("Decision chosen by the controller from allowed_controller_decisions."),
-      resume_input: tool.schema
-        .object({
-          source_node_id: tool.schema.string().describe("Node id that produced the current pending_question"),
-          answer_text: tool.schema.string().optional().describe("User answer as normalized free text"),
-          selected_options: tool.schema.array(tool.schema.string()).optional().describe("Selected option labels when the question offered options"),
-          user_message: tool.schema.string().optional().describe("Original user reply from the main conversation"),
-        })
-        .optional()
-        .describe("User input collected by the controller for a waiting_user workflow."),
+      start_action: tool.schema.enum(["start_prepared_task", "resume_user_input", "retry_node", "resolve_controller_decision"]).optional().describe("Alias for action."),
+      start_config: tool.schema.object({}).passthrough().optional().describe("Required for start_prepared_task."),
+      confirmation: tool.schema.object({
+        user_confirmed: tool.schema.boolean().optional(),
+        user_message: tool.schema.string().optional(),
+        confirmed_by_session_id: tool.schema.string().optional(),
+      }).optional().describe("Required for start_prepared_task."),
+      controller_decision: tool.schema.object({}).passthrough().optional().describe("Required for resolve_controller_decision; copy from allowed_controller_decisions."),
+      resume_input: tool.schema.object({
+        source_node_id: tool.schema.string(),
+        answer_text: tool.schema.string().optional(),
+        selected_options: tool.schema.array(tool.schema.string()).optional(),
+        user_message: tool.schema.string().optional(),
+      }).optional().describe("Required for resume_user_input."),
+      expected_state_version: tool.schema.string().optional().describe("Optimistic concurrency guard."),
+      task_id: tool.schema.string().optional().describe("Optional task id for retry/resume."),
+      session: tool.schema.string().optional().describe("Controller session id."),
+      request: tool.schema.string().optional().describe("Legacy field; rejected."),
+      workflow: tool.schema.string().optional().describe("Legacy field; rejected."),
+      entrypoint: tool.schema.string().optional().describe("Legacy field; rejected."),
+      proposal: tool.schema.string().optional().describe("Legacy field; rejected."),
     },
     async execute(args, context) {
       const callerSessionID = args.session ?? context.sessionID

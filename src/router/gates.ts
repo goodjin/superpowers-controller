@@ -8,6 +8,8 @@ export type GateResult = {
   reason: string
 }
 
+const CONTROLLER_DISPATCH_HINT = "Use sp_prepare, get user confirmation, then sp_start(action=\"start_prepared_task\") to dispatch node agents."
+
 export function evaluateToolGate(args: {
   config: WorkflowConfig
   state: WorkflowState | null | undefined
@@ -23,7 +25,7 @@ export function evaluateToolGate(args: {
     return {
       allowed: false,
       severity: "blocked",
-      reason: `${args.agent} cannot call native task; use sp_start or sp_report so Controller registers node_runs before child prompts`,
+      reason: `${args.agent} cannot call native task; ${CONTROLLER_DISPATCH_HINT}`,
     }
   }
 
@@ -49,7 +51,7 @@ export function evaluateToolGate(args: {
   }
 
   if (args.agent === "superpowers-agent") {
-    return resultForMode(args.config.mode, "superpowers-agent cannot execute mutating production tools")
+    return resultForMode(args.config.mode, `superpowers-agent cannot execute mutating production tools; ${CONTROLLER_DISPATCH_HINT}`)
   }
 
   return allow()
@@ -72,7 +74,7 @@ function evaluateSkillToolGate(agent: string | undefined, toolArgs: Record<strin
     return {
       allowed: false,
       severity: "blocked",
-      reason: "superpowers-agent cannot load skills; use sp_prepare or sp_start so node agents load plugin-assigned primary skills",
+      reason: `superpowers-agent cannot load skills; ${CONTROLLER_DISPATCH_HINT}`,
     }
   }
   if (isNodeAgentName(agent)) {

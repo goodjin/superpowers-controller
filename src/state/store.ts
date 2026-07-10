@@ -92,6 +92,10 @@ export type ProjectStore = {
     session_id: string
     idle_ms: number
   }): NodeRun | null
+  recordAuditEvent(args: {
+    event: string
+    summary: string
+  }): WorkflowState | null
   recoverInterruptedRunningNodes(args: { reason: string }): WorkflowState | null
   consumePendingQuestion(args: {
     runID: string
@@ -1042,6 +1046,33 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       })
       appendChangelog(root, current.id, `liveness timeout for ${target.agent} ${target.task_id ?? target.phase}: ${summary}`)
       return nodeRuns.find((run) => run.id === target.id) ?? null
+    },
+    recordAuditEvent(args) {
+      const current = this.readCurrent()
+      if (!current) return null
+      const now = new Date().toISOString()
+      const next: WorkflowState = {
+        ...current,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...current.history,
+          {
+            at: now,
+            event: args.event,
+            from: current.phase,
+            to: current.phase,
+            summary: args.summary,
+          },
+        ],
+      }
+      persistCurrent(next)
+      appendEvent(root, current.id, {
+        type: args.event,
+        summary: args.summary,
+      })
+      appendChangelog(root, current.id, `${args.event}: ${args.summary}`)
+      return next
     },
     reset() {
       const currentPath = join(root, "current.json")

@@ -1,5 +1,6 @@
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import { buildWorkflowStatusSnapshot } from "../status/workflow-status"
+import { createNodeProgressStore } from "../progress/node-progress"
 import type { ProjectStore } from "../state/store"
 import type { WorkflowState } from "../state/types"
 import { buildControllerFeedback } from "../controller/feedback"
@@ -44,6 +45,9 @@ export function createStatusTool(store: ProjectStore): ToolDefinition {
             progressTail: args.progress_tail,
           })
         : undefined
+      const progressByNode = current
+        ? createNodeProgressStore(current.project).readRun(current)
+        : undefined
       return JSON.stringify(
         {
           source: snapshot?.source ?? "history_scan",
@@ -58,7 +62,7 @@ export function createStatusTool(store: ProjectStore): ToolDefinition {
           recommended_next: snapshot?.recommended_next,
           allowed_controller_decisions: snapshot?.allowed_controller_decisions,
           capabilities: args.include_capabilities ? buildCapabilities() : undefined,
-          controller_feedback: current ? buildControllerFeedback(current) : undefined,
+          controller_feedback: current ? buildControllerFeedback(current, undefined, { progressByNode }) : undefined,
           incomplete_workflows: history,
         },
         null,

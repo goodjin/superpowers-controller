@@ -163,6 +163,7 @@ export function createReportHandler(deps: {
     }
 
     const current = deps.store.readCurrent() ?? state
+    let feedbackOverride: Partial<ReturnType<typeof buildControllerFeedback>> | undefined
     if (current.status === "waiting_controller_decision" && deps.orchestrator.notifyParent) {
       const feedback = buildControllerFeedback(current)
       try {
@@ -172,21 +173,30 @@ export function createReportHandler(deps: {
           prompt: buildControllerDecisionPrompt(current, feedback.allowed_controller_decisions),
         })
       } catch (error) {
+        const message = errorMessage(error)
+        deps.store.recordAuditEvent({
+          event: "controller_decision_notification_failed",
+          summary: message,
+        })
+        feedbackOverride = {
+          blocking_reason: `Parent controller decision notification failed: ${message}. Call sp_status and submit sp_start(resolve_controller_decision) manually.`,
+        }
         await progress.report({
           stage: "workflow_blocked",
           title: "Superpowers workflow",
-          message: `Parent controller decision notification failed: ${errorMessage(error)}`,
+          message: `Parent controller decision notification failed: ${message}`,
           variant: "error",
         })
       }
     }
 
+    const latest = deps.store.readCurrent() ?? current
     return JSON.stringify(
       {
-        state: current,
+        state: latest,
         decisions,
         dispatches,
-        controller_feedback: buildControllerFeedback(current),
+        controller_feedback: buildControllerFeedback(latest, feedbackOverride),
       },
       null,
       2,
