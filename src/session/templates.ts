@@ -1,6 +1,9 @@
 import type { DispatchDecision } from "../router/transition"
 import type { NodeRun, ResumeInput, WorkflowState } from "../state/types"
 import type { NodeTaskPacket } from "./task-packet"
+import type { WorkflowConfig } from "../config/schema"
+import { DEFAULT_CONFIG } from "../config/defaults"
+import { qualityGateHint, requiredQualityChecks, resolveQualityCommand } from "../runtime/quality-checks"
 
 export function buildNodeTaskPrompt(packet: NodeTaskPacket): string {
   const artifacts = packet.required_artifacts.map((artifact) => `- ${artifact.name}: ${artifact.path}`).join("\n")
@@ -36,6 +39,7 @@ export function buildNodeTaskPrompt(packet: NodeTaskPacket): string {
     `- allowed_gates: ${packet.record_contract.allowed_gates.join(", ") || "none"}`,
     "- Required fields: event, status, summary",
     "- Optional fields: artifacts, gates, checks, findings, question, task_graph",
+    checksContractHint(packet),
     '- question.options uses objects: [{ "label": "...", "description": "..." }].',
     "- Do not include next_action, target_session_id, child_session_id, reuse_session_id, create_sessions, or skills_used.",
   ]
@@ -208,8 +212,14 @@ export function buildNodeTaskPacket(args: {
   state: WorkflowState
   decision: Extract<DispatchDecision, { action: "create_session" | "reuse_session" }>
   nodeID: string
+  config?: WorkflowConfig
 }): NodeTaskPacket {
   const contract = recordContractForPhase(args.decision.phase)
+  const config = args.config ?? DEFAULT_CONFIG
+  const contextSections = [
+    ...(contextSectionsForDecision(args.state, args.decision) ?? []),
+    ...qualityCheckContextSections(args.state, args.decision.phase, config),
+  ]
   return {
     run_id: args.state.id,
     node_id: args.nodeID,
@@ -219,10 +229,54 @@ export function buildNodeTaskPacket(args: {
     primary_skill: args.decision.primary_skill,
     task_id: args.decision.task_id,
     objective: objectiveForDecision(args.state, args.decision),
-    context_sections: contextSectionsForDecision(args.state, args.decision),
+    context_sections: contextSections.length > 0 ? contextSections : undefined,
     required_artifacts: requiredArtifactsForPhase(args.decision.phase, args.state, args.decision.task_id),
     record_contract: contract,
   }
+}
+
+function qualityCheckContextSections(
+  state: WorkflowState,
+  phase: string,
+  config: WorkflowConfig,
+): Array<{ title: string; body: string }> {
+  if (phase !== "verification" && phase !== "finish") return []
+  const required = requiredQualityChecks(state)
+  if (required.length === 0) return []
+  const commands = required
+    .map((kind) => `${kind}: \`${resolveQualityCommand(config, state, kind)}\``)
+    .join("\n")
+  const hint = qualityGateHint(state, config)
+  return [
+    {
+      title: "Quality Check Evidence",
+      body: [
+        "Run the required commands and include results in `sp_report.checks`.",
+        "",
+        "Line format (one per check):",
+        "```",
+        "build: passed (bun run build)",
+        "test: passed (bun test)",
+        "```",
+        "Or JSON: `{\"build\":{\"status\":\"passed\",\"command\":\"bun run build\"}}`",
+        "",
+        `Required checks: ${required.join(", ")}`,
+        "",
+        "Suggested commands:",
+        commands,
+        hint ? `\nStill missing before finish: ${hint}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    },
+  ]
+}
+
+function checksContractHint(packet: NodeTaskPacket): string {
+  if (packet.record_contract.event !== "verification" && packet.record_contract.event !== "finish") return ""
+  const section = packet.context_sections?.find((item) => item.title === "Quality Check Evidence")
+  if (!section) return ""
+  return "- checks: required for this workflow; see Quality Check Evidence above."
 }
 
 function objectiveForDecision(

@@ -10,6 +10,14 @@ export const WorkflowConfigSchema = z.object({
   design_gate: GateModeSchema.default("guided"),
   debug_gate: GateModeSchema.default("guided"),
   verification_gate: GateModeSchema.default("guided"),
+  quality_gate: GateModeSchema.default("off"),
+  quality_commands: z
+    .object({
+      build: z.string().default("bun run build"),
+      test: z.string().default("bun test"),
+      lint: z.string().default("bun run lint"),
+    })
+    .default({ build: "bun run build", test: "bun test", lint: "bun run lint" }),
   disabled_workflows: z.array(z.string()).default([]),
   disabled_agents: z.array(z.string()).default([]),
   disabled_skills: z.array(z.string()).default([]),

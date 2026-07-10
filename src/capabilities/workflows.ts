@@ -173,6 +173,8 @@ export function buildCapabilities() {
         nodes: "Array<{ id, agent, phase?, task_id?, depends_on?, input_documents?, output_documents? }>",
         edges: "Array<{ from, to, condition? }>",
         auto_expansion: "Default follows template; *-only and single-agent default false.",
+        required_checks: 'Optional Array<"build"|"test"|"lint"> — finish sp_report must include passed checks evidence when quality_gate is strict.',
+        quality_commands: 'Optional Partial<Record<"build"|"test"|"lint", string>> — override default build/test/lint commands for this run.',
       },
       report_expansion: {
         mode: ["append", "replace"],

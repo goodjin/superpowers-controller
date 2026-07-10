@@ -526,6 +526,8 @@ type StartConfigInput = {
     reason?: string
   }
   orchestration?: WorkflowOrchestration
+  required_checks?: Array<"build" | "test" | "lint">
+  quality_commands?: Partial<Record<"build" | "test" | "lint", string>>
 }
 
 function buildWorkflowSpecFromStartConfig(args: {
@@ -544,7 +546,7 @@ function buildWorkflowSpecFromStartConfig(args: {
       id: `${args.runID}-workflow-spec`,
       kind: "built_in_workflow",
       templateID: template.id,
-      orchestration: template.orchestration,
+      orchestration: withQualityPolicy(template.orchestration, config),
       autoExpansionAllow: config.auto_expansion?.allow,
       autoExpansionReason: config.auto_expansion?.reason,
     })
@@ -556,10 +558,18 @@ function buildWorkflowSpecFromStartConfig(args: {
     id: `${args.runID}-workflow-spec`,
     kind: "orchestration",
     title: config.orchestration.title,
-    orchestration: config.orchestration,
+    orchestration: withQualityPolicy(config.orchestration, config),
     autoExpansionAllow: config.auto_expansion?.allow ?? false,
     autoExpansionReason: config.auto_expansion?.reason ?? "Controller-provided orchestration defaults to bounded unless explicitly allowed.",
   })
+}
+
+function withQualityPolicy(orchestration: WorkflowOrchestration, config: StartConfigInput): WorkflowOrchestration {
+  return {
+    ...orchestration,
+    required_checks: config.required_checks ?? orchestration.required_checks,
+    quality_commands: config.quality_commands ?? orchestration.quality_commands,
+  }
 }
 
 function normalizeStartConfig(value: unknown): StartConfigInput | undefined {

@@ -6,6 +6,12 @@ export const DEFAULT_CONFIG: WorkflowConfig = {
   design_gate: "guided",
   debug_gate: "guided",
   verification_gate: "guided",
+  quality_gate: "off",
+  quality_commands: {
+    build: "bun run build",
+    test: "bun test",
+    lint: "bun run lint",
+  },
   disabled_workflows: [],
   disabled_agents: [],
   disabled_skills: [],

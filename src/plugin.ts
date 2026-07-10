@@ -85,7 +85,7 @@ export function createPluginModule(): PluginModule {
     await logStartupTiming("runtime wiring", stepStart)
     await logStartupTiming("total", startupStart)
     return {
-      tool: createTools(store, orchestrator, progress),
+      tool: createTools(store, orchestrator, progress, config),
       event: async ({ event }) => {
         const state = store.readCurrent()
         const entry = nodeProgress.recordEvent(state, event)

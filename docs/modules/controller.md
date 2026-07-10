@@ -13,7 +13,7 @@ controller 模块负责把用户确认后的任务整理成可准备、可启动
 - `src/tools/sp-prepare.ts`：创建 prepared workflow；支持 v5 `task_brief`、`design_participation`、`confirmation`，并兼容 v4 `prepare_mode`。
 - `src/tools/sp-start.ts`：确认后启动 prepared task，消费 `StartConfirmation` 和 `StartConfig`，激活 prepared run，恢复已有 run，用 `resume_input` 恢复等待用户输入的 child session，或用 controller decision 处理异常态。
 - `src/tools/sp-cancel.ts`：取消 workflow、task 或 session。
-- `src/tools/sp-report.ts`：节点会话汇报结果、问题、产物和 task graph。
+- `src/tools/sp-report.ts`：节点会话汇报结果、问题、产物、task graph 和 checks（build/test/lint 证据）。
 - `src/progress/reporter.ts`：为 route/start 提供用户可见的流程提示契约。
 
 ## Public Control Surface
@@ -46,7 +46,7 @@ sp_status -> sp_prepare -> sp_start -> sp_report(terminal/control status) -> tra
 - `prepare_mode`：旧 v4 兼容字段，曾用 `proposal_only`、`managed_design` 或 `managed_planning` 描述 draft preparation。v5 新判断应优先读取 `workflow_spec` 和 `start_config`。
 - `workflow_spec`：v5 prepare/start 落盘后的执行说明，来自内置 workflow template 或 controller 自定义 orchestration。
 - `StartConfirmation`：用户确认 prepared task 的结构化证据，记录确认摘要、来源 session 和时间。
-- `StartConfig`：用户确认后选择的启动配置，记录内置 workflow template id 或自定义 orchestration。
+- `StartConfig`：用户确认后选择的启动配置，记录内置 workflow template id 或自定义 orchestration；可选 `required_checks` 与 `quality_commands`。
 - `documents` / `documents.json`：run-local 文档索引，记录 request、task、proposal、spec、plan、task graph、workflow spec、node task/report 和 fallback summary。
 - `pending_workflow_expansion`：auto expansion policy 不允许时保存待主控裁决的 node-reported expansion。
 - `state_version`：状态版本。`sp_start(expected_state_version=...)` 用它拒绝基于旧状态的批准、恢复或 retry。

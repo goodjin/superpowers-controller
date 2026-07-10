@@ -6,6 +6,8 @@ import type { SessionOrchestrator } from "../session/orchestrator"
 import type { ProjectStore } from "../state/store"
 import type { NodeStatus, WorkflowState } from "../state/types"
 import { buildControllerFeedback } from "../controller/feedback"
+import type { WorkflowConfig } from "../config/schema"
+import { validateQualityGateForRecord } from "../runtime/quality-checks"
 
 export type ReportHandlerContext = {
   sessionID?: string
@@ -16,10 +18,20 @@ export function createReportHandler(deps: {
   store: ProjectStore
   orchestrator: Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "notifyParent">>
   progress?: ProgressReporter
+  config?: WorkflowConfig
 }) {
   return async (input: unknown, context: ReportHandlerContext = {}): Promise<string> => {
     const progress = deps.progress ?? noopProgressReporter
     const record = parseSpRecordInput(input)
+    const currentBeforeRecord = deps.store.readCurrent()
+    if (currentBeforeRecord && deps.config) {
+      validateQualityGateForRecord({
+        config: deps.config,
+        state: currentBeforeRecord,
+        record,
+        nodeID: resolveReportingNodeID(currentBeforeRecord, record, context),
+      })
+    }
     const state = deps.store.recordNodeResult({
       input: record,
       sessionID: context.sessionID,
@@ -98,6 +110,7 @@ export function createReportHandler(deps: {
         state: current,
         decision,
         nodeID,
+        config: deps.config,
       })
       let nodeRegistered = false
       let result
@@ -286,4 +299,23 @@ function nextDispatchNodeID(state: WorkflowState, decision: Extract<DispatchDeci
   const index = state.node_runs.length + 1
   const task = decision.task_id ? `-${decision.task_id}` : ""
   return `${String(index).padStart(3, "0")}-${decision.phase}${task}`
+}
+
+function resolveReportingNodeID(
+  state: WorkflowState,
+  record: { event: string },
+  context: ReportHandlerContext,
+): string | undefined {
+  const running = state.node_runs.filter((run) => run.status === "running")
+  if (context.sessionID) {
+    const matches = running.filter((run) => run.session_id === context.sessionID)
+    if (matches.length === 1) return matches[0]!.id
+  }
+  const phase = record.event === "finish" ? "finish" : record.event === "verification" ? "verification" : undefined
+  if (phase) {
+    const matches = running.filter((run) => run.phase === phase)
+    if (matches.length === 1) return matches[0]!.id
+  }
+  if (running.length === 1) return running[0]!.id
+  return undefined
 }

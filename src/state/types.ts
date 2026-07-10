@@ -150,6 +150,18 @@ export type WorkflowOrchestration = {
   }>
   documents?: WorkflowDocumentSpec[]
   completion_policy?: string
+  required_checks?: QualityCheckKind[]
+  quality_commands?: Partial<Record<QualityCheckKind, string>>
+}
+
+export type QualityCheckKind = "build" | "test" | "lint"
+
+export type QualityCheckRecord = {
+  status: "passed" | "failed"
+  command?: string
+  summary?: string
+  node_id?: string
+  reported_at: string
 }
 
 export type WorkflowAutoExpansionPolicy = {
@@ -286,6 +298,7 @@ export type WorkflowState = {
   artifacts: Partial<Record<WorkflowArtifact, string>>
   task_graph?: TaskGraph
   workflow_spec?: WorkflowSpec
+  quality_checks?: Partial<Record<QualityCheckKind, QualityCheckRecord>>
   start_confirmation?: StartConfirmation
   pending_workflow_expansion?: WorkflowExpansionPatch
   documents?: WorkflowDocumentSpec[]

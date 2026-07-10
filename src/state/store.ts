@@ -6,6 +6,7 @@ import { normalizeTaskGraph } from "./task-graph"
 import { buildTaskGraphSpecEdges, buildTaskGraphSpecNodes } from "../router/workflow-spec-dispatch"
 import { createWorkflowSpec, findBuiltInWorkflowTemplate } from "../capabilities/workflows"
 import { resolveWorkflowStatusAfterNodeReport, sessionErrorNodeStatus, workflowStatusAfterNodeFailure } from "../runtime/workflow-attention"
+import { mergeQualityChecksFromRecord } from "../runtime/quality-checks"
 import type {
   ControllerDecision,
   NodeRun,
@@ -689,6 +690,11 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
           { ...next, node_runs: nodeRuns },
           nodeID,
           args.input.status,
+        ),
+        quality_checks: mergeQualityChecksFromRecord(
+          { ...next, node_runs: nodeRuns },
+          args.input,
+          nodeID,
         ),
       }
       const recordTaskGraphExpansion = args.input.task_graph && !isDraftCandidateRecord(current, args.input)

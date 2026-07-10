@@ -3,13 +3,15 @@ import { createReportHandler } from "./report-handler"
 import { noopProgressReporter, type ProgressReporter } from "../progress/reporter"
 import type { SessionOrchestrator } from "../session/orchestrator"
 import type { ProjectStore } from "../state/store"
+import type { WorkflowConfig } from "../config/schema"
 
 export function createReportTool(
   store: ProjectStore,
   orchestrator: Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "notifyParent">>,
   progress: ProgressReporter = noopProgressReporter,
+  config?: WorkflowConfig,
 ): ToolDefinition {
-  const handler = createReportHandler({ store, orchestrator, progress })
+  const handler = createReportHandler({ store, orchestrator, progress, config })
   return tool({
     description: "Report a Superpowers node result, artifact, evidence, question, or task graph patch to the runtime.",
     args: {
@@ -18,7 +20,7 @@ export function createReportTool(
       summary: tool.schema.string().describe("Short markdown summary of this report"),
       gates: tool.schema.record(tool.schema.string(), tool.schema.boolean()).optional().describe("Structured gate updates keyed by known gate name"),
       artifacts: tool.schema.record(tool.schema.string(), tool.schema.string()).optional().describe("Markdown artifact bodies keyed by known artifact name"),
-      checks: tool.schema.string().optional().describe("Markdown checks or command evidence"),
+      checks: tool.schema.string().optional().describe("Quality/command evidence. Example: build: passed (bun run build)\\ntest: passed"),
       findings: tool.schema.string().optional().describe("Markdown findings"),
       question: tool.schema
         .object({

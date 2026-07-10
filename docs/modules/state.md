@@ -11,6 +11,7 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 - `src/runtime/workflow-attention.ts`：并行混合态、技术异常后的 workflow status 和 `parallel_context` 辅助逻辑。
 - `src/runtime/liveness.ts`：基于 progress 陈旧度把挂死 `running` node 标为 `interrupted`（默认 60s，可配置）。
 - `src/runtime/session-activity.ts`：从 progress/live status 推导 `permission_context` 与 stalled 检测，供 `controller_feedback` 使用。
+- `src/runtime/quality-checks.ts`：解析 `sp_report.checks`、合并 `quality_checks`、finish 前 quality gate 评估。
 - `src/state/transitions.ts`：把 `sp_report` 应用到 workflow state，校验 gate 和 artifact 关系。
 - `src/state/record-schema.ts`：严格解析 `sp_report` 输入，拒绝 control-plane 字段。
 - `src/state/task-graph.ts`：校验 task dependency、加入共享写文件隐式依赖、计算 runnable tasks。
@@ -69,6 +70,7 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 - `start_config`
 - `documents`
 - `fallback_summaries`
+- `quality_checks`
 - `state_version`
 
 其中 `activation` 用来区分：
@@ -201,6 +203,8 @@ type ResumeInput = {
 ```
 
 `source_node_id` 必须匹配当前 `pending_question.source_node_id`。匹配后 store 会清空 `pending_question`，把对应 `node_runs[]` 从 `needs_user` 改回 `running`，并把 workflow `status` 设回 `running`、`phase/current_phase` 设回原节点 phase。
+
+`quality_checks` 记录 verifier/finisher 通过 `sp_report.checks` 提交的 build/test/lint 证据。键为 check kind，值为 `{ status, command?, summary?, node_id?, reported_at }`。required 列表来自 `workflow_spec.orchestration.required_checks`；finish 时 strict `quality_gate` 会拒绝缺 passed 证据的 finish report。
 
 ## Task Graph
 
