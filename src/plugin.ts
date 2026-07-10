@@ -10,6 +10,7 @@ import { createParentProgressNotifier } from "./session/parent-progress-notifier
 import { buildRuntimeSkillInjection, hasRuntimeSkillInjection } from "./skills/runtime-injection"
 import { createProjectStore } from "./state/store"
 import { createTools } from "./tools"
+import { createLivenessMonitor } from "./runtime/liveness"
 
 const startupRecoveryProjects = new Set<string>()
 
@@ -59,6 +60,28 @@ export function createPluginModule(): PluginModule {
     const progress = { report: adapter.showProgress }
     const parentProgress = createParentProgressNotifier(adapter)
     const orchestrator = createSessionOrchestrator(adapter, { parentProgress })
+    if (config.liveness.enabled) {
+      createLivenessMonitor({
+        readState: () => store.readCurrent(),
+        readProgressByNode: (state) => nodeProgress.readRun(state),
+        timeoutMs: config.liveness.timeout_ms,
+        intervalMs: config.liveness.check_interval_ms,
+        onExpired: (entry) => {
+          const updated = store.markLivenessExpired({
+            session_id: entry.node.session_id,
+            idle_ms: entry.idle_ms,
+          })
+          if (updated) {
+            void adapter.showProgress({
+              stage: "workflow_blocked",
+              title: "Superpowers workflow",
+              message: `Node ${updated.id} had no progress for ${entry.idle_ms}ms and was marked interrupted.`,
+              variant: "warning",
+            })
+          }
+        },
+      })
+    }
     await logStartupTiming("runtime wiring", stepStart)
     await logStartupTiming("total", startupStart)
     return {

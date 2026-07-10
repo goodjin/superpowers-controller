@@ -88,6 +88,10 @@ export type ProjectStore = {
     node_id: string
     error: unknown
   }): NodeRun | null
+  markLivenessExpired(args: {
+    session_id: string
+    idle_ms: number
+  }): NodeRun | null
   recoverInterruptedRunningNodes(args: { reason: string }): WorkflowState | null
   consumePendingQuestion(args: {
     runID: string
@@ -989,6 +993,54 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         error: errorMessage(args.error),
       })
       appendChangelog(root, current.id, `notification failed for ${target.agent} ${target.task_id ?? target.phase}: ${errorMessage(args.error)}`)
+      return nodeRuns.find((run) => run.id === target.id) ?? null
+    },
+    markLivenessExpired(args) {
+      const current = this.readCurrent()
+      if (!current) return null
+      const target = current.node_runs.find((run) => run.session_id === args.session_id && run.status === "running")
+      if (!target) return null
+      const now = new Date().toISOString()
+      const summary = `No progress for ${args.idle_ms}ms; marked interrupted by liveness monitor.`
+      const nodeRuns = current.node_runs.map((run) => {
+        if (run.id !== target.id) return run
+        return {
+          ...run,
+          status: "interrupted" as const,
+          reported_at: now,
+          closed_at: now,
+          ended_at: now,
+        }
+      })
+      const next: WorkflowState = {
+        ...current,
+        status: workflowStatusAfterNodeFailure(current, nodeRuns),
+        phase: "liveness-timeout",
+        current_phase: "liveness-timeout",
+        node_runs: nodeRuns,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...current.history,
+          {
+            at: now,
+            event: "liveness_timeout",
+            from: current.phase,
+            to: "liveness-timeout",
+            summary,
+          },
+        ],
+      }
+      persistCurrent(next)
+      appendEvent(root, current.id, {
+        type: "liveness_timeout",
+        node_id: target.id,
+        task_id: target.task_id,
+        agent: target.agent,
+        session_id: target.session_id,
+        idle_ms: args.idle_ms,
+      })
+      appendChangelog(root, current.id, `liveness timeout for ${target.agent} ${target.task_id ?? target.phase}: ${summary}`)
       return nodeRuns.find((run) => run.id === target.id) ?? null
     },
     reset() {

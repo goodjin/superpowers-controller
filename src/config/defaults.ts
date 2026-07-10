@@ -14,4 +14,9 @@ export const DEFAULT_CONFIG: WorkflowConfig = {
     scope: "project",
     retention_days: 30,
   },
+  liveness: {
+    enabled: true,
+    timeout_ms: 60_000,
+    check_interval_ms: 15_000,
+  },
 }

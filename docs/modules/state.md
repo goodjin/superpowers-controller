@@ -9,6 +9,7 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 - `src/state/types.ts`：workflow、record、task graph、gate、artifact 和 `NodeRun` 类型。
 - `src/state/store.ts`：读写 current pointer、run directory、state、artifacts、nodes 和 changelog；含 `markPromptDeliveryFailed`、`markSessionError`、`markNotificationFailed`。
 - `src/runtime/workflow-attention.ts`：并行混合态、技术异常后的 workflow status 和 `parallel_context` 辅助逻辑。
+- `src/runtime/liveness.ts`：基于 progress 陈旧度把挂死 `running` node 标为 `interrupted`（默认 60s，可配置）。
 - `src/state/transitions.ts`：把 `sp_report` 应用到 workflow state，校验 gate 和 artifact 关系。
 - `src/state/record-schema.ts`：严格解析 `sp_report` 输入，拒绝 control-plane 字段。
 - `src/state/task-graph.ts`：校验 task dependency、加入共享写文件隐式依赖、计算 runnable tasks。

@@ -20,6 +20,13 @@ export const WorkflowConfigSchema = z.object({
       retention_days: z.number().int().positive().default(30),
     })
     .default({ scope: "project", retention_days: 30 }),
+  liveness: z
+    .object({
+      enabled: z.boolean().default(true),
+      timeout_ms: z.number().int().positive().default(60_000),
+      check_interval_ms: z.number().int().positive().default(15_000),
+    })
+    .default({ enabled: true, timeout_ms: 60_000, check_interval_ms: 15_000 }),
 })
 
 export type WorkflowConfig = z.infer<typeof WorkflowConfigSchema>
