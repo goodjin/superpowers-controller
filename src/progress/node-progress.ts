@@ -185,8 +185,8 @@ function entryFromToolPart(
       return {
         ...base,
         kind: "tool_running",
-        summary: `${part.tool} running`,
-        detail: toolInputDetail(part.state.input),
+        summary: runningToolSummary(part.tool, part.state.title),
+        detail: toolInputDetail(part.state.input, part.state.title),
       }
     case "completed":
       return {
@@ -219,10 +219,21 @@ function errorMessage(error: Extract<Event, { type: "session.error" }>["properti
   return error.name
 }
 
-function toolInputDetail(input: Record<string, unknown>): string | undefined {
-  const command = input.cmd ?? input.command
+function toolInputDetail(input: Record<string, unknown>, title?: string): string | undefined {
+  if (title?.trim()) return truncate(title.trim())
+  const command = input.cmd ?? input.command ?? input.filePath ?? input.path
   if (typeof command === "string") return truncate(command)
   return truncate(JSON.stringify(input))
+}
+
+function runningToolSummary(tool: string, title?: string): string {
+  if (title?.trim()) return `↳ ${titlecase(tool)} ${title.trim()}`
+  return `${tool} running`
+}
+
+function titlecase(value: string): string {
+  if (!value) return value
+  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 function progressPath(root: string, runID: string, nodeID: string): string {

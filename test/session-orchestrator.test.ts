@@ -284,117 +284,6 @@ describe("createSessionOrchestrator", () => {
     expect(order).toEqual(["create", "register", "prompt"])
   })
 
-  test("does not start periodic parent progress when dispatching child prompts", async () => {
-    const order: string[] = []
-    const orchestrator = createSessionOrchestrator(
-      {
-        async createNodeSession() {
-          order.push("create")
-          return "session-node"
-        },
-        async continueNodeSession() {
-          order.push("prompt")
-        },
-        async showProgress() {},
-      },
-      {
-        parentProgress: {
-          start() {
-            order.push("parent-progress")
-          },
-        },
-      },
-    )
-
-    await orchestrator.dispatch({
-      project: "/repo",
-      runID: "run-1",
-      parentSessionID: "session-main",
-      decision: {
-        action: "create_session",
-        phase: "implement",
-        agent: "sp-implementer",
-        primary_skill: "superpowers-test-driven-development",
-        reason: "implement next",
-      },
-      packet: {
-        run_id: "run-1",
-        node_id: "001-implement",
-        workflow: "feature",
-        phase: "implement",
-        agent: "sp-implementer",
-        primary_skill: "superpowers-test-driven-development",
-        objective: "Implement task.",
-        required_artifacts: [],
-        record_contract: { event: "implementation", expected_artifacts: ["patch_summary"], allowed_gates: ["implementation_done"] },
-      },
-      async onSessionCreated() {
-        order.push("register")
-      },
-      readStateForProgress() {
-        return null
-      },
-    })
-
-    expect(order).toEqual(["create", "register", "prompt"])
-  })
-
-  test("does not start parent progress for foreground serial design and plan nodes", async () => {
-    const order: string[] = []
-    const orchestrator = createSessionOrchestrator(
-      {
-        async createNodeSession(input) {
-          return `session-${input.agent}`
-        },
-        async continueNodeSession() {
-          order.push("prompt")
-        },
-        async showProgress() {},
-      },
-      {
-        parentProgress: {
-          start() {
-            order.push("parent-progress")
-          },
-        },
-      },
-    )
-
-    for (const phase of ["design", "plan"] as const) {
-      await orchestrator.dispatch({
-        project: "/repo",
-        runID: "run-1",
-        parentSessionID: "session-main",
-        decision: {
-          action: "create_session",
-          phase,
-          agent: phase === "design" ? "sp-designer" : "sp-planner",
-          primary_skill: phase === "design" ? "superpowers-brainstorming" : "superpowers-writing-plans",
-          reason: `${phase} next`,
-        },
-        packet: {
-          run_id: "run-1",
-          node_id: `001-${phase}`,
-          workflow: "feature",
-          phase,
-          agent: phase === "design" ? "sp-designer" : "sp-planner",
-          primary_skill: phase === "design" ? "superpowers-brainstorming" : "superpowers-writing-plans",
-          objective: `${phase} task.`,
-          required_artifacts: [],
-          record_contract: phase === "design"
-            ? { event: "design", expected_artifacts: ["spec"], allowed_gates: ["spec_written"] }
-            : { event: "plan", expected_artifacts: ["plan"], allowed_gates: ["plan_written"] },
-        },
-        async onSessionCreated() {},
-        readStateForProgress() {
-          return null
-        },
-      })
-    }
-
-    expect(order).toEqual(["prompt", "prompt"])
-  })
-
   test("selects serial design and plan children in the foreground", async () => {
     const selected: string[] = []
     const orchestrator = createSessionOrchestrator({
@@ -519,6 +408,29 @@ describe("createSessionOrchestrator", () => {
 
     expect(result).toMatchObject({ action: "reuse_session", session_id: "session-impl" })
     expect(continued).toEqual(["session-impl"])
+  })
+
+  test("resumeNode selects the resumed child session in the foreground", async () => {
+    const selected: string[] = []
+    const orchestrator = createSessionOrchestrator({
+      async createNodeSession() {
+        throw new Error("unexpected create")
+      },
+      async continueNodeSession() {},
+      async selectSession(input) {
+        selected.push(input.sessionID)
+      },
+      async showProgress() {},
+    })
+
+    await orchestrator.resumeNode({
+      sessionID: "session-design",
+      agent: "sp-designer",
+      prompt: "User answered the pending question.",
+      phase: "design",
+    })
+
+    expect(selected).toEqual(["session-design"])
   })
 
   test("resumeNode returns after scheduling a prompt that has not completed", async () => {

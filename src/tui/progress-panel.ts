@@ -1,5 +1,6 @@
 import type { NodeProgressEntry } from "../progress/node-progress"
 import type { WorkflowState } from "../state/types"
+import type { ChildLiveActivity } from "./live-activity"
 
 export type ProgressPanelRow = {
   node_id: string
@@ -73,6 +74,7 @@ export function buildProgressPanelViewModel(
   liveStatusBySession: Record<string, string>,
   now: Date = new Date(),
   requestedFocusedSessionID?: string,
+  liveActivityBySession: Record<string, ChildLiveActivity> = {},
 ): ProgressPanelViewModel {
   if (!state) {
     return {
@@ -88,7 +90,9 @@ export function buildProgressPanelViewModel(
     const progress = progressByNode[node.id] ?? []
     const latest = progress.at(-1)
     const display = latestDisplayProgress(progress)
-    const observedAt = latest?.at ?? node.reported_at ?? node.started_at
+    const liveActivity = liveActivityBySession[node.session_id]
+    const merged = mergeRowActivity(display, liveActivity, node.status)
+    const observedAt = merged.observed_at ?? latest?.at ?? node.reported_at ?? node.started_at
     const activityStatus = node.status === "running" && isWaitingPermission(liveStatusBySession[node.session_id])
       ? "waiting_permission"
       : node.status === "running" && isStalled(observedAt, now)
@@ -104,8 +108,8 @@ export function buildProgressPanelViewModel(
       attention: rowAttention(node.status, activityStatus),
       session_id: node.session_id,
       live_status: liveStatusBySession[node.session_id] ?? "unknown",
-      latest_summary: display?.summary ?? "no progress recorded",
-      latest_detail: display?.detail,
+      latest_summary: merged.summary,
+      latest_detail: merged.detail,
       updated_at: display?.at,
       observed_at: observedAt,
       observed_age: formatAge(observedAt, now),
@@ -177,6 +181,47 @@ export function renderWorkflowStatusText(model: ProgressPanelViewModel, max = 18
   const taskSummary = taskTotal > 0 ? `tasks ${taskDone}/${taskTotal} done` : `nodes ${model.rows.length}`
   const activity = model.rows.length > 0 ? ` | ${latestActivityText(model)}` : ""
   return truncateLine(`SP: ${model.workflow} ${model.status}@${model.current_phase} | ${taskSummary} | ${childSessionSummary(model)}${activity}`, max)
+}
+
+export function renderAppBottomChildPanelText(model: ProgressPanelViewModel, maxRows = 5): string {
+  if (!model.active) return ""
+  const lines = [renderWorkflowStatusText(model, 160)]
+  if (model.session_counts) lines.push(sessionCountsText(model.session_counts))
+  if (model.pending_question) {
+    lines.push("waiting user")
+    lines.push(`question: ${model.pending_question.prompt}`)
+    const latest = latestActivityRow(model)
+    if (latest) lines.push(renderAppBottomRow(latest))
+    if (model.selector_hint) lines.push(`nav: ${model.selector_hint}`)
+    return lines.join("\n")
+  }
+  if (model.rows.length > 0) {
+    lines.push("child sessions")
+    lines.push(...model.rows.slice(0, maxRows).map(renderAppBottomRow))
+    if (model.rows.length > maxRows) lines.push(`+${model.rows.length - maxRows} more`)
+  } else {
+    lines.push("waiting for node dispatch")
+  }
+  const planned = plannedTaskRows(model)
+  if (planned.length > 0) {
+    const visiblePlanned = Math.max(0, maxRows - Math.min(model.rows.length, maxRows))
+    if (visiblePlanned > 0) {
+      lines.push("planned")
+      lines.push(...planned.slice(0, visiblePlanned).map(renderPlannedTaskRow))
+      if (planned.length > visiblePlanned) lines.push(`+${planned.length - visiblePlanned} more planned`)
+    }
+  }
+  if (model.selector_hint && model.rows.length > 0) lines.push(`nav: ${model.selector_hint}`)
+  return lines.join("\n")
+}
+
+function renderAppBottomRow(row: ProgressPanelRow): string {
+  const task = row.task_id ? ` ${row.task_id}` : ""
+  const age = row.observed_age ? ` (${row.observed_age})` : ""
+  const marker = row.focused ? ">" : " "
+  const shortcut = row.shortcut ? `[${row.shortcut}] ` : ""
+  const attention = row.attention ? ` | ${row.attention}` : ""
+  return `${marker} ${shortcut}${row.agent}${task}: ${displaySessionStatus(row)} - ${truncateLine(row.latest_summary, 96)}${age}${attention}`
 }
 
 export function renderRunningSessionsText(model: ProgressPanelViewModel, maxRows = 6): string {
@@ -440,6 +485,35 @@ function plannedTaskRows(model: ProgressPanelViewModel): ProgressPanelTaskRow[] 
     "notification_failed",
     "interrupted",
   ].includes(task.status))
+}
+
+function mergeRowActivity(
+  progress: NodeProgressEntry | undefined,
+  liveActivity: ChildLiveActivity | undefined,
+  durableStatus: ProgressPanelRow["durable_status"],
+): { summary: string; detail?: string; observed_at?: string } {
+  if (durableStatus === "running" && liveActivity?.summary) {
+    return {
+      summary: liveActivity.summary,
+      detail: liveActivity.detail ?? progress?.detail,
+      observed_at: liveActivity.observed_at,
+    }
+  }
+  if (progress) {
+    return {
+      summary: progress.summary,
+      detail: progress.detail,
+      observed_at: progress.at,
+    }
+  }
+  if (liveActivity?.summary) {
+    return {
+      summary: liveActivity.summary,
+      detail: liveActivity.detail,
+      observed_at: liveActivity.observed_at,
+    }
+  }
+  return { summary: "no progress recorded" }
 }
 
 function isStalled(observedAt: string | undefined, now: Date): boolean {

@@ -6,7 +6,6 @@ import { resolveGlobalPermission } from "./config/permissions"
 import { evaluateToolGate } from "./router/gates"
 import { createOpenCodeSessionAdapter } from "./session/adapter"
 import { createSessionOrchestrator } from "./session/orchestrator"
-import { createParentProgressNotifier } from "./session/parent-progress-notifier"
 import { buildRuntimeSkillInjection, hasRuntimeSkillInjection } from "./skills/runtime-injection"
 import { createProjectStore } from "./state/store"
 import { createTools } from "./tools"
@@ -58,8 +57,7 @@ export function createPluginModule(): PluginModule {
     const nodeProgress = createNodeProgressStore(ctx.directory)
     const adapter = createOpenCodeSessionAdapter(ctx as Parameters<typeof createOpenCodeSessionAdapter>[0])
     const progress = { report: adapter.showProgress }
-    const parentProgress = createParentProgressNotifier(adapter)
-    const orchestrator = createSessionOrchestrator(adapter, { parentProgress })
+    const orchestrator = createSessionOrchestrator(adapter)
     if (config.liveness.enabled) {
       createLivenessMonitor({
         readState: () => store.readCurrent(),

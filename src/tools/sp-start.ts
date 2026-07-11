@@ -153,6 +153,7 @@ export function createStartTool(
           sessionID: resumed.node.session_id,
           agent: resumed.node.agent,
           prompt,
+          phase: resumed.node.phase,
         })
         await progress.report({
           stage: "run_resumed",

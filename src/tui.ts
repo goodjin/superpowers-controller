@@ -8,22 +8,23 @@ import type { NodeProgressEntry } from "./progress/node-progress"
 import { createProjectStore } from "./state/store"
 import {
   buildProgressPanelViewModel,
+  renderAppBottomChildPanelText,
   renderCompactProgressText,
   renderProgressPanelText,
   renderRunningSessionsText,
   renderSidebarProgressText,
   renderWorkflowStatusText,
 } from "./tui/progress-panel"
+import { liveActivityBySession } from "./tui/live-activity"
 import type { WorkflowState } from "./state/types"
 
 export const RESIDENT_PROGRESS_SLOT_NAMES = [
-  "sidebar_footer",
   "sidebar_content",
   "app_bottom",
   "session_prompt",
 ] as const
 
-type ProgressSlotRenderer = "compact" | "workflow-status" | "running-sessions" | "sidebar"
+type ProgressSlotRenderer = "compact" | "workflow-status" | "app-bottom-panel" | "running-sessions" | "sidebar"
 
 type WorkflowContext = {
   project: string
@@ -37,13 +38,41 @@ type WorkflowCandidate = {
   source: "current" | "run"
 }
 
+type TuiRouteCurrent =
+  | { name: "session"; params: { sessionID: string; initialPrompt?: string } }
+  | { name: string; params?: Record<string, unknown> }
+
+type TuiKeymapCommand = {
+  name: string
+  title: string
+  category?: string
+  namespace?: string
+  desc?: string
+  hidden?: boolean
+  run(): void
+}
+
+type TuiKeymapBinding = {
+  key: string
+  cmd: string
+  desc?: string
+}
+
 type TuiApi = {
   route: {
     register(routes: Array<{ name: string; render(input?: { params?: Record<string, unknown> }): unknown }>): () => void
     navigate(name: string, params?: Record<string, unknown>): void
+    current?: TuiRouteCurrent
   }
   command?: {
     register(callback: () => Array<{ title: string; value: string; description?: string; category?: string; onSelect?: () => void }>): () => void
+  }
+  keymap?: {
+    registerLayer(layer: {
+      mode?: string
+      commands?: TuiKeymapCommand[]
+      bindings?: TuiKeymapBinding[]
+    }): (() => void) | void
   }
   slots?: {
     register(plugin: { id: string; slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }): string
@@ -78,6 +107,9 @@ type TuiApi = {
   lifecycle?: {
     onDispose(fn: () => void): () => void
   }
+  event?: {
+    on(type: string, handler: () => void): (() => void) | void
+  }
 }
 
 export function createTuiPluginModule() {
@@ -92,7 +124,14 @@ export function createTuiPluginModule() {
             const context = currentWorkflowContext(api)
             const progress = context.state ? createNodeProgressStore(context.project).readRun(context.state) : {}
             const text = renderProgressPanelText(
-              buildProgressPanelViewModel(context.state, progress, liveStatusBySession(api, context.state)),
+              buildProgressPanelViewModel(
+                context.state,
+                progress,
+                liveStatusBySession(api, context.state),
+                new Date(),
+                undefined,
+                childLiveActivityBySession(api, context.state),
+              ),
             )
             return context.diagnostic ? `${text}\n\n${context.diagnostic}` : text
           },
@@ -102,14 +141,123 @@ export function createTuiPluginModule() {
         id: "superpowers-controller",
         slots: residentProgressSlots(api),
       })
-      if (api.command) {
-        disposers.push(api.command.register(() => workflowSessionCommands(api)))
-      }
+      const disposeNavigation = registerWorkflowSessionNavigation(api)
+      if (disposeNavigation) disposers.push(disposeNavigation)
       api.lifecycle?.onDispose(() => {
         for (const dispose of disposers) dispose()
       })
     },
   }
+}
+
+function registerWorkflowSessionNavigation(api: TuiApi): (() => void) | undefined {
+  const disposers: Array<() => void> = []
+  if (typeof api.keymap?.registerLayer === "function") {
+    const dispose = api.keymap.registerLayer({
+      mode: "base",
+      commands: workflowSessionKeymapCommands(api),
+      bindings: workflowSessionKeymapBindings(),
+    })
+    if (typeof dispose === "function") disposers.push(dispose)
+  }
+  if (api.command) {
+    disposers.push(api.command.register(() => workflowSessionCommands(api)))
+  }
+  if (disposers.length === 0) return undefined
+  return () => {
+    for (const dispose of disposers) dispose()
+  }
+}
+
+function workflowSessionKeymapCommands(api: TuiApi): TuiKeymapCommand[] {
+  const commands: TuiKeymapCommand[] = [
+    {
+      name: "superpowers.open-parent",
+      title: "Superpowers: Open parent workflow session",
+      category: "Superpowers",
+      namespace: "palette",
+      run() {
+        const state = currentWorkflowContext(api, currentRouteSessionID(api)).state
+        if (!state) return
+        api.route.navigate("session", { sessionID: state.parent_session_id })
+      },
+    },
+    {
+      name: "superpowers.cycle-child.prev",
+      title: "Superpowers: Previous child session",
+      category: "Superpowers",
+      hidden: true,
+      run() {
+        cycleWorkflowSession(api, -1)
+      },
+    },
+    {
+      name: "superpowers.cycle-child.next",
+      title: "Superpowers: Next child session",
+      category: "Superpowers",
+      hidden: true,
+      run() {
+        cycleWorkflowSession(api, 1)
+      },
+    },
+  ]
+  for (let index = 1; index <= 9; index += 1) {
+    commands.push({
+      name: `superpowers.open-child.${index}`,
+      title: `Superpowers: Open child session ${index}`,
+      category: "Superpowers",
+      hidden: true,
+      run() {
+        openWorkflowChildSession(api, index - 1)
+      },
+    })
+  }
+  return commands
+}
+
+function workflowSessionKeymapBindings(): TuiKeymapBinding[] {
+  const bindings: TuiKeymapBinding[] = [
+    { key: "meta+[", cmd: "superpowers.cycle-child.prev", desc: "Previous child session" },
+    { key: "meta+]", cmd: "superpowers.cycle-child.next", desc: "Next child session" },
+  ]
+  for (let index = 1; index <= 9; index += 1) {
+    bindings.push({
+      key: `meta+${index}`,
+      cmd: `superpowers.open-child.${index}`,
+      desc: `Open child session ${index}`,
+    })
+  }
+  return bindings
+}
+
+function openWorkflowChildSession(api: TuiApi, rowIndex: number): void {
+  const row = workflowNavigationRows(api)[rowIndex]
+  if (!row) return
+  api.route.navigate("session", { sessionID: row.session_id })
+}
+
+function cycleWorkflowSession(api: TuiApi, direction: -1 | 1): void {
+  const rows = workflowNavigationRows(api)
+  if (rows.length === 0) return
+  const currentSessionID = currentRouteSessionID(api)
+  const currentIndex = currentSessionID ? rows.findIndex((row) => row.session_id === currentSessionID) : -1
+  const nextIndex = currentIndex < 0
+    ? (direction > 0 ? 0 : rows.length - 1)
+    : (currentIndex + direction + rows.length) % rows.length
+  const next = rows[nextIndex]
+  if (!next) return
+  api.route.navigate("session", { sessionID: next.session_id })
+}
+
+function workflowNavigationRows(api: TuiApi) {
+  return currentProgressModel(api, currentRouteSessionID(api)).rows
+}
+
+function currentRouteSessionID(api: TuiApi): string | undefined {
+  const current = api.route.current
+  if (current?.name !== "session") return undefined
+  const sessionID = current.params?.sessionID
+  return typeof sessionID === "string" ? sessionID : undefined
 }
 
 function workflowSessionCommands(api: TuiApi): Array<{ title: string; value: string; description?: string; category?: string; onSelect?: () => void }> {
@@ -157,6 +305,7 @@ type CompactProgressSlotOptions = {
   renderer?: ProgressSlotRenderer
   allowGlobal?: boolean
   requireSession?: boolean
+  refreshOnEvents?: boolean
 }
 
 export function createCompactProgressSlot(
@@ -185,23 +334,26 @@ export function createProgressSlot(
     const initialText = safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal)
     if (!initialText && !hasSession && !options.allowGlobal) return null
     const [text, setText] = createSignal(initialText)
-    const timer = setInterval(() => {
+    const refresh = () => {
       setText(safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
-    }, refreshMs)
-    setText(safeProgressSlotText(api, sessionID, hasSession, options.renderer ?? "compact", options.maxChars, options.allowGlobal))
-    onCleanup(() => clearInterval(timer))
+    }
+    const timer = setInterval(refresh, refreshMs)
+    refresh()
+    const eventDisposers = options.refreshOnEvents ? registerProgressRefreshEvents(api, refresh) : []
+    onCleanup(() => {
+      clearInterval(timer)
+      for (const dispose of eventDisposers) dispose()
+    })
     return renderText(text)
   }
 }
 
-function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions, "renderer" | "maxChars" | "allowGlobal" | "requireSession"> {
+function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions, "renderer" | "maxChars" | "allowGlobal" | "requireSession" | "refreshOnEvents"> {
   switch (slotName) {
     case "app_bottom":
-      return { renderer: "workflow-status", maxChars: 180, allowGlobal: true }
-    case "sidebar_footer":
-      return { renderer: "workflow-status", maxChars: 180, allowGlobal: true }
+      return { renderer: "app-bottom-panel", allowGlobal: true, refreshOnEvents: true }
     case "sidebar_content":
-      return { renderer: "sidebar", allowGlobal: true }
+      return { renderer: "sidebar", allowGlobal: true, refreshOnEvents: true }
     default:
       return { renderer: "compact" }
   }
@@ -240,6 +392,7 @@ function safeProgressSlotText(
     const model = progressModel(api, context.state, progress, sessionID, allowGlobal)
     if (!allowGlobal && renderer !== "compact" && !hasSession) return ""
     if (renderer === "workflow-status") return renderWorkflowStatusText(model, maxChars)
+    if (renderer === "app-bottom-panel") return renderAppBottomChildPanelText(model)
     if (renderer === "running-sessions") return renderRunningSessionsText(model)
     if (renderer === "sidebar") return sidebarProgressText(api, context.state, model)
     return renderCompactProgressText(model, maxChars)
@@ -282,6 +435,17 @@ function sidebarProgressText(api: TuiApi, state: WorkflowState | null, model: Re
   const transcript = renderForegroundChildTranscript(api, foreground.session_id)
   if (!transcript) return base
   return `${base}\n\nforeground child\n${foreground.agent}${foreground.task_id ? ` ${foreground.task_id}` : ""}: ${foreground.phase} ${foreground.status}\n${transcript}`
+}
+
+function registerProgressRefreshEvents(api: TuiApi, refresh: () => void): Array<() => void> {
+  if (!api.event?.on) return []
+  const types = ["message.part.updated", "message.part.delta", "session.status", "session.idle"]
+  const disposers: Array<() => void> = []
+  for (const type of types) {
+    const dispose = api.event.on(type, refresh)
+    if (typeof dispose === "function") disposers.push(dispose)
+  }
+  return disposers
 }
 
 function createTextElement(value: TextSource): unknown {
@@ -432,7 +596,14 @@ function progressModel(
   const focusedSessionID = typeof sessionID === "string" && state && isWorkflowSession(state, sessionID)
     ? sessionID
     : undefined
-  return buildProgressPanelViewModel(state, progress, liveStatusBySession(api, state), new Date(), focusedSessionID)
+  return buildProgressPanelViewModel(
+    state,
+    progress,
+    liveStatusBySession(api, state),
+    new Date(),
+    focusedSessionID,
+    childLiveActivityBySession(api, state),
+  )
 }
 
 function isWorkflowSession(state: WorkflowState, sessionID: string): boolean {
@@ -513,6 +684,11 @@ function liveStatusBySession(api: TuiApi, state: WorkflowState | null): Record<s
     result[node.session_id] = formatSessionStatus(api.state.session.status(node.session_id))
   }
   return result
+}
+
+function childLiveActivityBySession(api: TuiApi, state: WorkflowState | null): Record<string, import("./tui/live-activity").ChildLiveActivity> {
+  if (!state) return {}
+  return liveActivityBySession(api.state.session, state.node_runs.map((node) => node.session_id))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

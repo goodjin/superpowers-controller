@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   buildProgressPanelViewModel,
+  renderAppBottomChildPanelText,
   renderCompactProgressText,
   renderProgressPanelText,
   renderRunningSessionsText,
@@ -22,6 +23,72 @@ describe("progress panel view model", () => {
       tasks: [],
     })
     expect(renderProgressPanelText(model)).toContain("No active Superpowers workflow.")
+  })
+
+  test("prefers live child activity over stored progress while node is running", () => {
+    const state: WorkflowState = {
+      id: "run-1",
+      project: "/repo",
+      session: "session-main",
+      parent_session_id: "session-main",
+      activation: "active",
+      workflow: "feature",
+      entrypoint: "execute",
+      limited_context: true,
+      mode: "execute",
+      phase: "implement",
+      current_phase: "implement",
+      status: "running",
+      goal: "Implement feature",
+      created_at: "2026-06-19T00:00:00.000Z",
+      updated_at: "2026-06-19T00:00:00.000Z",
+      gates: {},
+      artifacts: {},
+      node_runs: [
+        {
+          id: "001-implement-T1",
+          task_id: "T1",
+          phase: "implement",
+          agent: "sp-implementer",
+          session_id: "session-child",
+          status: "running",
+          attempts: 1,
+          started_at: "2026-06-19T00:00:00.000Z",
+        },
+      ],
+      history: [{ at: "2026-06-19T00:00:00.000Z", event: "created", to: "feature" }],
+    }
+
+    const model = buildProgressPanelViewModel(
+      state,
+      {
+        "001-implement-T1": [{
+          at: "2026-06-19T00:00:10.000Z",
+          kind: "tool_running",
+          session_id: "session-child",
+          node_id: "001-implement-T1",
+          agent: "sp-implementer",
+          phase: "implement",
+          task_id: "T1",
+          summary: "bash running",
+          detail: "bun run test",
+        }],
+      },
+      { "session-child": "busy" },
+      new Date("2026-06-19T00:00:20.000Z"),
+      undefined,
+      {
+        "session-child": {
+          summary: "↳ Edit src/tui/progress-panel.ts",
+          detail: "src/tui/progress-panel.ts",
+          tool_count: 2,
+          current_tool: "Edit src/tui/progress-panel.ts",
+        },
+      },
+    )
+
+    expect(model.rows[0]?.latest_summary).toBe("↳ Edit src/tui/progress-panel.ts")
+    expect(renderAppBottomChildPanelText(model)).toContain("> [⌘1] sp-implementer T1: running - ↳ Edit src/tui/progress-panel.ts")
   })
 
   test("summarizes active node runs with latest stored progress and live session status", () => {
@@ -139,6 +206,11 @@ describe("progress panel view model", () => {
     expect(renderCompactProgressText(model)).toBe("SP: sp-implementer T1 running - bash running")
     expect(renderCompactProgressText(model, 44)).toBe("SP: sp-implementer T1 running - bash running")
     expect(renderWorkflowStatusText(model, 160)).toBe("SP: feature running@implement | tasks 0/2 done | children 1 active (1 running) | sp-implementer T1 running - bash running (5s ago)")
+    const appBottom = renderAppBottomChildPanelText(model)
+    expect(appBottom).toContain("SP: feature running@implement | tasks 0/2 done | children 1 active (1 running)")
+    expect(appBottom).toContain("child sessions")
+    expect(appBottom).toContain("> [⌘1] sp-implementer T1: running - bash running (5s ago)")
+    expect(appBottom).toContain("nav: ⌘1..⌘1, ⌘[/⌘]")
     expect(renderRunningSessionsText(model)).toContain("sp-implementer T1: running - bash running")
     const sidebar = renderSidebarProgressText(model)
     expect(sidebar).toContain("SP: feature running@implement | tasks 0/2 done | children 1 active (1 running)")
@@ -215,8 +287,8 @@ describe("progress panel view model", () => {
 
     expect(model.rows[0]?.latest_summary).toBe("assistant text updated")
     expect(model.rows[0]?.latest_detail).toBe("Working on database migration.")
-    expect(model.rows[0]?.observed_age).toBe("5s ago")
-    expect(renderWorkflowStatusText(model, 160)).toContain("assistant text updated (5s ago)")
+    expect(model.rows[0]?.observed_age).toBe("10s ago")
+    expect(renderWorkflowStatusText(model, 160)).toContain("assistant text updated (10s ago)")
     expect(renderSidebarProgressText(model)).toContain("Working on database migration.")
     expect(renderSidebarProgressText(model)).not.toContain("session idle")
   })

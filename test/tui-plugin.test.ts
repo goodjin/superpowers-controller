@@ -14,6 +14,7 @@ describe("Superpowers TUI plugin", () => {
     try {
       const routes: Array<{ name: string; render: () => unknown }> = []
       const commands: Array<{ title: string; value: string; onSelect?: () => void }> = []
+      const keymapLayers: Array<{ commands?: Array<{ name: string; run: () => void }>; bindings?: Array<{ key: string; cmd: string }> }> = []
       const slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> = {}
       const navigated: Array<{ name: string; params?: Record<string, unknown> }> = []
       let slotPluginID: string | undefined
@@ -61,6 +62,12 @@ describe("Superpowers TUI plugin", () => {
             return () => {}
           },
         },
+        keymap: {
+          registerLayer(layer: { commands?: Array<{ name: string; run: () => void }>; bindings?: Array<{ key: string; cmd: string }> }) {
+            keymapLayers.push(layer)
+            return () => {}
+          },
+        },
         slots: {
           register(plugin: { id: string; slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }) {
             slotPluginID = plugin.id
@@ -95,8 +102,8 @@ describe("Superpowers TUI plugin", () => {
       commands[1]?.onSelect?.()
       expect(navigated).toEqual([{ name: "session", params: { sessionID: "session-child" } }])
       expect(Object.keys(slots).sort()).toEqual([...RESIDENT_PROGRESS_SLOT_NAMES].sort())
-      expect(typeof slots.sidebar_footer).toBe("function")
       expect(typeof slots.sidebar_content).toBe("function")
+      expect(slots.sidebar_footer).toBeUndefined()
       expect(slots.home_bottom).toBeUndefined()
       expect(typeof slots.app_bottom).toBe("function")
       expect(typeof slots.session_prompt).toBe("function")
@@ -122,14 +129,25 @@ describe("Superpowers TUI plugin", () => {
       const appBottomSlot = createProgressSlot(
         api,
         (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
-        { refreshMs: 0, renderer: "workflow-status", allowGlobal: true },
+        { refreshMs: 0, renderer: "app-bottom-panel", allowGlobal: true },
       )
       const appBottomGlobalStatus = appBottomSlot() as { type: string; value: string }
       expect(appBottomGlobalStatus.type).toBe("text")
       expect(appBottomGlobalStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
-      const appBottomStatus = appBottomSlot(undefined, { session_id: "session-new-main" }) as { type: string; value: string }
+      expect(appBottomGlobalStatus.value).toContain("child sessions")
+      expect(appBottomGlobalStatus.value).toContain("> [⌘1] sp-implementer T1: running - bash running")
+      expect(appBottomGlobalStatus.value).toContain("nav: ⌘1..⌘1, ⌘[/⌘]")
+      const appBottomStatus = appBottomSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
       expect(appBottomStatus.type).toBe("text")
       expect(appBottomStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
+      expect(appBottomStatus.value).toContain("> [⌘1] sp-implementer T1: running - bash running")
+      const openChild = keymapLayers.flatMap((layer) => layer.commands ?? []).find((command) => command.name === "superpowers.open-child.1")
+      expect(openChild).toBeDefined()
+      openChild?.run()
+      expect(navigated).toEqual([
+        { name: "session", params: { sessionID: "session-child" } },
+        { name: "session", params: { sessionID: "session-child" } },
+      ])
       const sessionWorkflowStatus = workflowStatusSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
       expect(sessionWorkflowStatus.type).toBe("text")
       expect(sessionWorkflowStatus.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
@@ -767,7 +785,7 @@ describe("Superpowers TUI plugin", () => {
                 text = typeof value === "function" ? value : () => value
                 return { type: "text" }
               },
-              { refreshMs: 5, renderer: "workflow-status", allowGlobal: true },
+              { refreshMs: 5, renderer: "app-bottom-panel", allowGlobal: true },
             )
             slot()
             expect(text?.()).toContain("initial bottom progress")
@@ -791,6 +809,84 @@ describe("Superpowers TUI plugin", () => {
                 reject(error)
               }
             }, 20)
+          } catch (error) {
+            dispose()
+            reject(error)
+          }
+        })
+      })
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("resident progress slots refresh on TUI events when available", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-event-refresh-"))
+    try {
+      const state = createWorkflowWithProgress({
+        project,
+        parentSessionID: "session-main",
+        childSessionID: "session-child",
+        summary: "initial bottom progress",
+        updatedAt: "2026-07-03T02:00:00.000Z",
+      })
+      const node = state.node_runs[0]
+      if (!node) throw new Error("expected node")
+      const handlers = new Map<string, Array<() => void>>()
+      const api = {
+        state: {
+          path: { directory: project },
+          session: {
+            status() {
+              return { type: "busy" }
+            },
+            messages() {
+              return []
+            },
+          },
+        },
+        event: {
+          on(type: string, handler: () => void) {
+            const list = handlers.get(type) ?? []
+            list.push(handler)
+            handlers.set(type, list)
+            return () => {
+              handlers.set(type, (handlers.get(type) ?? []).filter((item) => item !== handler))
+            }
+          },
+        },
+      } as never
+      let text: Accessor<string> | undefined
+
+      await new Promise<void>((resolve, reject) => {
+        createRoot((dispose) => {
+          try {
+            const slot = createProgressSlot(
+              api,
+              (value) => {
+                text = typeof value === "function" ? value : () => value
+                return { type: "text" }
+              },
+              { refreshMs: 60_000, renderer: "app-bottom-panel", allowGlobal: true, refreshOnEvents: true },
+            )
+            slot()
+            expect(text?.()).toContain("initial bottom progress")
+            createNodeProgressStore(project).append(state.id, {
+              at: "2026-07-03T02:00:05.000Z",
+              kind: "tool_running",
+              session_id: "session-child",
+              node_id: node.id,
+              agent: node.agent,
+              phase: node.phase,
+              task_id: node.task_id,
+              summary: "event refreshed progress",
+            })
+            const eventHandlers = handlers.get("message.part.updated") ?? []
+            expect(eventHandlers.length).toBeGreaterThan(0)
+            for (const handler of eventHandlers) handler()
+            expect(text?.()).toContain("event refreshed progress")
+            dispose()
+            resolve()
           } catch (error) {
             dispose()
             reject(error)
