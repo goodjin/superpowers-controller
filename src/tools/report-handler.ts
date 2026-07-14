@@ -2,11 +2,14 @@ import { parseSpRecordInput } from "../state/record-schema"
 import { noopProgressReporter, type ProgressReporter } from "../progress/reporter"
 import { decideNextDispatches, type DispatchDecision } from "../router/transition"
 import { buildControllerUserInputPrompt, buildNodeTaskPacket } from "../session/templates"
+import { notifyParentControllerDecision } from "../runtime/notify-controller"
 import type { SessionOrchestrator } from "../session/orchestrator"
 import type { ProjectStore } from "../state/store"
 import type { NodeStatus, WorkflowState } from "../state/types"
 import { buildControllerFeedback } from "../controller/feedback"
 import type { WorkflowConfig } from "../config/schema"
+import { DEFAULT_CONFIG } from "../config/defaults"
+import { resolveInteractionMode, shouldRouteUserInputToParent } from "../config/interaction"
 import { validateQualityGateForRecord } from "../runtime/quality-checks"
 
 export type ReportHandlerContext = {
@@ -50,13 +53,15 @@ export function createReportHandler(deps: {
     for (const decision of decisions) {
       if (decision.action === "wait_user") {
         const current = deps.store.readCurrent() ?? state
-        const target = userInputNotificationTarget(current, context)
+        const interactionMode = resolveInteractionMode(deps.config ?? DEFAULT_CONFIG)
+        const target = userInputNotificationTarget(current, context, interactionMode)
         if (deps.orchestrator.notifyParent) {
           try {
             await deps.orchestrator.notifyParent({
               sessionID: target.sessionID,
               agent: target.agent,
               prompt: buildControllerUserInputPrompt(current, { conversation: target.conversation }),
+              selectSession: true,
             })
           } catch (error) {
             const current = deps.store.readCurrent() ?? state
@@ -178,28 +183,16 @@ export function createReportHandler(deps: {
     const current = deps.store.readCurrent() ?? state
     let feedbackOverride: Partial<ReturnType<typeof buildControllerFeedback>> | undefined
     if (current.status === "waiting_controller_decision" && deps.orchestrator.notifyParent) {
-      const feedback = buildControllerFeedback(current)
-      try {
-        await deps.orchestrator.notifyParent({
-          sessionID: current.parent_session_id,
-          agent: "superpowers-agent",
-          prompt: buildControllerDecisionPrompt(current, feedback.allowed_controller_decisions),
-        })
-      } catch (error) {
-        const message = errorMessage(error)
-        deps.store.recordAuditEvent({
-          event: "controller_decision_notification_failed",
-          summary: message,
-        })
+      const notified = await notifyParentControllerDecision({
+        store: deps.store,
+        orchestrator: { notifyParent: deps.orchestrator.notifyParent },
+        progress,
+        state: current,
+      })
+      if (!notified.ok) {
         feedbackOverride = {
-          blocking_reason: `Parent controller decision notification failed: ${message}. Call sp_status and submit sp_start(resolve_controller_decision) manually.`,
+          blocking_reason: `Parent controller decision notification failed: ${notified.error}. Call sp_status and submit sp_start(resolve_controller_decision) manually.`,
         }
-        await progress.report({
-          stage: "workflow_blocked",
-          title: "Superpowers workflow",
-          message: `Parent controller decision notification failed: ${message}`,
-          variant: "error",
-        })
       }
     }
 
@@ -217,35 +210,10 @@ export function createReportHandler(deps: {
   }
 }
 
-function buildControllerDecisionPrompt(
-  state: WorkflowState,
-  allowedControllerDecisions: ReturnType<typeof buildControllerFeedback>["allowed_controller_decisions"],
-): string {
-  const firstDecision = allowedControllerDecisions[0]
-  return [
-    "# Superpowers workflow waiting for controller decision",
-    "",
-    `Run: ${state.id}`,
-    `Workflow: ${state.workflow}`,
-    `Phase: ${state.current_phase}`,
-    `Status: ${state.status}`,
-    "",
-    "A child node finished its `sp_report`, but the runtime cannot safely continue without a controller decision.",
-    "First call `sp_status` for this run to refresh the runtime facts, then choose one of `allowed_controller_decisions` and call `sp_start(start_action=\"resolve_controller_decision\")` with that exact payload.",
-    "Do not invent a decision outside `allowed_controller_decisions`.",
-    "",
-    "Suggested first available decision:",
-    firstDecision ? `- ${firstDecision.kind}: ${firstDecision.reason}` : "- none available; call sp_status and explain the missing decision list.",
-    "",
-    firstDecision?.payload ? "```json" : "",
-    firstDecision?.payload ? JSON.stringify(firstDecision.payload, null, 2) : "",
-    firstDecision?.payload ? "```" : "",
-  ].filter(Boolean).join("\n")
-}
-
 function userInputNotificationTarget(
   state: WorkflowState,
   context: ReportHandlerContext,
+  interactionMode: ReturnType<typeof resolveInteractionMode>,
 ): {
   sessionID: string
   agent: string
@@ -255,7 +223,10 @@ function userInputNotificationTarget(
   const reportingNode = context.sessionID
     ? state.node_runs.find((node) => node.session_id === context.sessionID)
     : undefined
-  if (reportingNode && isForegroundSerialPhase(reportingNode.phase)) {
+  const canUseForegroundChild = Boolean(
+    reportingNode && isForegroundSerialPhase(reportingNode.phase) && !shouldRouteUserInputToParent(interactionMode),
+  )
+  if (canUseForegroundChild && reportingNode) {
     return {
       sessionID: reportingNode.session_id,
       agent: reportingNode.agent,

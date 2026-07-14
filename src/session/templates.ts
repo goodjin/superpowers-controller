@@ -70,6 +70,90 @@ function formatSourceArtifacts(sourceArtifacts: NodeTaskPacket["source_artifacts
   return ["## Source Artifacts", ...sections].join("\n\n")
 }
 
+export function buildControllerDecisionPrompt(
+  state: WorkflowState,
+  allowedControllerDecisions: Array<{ kind: string; reason: string; payload?: unknown }>,
+): string {
+  const firstDecision = allowedControllerDecisions[0]
+  return [
+    "# Superpowers workflow waiting for controller decision",
+    "",
+    `Run: ${state.id}`,
+    `Workflow: ${state.workflow}`,
+    `Phase: ${state.current_phase}`,
+    `Status: ${state.status}`,
+    "",
+    "A child node finished its `sp_report`, but the runtime cannot safely continue without a controller decision.",
+    "First call `sp_status` for this run to refresh the runtime facts, then choose one of `allowed_controller_decisions` and call `sp_start(start_action=\"resolve_controller_decision\")` with that exact payload.",
+    "Do not invent a decision outside `allowed_controller_decisions`.",
+    "",
+    "Suggested first available decision:",
+    firstDecision ? `- ${firstDecision.kind}: ${firstDecision.reason}` : "- none available; call sp_status and explain the missing decision list.",
+    "",
+    firstDecision?.payload ? "```json" : "",
+    firstDecision?.payload ? JSON.stringify(firstDecision.payload, null, 2) : "",
+    firstDecision?.payload ? "```" : "",
+  ].filter(Boolean).join("\n")
+}
+
+export function buildSilentExitControllerPrompt(
+  state: WorkflowState,
+  args: {
+    evidence: {
+      reason: string
+      summary: string
+      assistant_text: string
+      produced_paths: string[]
+      error?: string
+      idle_ms?: number
+    }
+    artifact_path?: string
+    allowed_controller_decisions: Array<{ kind: string; reason: string; payload?: unknown }>
+  },
+): string {
+  const firstDecision = args.allowed_controller_decisions[0]
+  const paths = args.evidence.produced_paths.length
+    ? args.evidence.produced_paths.map((path) => `- ${path}`).join("\n")
+    : "- (none detected)"
+  const assistant = args.evidence.assistant_text.trim()
+  const excerpt = assistant
+    ? (assistant.length > 3500 ? `${assistant.slice(0, 3497)}...` : assistant)
+    : "(no assistant text captured)"
+  return [
+    "# Superpowers workflow waiting for controller decision",
+    "",
+    `Run: ${state.id}`,
+    `Workflow: ${state.workflow}`,
+    `Phase: ${state.current_phase}`,
+    `Status: ${state.status}`,
+    "",
+    "A child session ended without calling `sp_report`. Runtime captured partial evidence and stopped for a controller decision.",
+    "Do not treat this as a successful node completion. First call `sp_status`, inspect the silent-exit artifact, then choose one of `allowed_controller_decisions`.",
+    "",
+    "## Capture Summary",
+    "",
+    args.evidence.summary,
+    args.evidence.error ? `Error: ${args.evidence.error}` : "",
+    args.evidence.idle_ms !== undefined ? `Idle ms: ${args.evidence.idle_ms}` : "",
+    args.artifact_path ? `Evidence file: ${args.artifact_path}` : "",
+    "",
+    "## Produced Paths",
+    "",
+    paths,
+    "",
+    "## Last Assistant Text",
+    "",
+    excerpt,
+    "",
+    "Suggested first available decision:",
+    firstDecision ? `- ${firstDecision.kind}: ${firstDecision.reason}` : "- none available; call sp_status and explain the missing decision list.",
+    "",
+    firstDecision?.payload ? "```json" : "",
+    firstDecision?.payload ? JSON.stringify(firstDecision.payload, null, 2) : "",
+    firstDecision?.payload ? "```" : "",
+  ].filter((line, index, all) => !(line === "" && all[index - 1] === "")).join("\n")
+}
+
 export function buildControllerUserInputPrompt(
   state: WorkflowState,
   options: { conversation?: "main" | "foreground" } = {},

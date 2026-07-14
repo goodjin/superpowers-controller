@@ -25,3 +25,8 @@ export function shouldSelectChildOnPermission(mode: InteractionMode): boolean {
 export function shouldDeferChildPromptOnParentPermission(mode: InteractionMode): boolean {
   return mode === "native" || mode === "hybrid"
 }
+
+/** Native users stay on parent; route pending questions there so they are visible. */
+export function shouldRouteUserInputToParent(mode: InteractionMode): boolean {
+  return mode === "native" || mode === "hybrid"
+}

@@ -7,6 +7,7 @@ import { buildTaskGraphSpecEdges, buildTaskGraphSpecNodes } from "../router/work
 import { createWorkflowSpec, findBuiltInWorkflowTemplate } from "../capabilities/workflows"
 import { resolveWorkflowStatusAfterNodeReport, sessionErrorNodeStatus, workflowStatusAfterNodeFailure } from "../runtime/workflow-attention"
 import { mergeQualityChecksFromRecord } from "../runtime/quality-checks"
+import { formatSilentExitMarkdown } from "../runtime/silent-exit"
 import type {
   ControllerDecision,
   NodeRun,
@@ -98,6 +99,19 @@ export type ProjectStore = {
     session_id: string
     idle_ms: number
   }): NodeRun | null
+  markUnreportedExit(args: {
+    session_id: string
+    reason: "session_idle" | "liveness_timeout" | "session_error"
+    summary: string
+    node_status?: Extract<NodeRun["status"], "interrupted" | "failed">
+    evidence: {
+      assistant_text: string
+      produced_paths: string[]
+      collected_at: string
+      error?: string
+      idle_ms?: number
+    }
+  }): { node: NodeRun; artifact_path: string } | null
   recordAuditEvent(args: {
     event: string
     summary: string
@@ -1059,17 +1073,84 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       return nodeRuns.find((run) => run.id === target.id) ?? null
     },
     markLivenessExpired(args) {
+      const result = this.markUnreportedExit({
+        session_id: args.session_id,
+        reason: "liveness_timeout",
+        summary: `No progress for ${args.idle_ms}ms; marked interrupted by liveness monitor.`,
+        evidence: {
+          assistant_text: "",
+          produced_paths: [],
+          collected_at: new Date().toISOString(),
+          idle_ms: args.idle_ms,
+        },
+      })
+      return result?.node ?? null
+    },
+    markUnreportedExit(args) {
       const current = this.readCurrent()
       if (!current) return null
       const target = current.node_runs.find((run) => run.session_id === args.session_id && run.status === "running")
       if (!target) return null
       const now = new Date().toISOString()
-      const summary = `No progress for ${args.idle_ms}ms; marked interrupted by liveness monitor.`
+      const phase = args.reason === "liveness_timeout"
+        ? "liveness-timeout"
+        : args.reason === "session_error"
+          ? "session-error"
+          : "unreported-idle"
+      const event = args.reason === "liveness_timeout"
+        ? "liveness_timeout"
+        : args.reason === "session_error"
+          ? "session_error"
+          : "unreported_idle"
+      const artifactRel = `nodes/${target.id}/silent-exit.json`
+      const markdownRel = `nodes/${target.id}/silent-exit.md`
+      const evidenceBody = {
+        node_id: target.id,
+        session_id: target.session_id,
+        task_id: target.task_id,
+        phase: target.phase,
+        agent: target.agent,
+        reason: args.reason,
+        summary: args.summary,
+        assistant_text: args.evidence.assistant_text,
+        produced_paths: args.evidence.produced_paths,
+        error: args.evidence.error,
+        idle_ms: args.evidence.idle_ms,
+        collected_at: args.evidence.collected_at,
+        created_at: now,
+        confidence: "partial" as const,
+      }
+      const nodeRoot = join(root, "runs", current.id, "nodes", target.id)
+      mkdirSync(nodeRoot, { recursive: true })
+      writeFileSync(join(nodeRoot, "silent-exit.json"), `${JSON.stringify(evidenceBody, null, 2)}\n`)
+      writeFileSync(join(nodeRoot, "silent-exit.md"), formatSilentExitMarkdown({
+        node_id: target.id,
+        session_id: target.session_id,
+        agent: target.agent,
+        phase: target.phase,
+        task_id: target.task_id,
+        evidence: {
+          reason: args.reason,
+          assistant_text: args.evidence.assistant_text,
+          produced_paths: args.evidence.produced_paths,
+          summary: args.summary,
+          error: args.evidence.error,
+          idle_ms: args.evidence.idle_ms,
+          collected_at: args.evidence.collected_at,
+        },
+      }))
+      const fallback = {
+        node_id: target.id,
+        path: artifactRel,
+        reason: args.summary,
+        created_at: now,
+      }
+      const nodeStatus = args.node_status ?? "interrupted"
       const nodeRuns = current.node_runs.map((run) => {
         if (run.id !== target.id) return run
         return {
           ...run,
-          status: "interrupted" as const,
+          status: nodeStatus,
           reported_at: now,
           closed_at: now,
           ended_at: now,
@@ -1078,33 +1159,45 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       const next: WorkflowState = {
         ...current,
         status: workflowStatusAfterNodeFailure(current, nodeRuns),
-        phase: "liveness-timeout",
-        current_phase: "liveness-timeout",
+        phase,
+        current_phase: phase,
         node_runs: nodeRuns,
+        fallback_summaries: [
+          ...(current.fallback_summaries ?? []).filter((item) => item.node_id !== target.id),
+          fallback,
+        ],
         updated_at: now,
         state_version: nextStateVersion(),
         history: [
           ...current.history,
           {
             at: now,
-            event: "liveness_timeout",
+            event,
             from: current.phase,
-            to: "liveness-timeout",
-            summary,
+            to: phase,
+            summary: args.summary,
           },
         ],
       }
       persistCurrent(next)
       appendEvent(root, current.id, {
-        type: "liveness_timeout",
+        type: event,
         node_id: target.id,
         task_id: target.task_id,
         agent: target.agent,
         session_id: target.session_id,
-        idle_ms: args.idle_ms,
+        reason: args.reason,
+        node_status: nodeStatus,
+        idle_ms: args.evidence.idle_ms,
+        artifact_path: artifactRel,
+        markdown_path: markdownRel,
+        produced_paths: args.evidence.produced_paths,
       })
-      appendChangelog(root, current.id, `liveness timeout for ${target.agent} ${target.task_id ?? target.phase}: ${summary}`)
-      return nodeRuns.find((run) => run.id === target.id) ?? null
+      appendChangelog(root, current.id, `${event} for ${target.agent} ${target.task_id ?? target.phase}: ${args.summary}`)
+      return {
+        node: nodeRuns.find((run) => run.id === target.id)!,
+        artifact_path: artifactRel,
+      }
     },
     recordAuditEvent(args) {
       const current = this.readCurrent()

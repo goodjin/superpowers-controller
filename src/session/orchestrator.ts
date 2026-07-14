@@ -171,6 +171,7 @@ export function createSessionOrchestrator(
       sessionID: string
       agent: string
       prompt: string
+      selectSession?: boolean
     }): Promise<void> {
       const scheduled = scheduleNodePrompt(adapter, {
         sessionID: args.sessionID,
@@ -184,6 +185,12 @@ export function createSessionOrchestrator(
         },
       })
       if (shouldAwaitScheduledPrompt()) await scheduled
+      if (args.selectSession !== false && adapter.selectSession) {
+        await adapter.selectSession({
+          sessionID: args.sessionID,
+          reason: "pending user input",
+        })
+      }
       await adapter.showProgress({
         stage: "parent_notified",
         title: "Superpowers workflow",

@@ -7,9 +7,12 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 ## Files
 
 - `src/state/types.ts`：workflow、record、task graph、gate、artifact 和 `NodeRun` 类型。
-- `src/state/store.ts`：读写 current pointer、run directory、state、artifacts、nodes 和 changelog；含 `markPromptDeliveryFailed`、`markSessionError`、`markNotificationFailed`。
+- `src/state/store.ts`：读写 current pointer、run directory、state、artifacts、nodes 和 changelog；含 `markPromptDeliveryFailed`、`markSessionError`、`markNotificationFailed`、`markUnreportedExit`（无 `sp_report` 闭合 + silent-exit 证据）。
 - `src/runtime/workflow-attention.ts`：并行混合态、技术异常后的 workflow status 和 `parallel_context` 辅助逻辑。
 - `src/runtime/liveness.ts`：基于 progress 陈旧度把挂死 `running` node 标为 `interrupted`（默认 60s，可配置）。
+- `src/runtime/silent-exit.ts`：子会话无 `sp_report` 结束时采集最后助手文字与产出路径。
+- `src/runtime/unreported-exit-handler.ts`：`session.idle` / liveness / `session.error` 的无汇报闭合与主控通知。
+- `src/runtime/notify-controller.ts`：`waiting_controller_decision` 时调度 parent 决策 prompt。
 - `src/runtime/session-activity.ts`：从 progress/live status 推导 `permission_context` 与 stalled 检测，供 `controller_feedback` 使用。
 - `src/runtime/quality-checks.ts`：解析 `sp_report.checks`、合并 `quality_checks`、finish 前 quality gate 评估。
 - `src/state/transitions.ts`：把 `sp_report` 应用到 workflow state，校验 gate 和 artifact 关系。
@@ -48,7 +51,11 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
       record.json
       output.md
       fallback-summary.json
+      silent-exit.json
+      silent-exit.md
 ```
+
+`silent-exit.*` 在子会话结束却未调用 `sp_report` 时写入：包含最后助手文字、产出路径列表和闭合原因（`session_idle` / `liveness_timeout` / `session_error`）。同时把节点标为 `interrupted`（或 `session_error` 下的 `failed`），workflow 进入 `waiting_controller_decision`，并由 `notifyParent` 把证据摘要交给主控决策；不会自动当成 `passed` 推进。
 
 ## Workflow State
 

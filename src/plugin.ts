@@ -11,6 +11,7 @@ import { buildRuntimeSkillInjection, hasRuntimeSkillInjection } from "./skills/r
 import { createProjectStore } from "./state/store"
 import { createTools } from "./tools"
 import { createLivenessMonitor } from "./runtime/liveness"
+import { createUnreportedExitHandler } from "./runtime/unreported-exit-handler"
 
 const startupRecoveryProjects = new Set<string>()
 
@@ -63,6 +64,13 @@ export function createPluginModule(): PluginModule {
     const orchestrator = createSessionOrchestrator(adapter, {
       interactionMode: resolveInteractionMode(config),
     })
+    const unreportedExit = createUnreportedExitHandler({
+      store,
+      orchestrator,
+      progress,
+      fetchMessages: (sessionID) => fetchSessionMessages(ctx, sessionID),
+      readProgressForNode: (state, nodeID) => nodeProgress.readRun(state)[nodeID] ?? [],
+    })
     if (config.liveness.enabled) {
       createLivenessMonitor({
         readState: () => store.readCurrent(),
@@ -70,18 +78,11 @@ export function createPluginModule(): PluginModule {
         timeoutMs: config.liveness.timeout_ms,
         intervalMs: config.liveness.check_interval_ms,
         onExpired: (entry) => {
-          const updated = store.markLivenessExpired({
-            session_id: entry.node.session_id,
+          void unreportedExit.handle({
+            sessionID: entry.node.session_id,
+            reason: "liveness_timeout",
             idle_ms: entry.idle_ms,
           })
-          if (updated) {
-            void adapter.showProgress({
-              stage: "workflow_blocked",
-              title: "Superpowers workflow",
-              message: `Node ${updated.id} had no progress for ${entry.idle_ms}ms and was marked interrupted.`,
-              variant: "warning",
-            })
-          }
         },
       })
     }
@@ -107,21 +108,23 @@ export function createPluginModule(): PluginModule {
           })
           return
         }
+        if (event.type === "session.idle") {
+          const sessionID = event.properties.sessionID
+          if (!sessionID) return
+          await unreportedExit.handle({
+            sessionID,
+            reason: "session_idle",
+          })
+          return
+        }
         if (event.type === "session.error" && state) {
           const sessionID = event.properties.sessionID
           if (!sessionID) return
-          const updated = store.markSessionError({
-            session_id: sessionID,
+          await unreportedExit.handle({
+            sessionID,
+            reason: "session_error",
             error: event.properties.error,
           })
-          if (updated) {
-            await adapter.showProgress({
-              stage: "workflow_blocked",
-              title: "Superpowers workflow",
-              message: `Child session ${sessionID} reported an error; node ${updated.id} is now ${updated.status}.`,
-              variant: "error",
-            })
-          }
         }
       },
       config: async (hostConfig: Record<string, unknown>) => {
@@ -174,4 +177,36 @@ function isWaitingPermissionEvent(event: { type: string; properties?: unknown })
   if (!properties || typeof properties !== "object") return false
   const status = (properties as { status?: unknown }).status
   return Boolean(status && typeof status === "object" && (status as { type?: unknown }).type === "waiting_permission")
+}
+
+async function fetchSessionMessages(
+  ctx: {
+    client: {
+      session?: {
+        messages?: (input: { path: { id: string } }) => Promise<unknown>
+      }
+    }
+  },
+  sessionID: string,
+): Promise<ReadonlyArray<unknown>> {
+  const fetch = ctx.client.session?.messages
+  if (!fetch) return []
+  try {
+    const response = await fetch({ path: { id: sessionID } })
+    return unwrapMessages(response)
+  } catch {
+    return []
+  }
+}
+
+function unwrapMessages(response: unknown): ReadonlyArray<unknown> {
+  if (Array.isArray(response)) return response
+  if (!response || typeof response !== "object") return []
+  const record = response as Record<string, unknown>
+  if (Array.isArray(record.messages)) return record.messages
+  if (record.data && typeof record.data === "object") {
+    const data = record.data as Record<string, unknown>
+    if (Array.isArray(data.messages)) return data.messages
+  }
+  return []
 }

@@ -151,6 +151,6 @@ resolver 不再简单返回第一个 `current.json`。选择规则是：
 
 `sidebar_content` 的列表结构向 OpenCode 原生 TodoWrite 的可扫读形态靠拢，但数据源仍然是 Superpowers workflow state。短标题后直接列已创建的 child（active 优先），再列 `planned` 未派发任务。child 行只保留 shortcut、agent、task、状态与一条活动摘要；完整 session id 与 node id 不进侧栏正文。
 
-当 workflow 进入 `waiting_user` 时，`sidebar_content` 会显示问题正文、最多三个选项标签，以及相关 child 的短状态行。用户回答由 runtime 选择的 foreground target 处理：design/plan foreground child 通过 parent session 的 `session_prompt` slot 提交到 child；其他阶段回 parent controller session。
+当 workflow 进入 `waiting_user` 时，`sidebar_content` 会显示问题正文、最多三个选项标签，以及相关 child 的短状态行。真正的提问气泡由插件向目标会话 `prompt`：默认 `native`/`hybrid` 投递主控并切到 parent；`legacy` 才把 design/plan 问题投回 child。用户在主控答完后用 `sp_start(resume_input)` 续跑。
 
 OpenCode 原生 Todo 面板来自 child session 的 `todowrite` tool part，和 Superpowers progress surface 是两条不同 UI 链路。看到 Todo 只能说明该 session 调用了 `todowrite`，不能说明 Superpowers resident progress 已经成功显示。
