@@ -239,7 +239,7 @@ runtime memory 是当前 workflow 状态的权威来源。`.opencode/superpowers
 恢复流程基于 runtime memory 重新计算：
 
 1. 如果 workflow `status` 是 `waiting_user`，普通 `sp_start(run_id)` 只返回等待状态，不派发节点；带 `resume_input` 的 `sp_start` 校验并恢复原 child session。
-2. 如果 workflow `status` 是 `recovered_unknown`，普通 `sp_start(run_id)` 只返回恢复提示；用户确认重试后，主控用 `sp_start(run_id, task_id)` 为对应 interrupted task 创建新 attempt。
+2. 如果 workflow `status` 是 `recovered_unknown`，普通 `sp_start(run_id)` 只返回恢复提示；用户确认后，主控用 `sp_start(run_id, resume="all")` 或 `sp_start(run_id, resume=[task_id])` 恢复每个未完成 task 的下一 phase。legacy `task_id` 在 recovered 场景下等价于单个 task resume。
 3. 如果存在 running node，先等待或由用户决定 cancel/retry。
 4. 如果有 failed/blocked/interrupted node，按 workflow policy 判断能否重试或需要用户决策。
 5. 如果 task graph 有 runnable task，派发 implementer。

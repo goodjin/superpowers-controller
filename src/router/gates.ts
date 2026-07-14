@@ -29,6 +29,14 @@ export function evaluateToolGate(args: {
     }
   }
 
+  if (args.agent === "superpowers-agent" && isBashTool(args.tool)) {
+    return {
+      allowed: false,
+      severity: "blocked",
+      reason: `superpowers-agent cannot execute shell commands; ${CONTROLLER_DISPATCH_HINT}`,
+    }
+  }
+
   const state = args.state
   if (!state || !isMutatingTool(args.config, args.tool, args.args)) {
     return allow()
@@ -63,6 +71,10 @@ function isSkillTool(tool: string): boolean {
 
 function isNativeTaskTool(tool: string): boolean {
   return tool.toLowerCase().replace(/^mcp_/, "") === "task"
+}
+
+function isBashTool(tool: string): boolean {
+  return tool.toLowerCase().replace(/^mcp_/, "") === "bash"
 }
 
 function isSuperpowersAgent(agent: string | undefined): boolean {

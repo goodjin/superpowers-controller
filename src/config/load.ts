@@ -16,5 +16,9 @@ export function loadConfig(directory: string, configPath?: string): WorkflowConf
       ...DEFAULT_CONFIG.state,
       ...(parsed?.state ?? {}),
     },
+    interaction: {
+      ...DEFAULT_CONFIG.interaction,
+      ...(parsed?.interaction ?? {}),
+    },
   })
 }

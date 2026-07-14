@@ -491,7 +491,12 @@ describe("sp_status tool", () => {
       expect(result.sessions.every((session: { durable_status: string }) => session.durable_status !== "running")).toBe(true)
       expect(result.recommended_next).toMatchObject({
         action: "resume_or_cancel_recovered_workflow",
+        reason: expect.stringContaining('sp_start(run_id, resume="all")'),
       })
+      expect(result.allowed_controller_decisions.map((decision: { kind: string }) => decision.kind)).toEqual([
+        "mark_blocked",
+        "request_reprepare",
+      ])
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

@@ -8,6 +8,11 @@ import type { ProjectStore } from "../state/store"
 import type { ControllerDecision, ResumeInput, StartAction, WorkflowEntrypoint, WorkflowKind, WorkflowOrchestration, WorkflowSpec, WorkflowState } from "../state/types"
 import { buildAllowedControllerDecisions, buildControllerFeedback, inferStartAction, staleStateFeedback } from "../controller/feedback"
 import { createWorkflowSpec, findBuiltInWorkflowTemplate } from "../capabilities/workflows"
+import {
+  decideTaskResumeDispatches,
+  parseResumeTaskIDs,
+  taskResumeContextForDecision,
+} from "../runtime/task-resume"
 
 type StartOrchestrator = Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "resumeNode">>
 
@@ -17,12 +22,12 @@ export function createStartTool(
   progress: ProgressReporter = noopProgressReporter,
 ): ToolDefinition {
   return tool({
-    description: "V5 workflow control. Actions: start_prepared_task, resume_user_input, retry_node, resolve_controller_decision. Copy payloads from sp_status.allowed_controller_decisions.",
+    description: "V5 workflow control. Actions: start_prepared_task, resume_user_input, resume_tasks, resolve_controller_decision. Use resume=\"all\" or resume=[task_id] to recover interrupted tasks after restart.",
     args: {
       run_id: tool.schema.string().optional().describe("Prepared workflow run id."),
       prepared_task_id: tool.schema.string().optional().describe("Alias for run_id."),
-      action: tool.schema.enum(["start_prepared_task", "resume_user_input", "retry_node", "resolve_controller_decision"]).optional().describe("V5 explicit action."),
-      start_action: tool.schema.enum(["start_prepared_task", "resume_user_input", "retry_node", "resolve_controller_decision"]).optional().describe("Alias for action."),
+      action: tool.schema.enum(["start_prepared_task", "resume_user_input", "resume_tasks", "retry_node", "resolve_controller_decision"]).optional().describe("V5 explicit action."),
+      start_action: tool.schema.enum(["start_prepared_task", "resume_user_input", "resume_tasks", "retry_node", "resolve_controller_decision"]).optional().describe("Alias for action."),
       start_config: tool.schema.object({}).passthrough().optional().describe("Required for start_prepared_task."),
       confirmation: tool.schema.object({
         user_confirmed: tool.schema.boolean().optional(),
@@ -37,7 +42,12 @@ export function createStartTool(
         user_message: tool.schema.string().optional(),
       }).optional().describe("Required for resume_user_input."),
       expected_state_version: tool.schema.string().optional().describe("Optimistic concurrency guard."),
-      task_id: tool.schema.string().optional().describe("Optional task id for retry/resume."),
+      resume: tool.schema.union([
+        tool.schema.literal("all"),
+        tool.schema.string(),
+        tool.schema.array(tool.schema.string()),
+      ]).optional().describe('Recover interrupted tasks: "all", one task_id, or an array of task_id values.'),
+      task_id: tool.schema.string().optional().describe("Legacy alias for resume when recovering a single task."),
       session: tool.schema.string().optional().describe("Controller session id."),
       request: tool.schema.string().optional().describe("Legacy field; rejected."),
       workflow: tool.schema.string().optional().describe("Legacy field; rejected."),
@@ -76,6 +86,7 @@ export function createStartTool(
         start_action: requestedAction,
         resume_input: args.resume_input,
         task_id: args.task_id,
+        resume: args.resume,
       }) : requestedAction ?? "start_prepared_task"
       if (!requestedAction && startAction === "start_prepared_task" && currentForVersion?.activation === "active" && currentForVersion.status === "intake") {
         validateStartPreparedTaskArgs({
@@ -83,6 +94,27 @@ export function createStartTool(
           confirmation: args.confirmation,
           startConfig: args.start_config,
         })
+      }
+
+      const resumeTaskIDs = runID && currentForVersion && hasResumeRequest(args, currentForVersion, requestedAction)
+        ? parseResumeTaskIDs(currentForVersion, args.resume, args.task_id)
+        : undefined
+      if (resumeTaskIDs !== undefined) {
+        if (!runID) throw new Error("sp_start resume requires run_id or prepared_task_id.")
+        return JSON.stringify(
+          await executeTaskResume({
+            store,
+            orchestrator,
+            progress,
+            runID,
+            parentSessionID,
+            state: currentForVersion!,
+            taskIDs: resumeTaskIDs,
+            startAction: startAction === "resume_tasks" ? startAction : "resume_tasks",
+          }),
+          null,
+          2,
+        )
       }
 
       if (startAction === "resolve_controller_decision") {
@@ -251,12 +283,14 @@ export async function dispatchWorkflowDecisions(args: {
   taskID?: string
   startMode: "new" | "resume"
   decisions?: ReturnType<typeof startDecisions>
+  resumeFromState?: WorkflowState
 }): Promise<Array<Record<string, string | undefined>>> {
   if (!args.orchestrator) return []
   const decisions = args.decisions ?? startDecisions(args.state, args.startMode, args.taskID)
-  const filtered = args.taskID && args.state.status !== "recovered_unknown"
+  const filtered = args.taskID && args.state.status !== "recovered_unknown" && !args.resumeFromState
     ? decisions.filter((decision) => "task_id" in decision && decision.task_id === args.taskID)
     : decisions
+  const resumeState = args.resumeFromState ?? args.state
   const dispatches: Array<Record<string, string | undefined>> = []
   for (const decision of filtered) {
     if (decision.action !== "create_session" && decision.action !== "reuse_session") continue
@@ -265,6 +299,9 @@ export async function dispatchWorkflowDecisions(args: {
       state: current,
       decision,
       nodeID: nextDispatchNodeID(current.node_runs.length + dispatches.length + 1, decision.phase, decision.task_id),
+      resumeContext: decision.action === "create_session"
+        ? taskResumeContextForDecision(resumeState, decision)
+        : undefined,
     })
     let nodeRegistered = false
     let result
@@ -404,10 +441,7 @@ function resolveParentSessionID(state: WorkflowState | null | undefined, callerS
   return callerSessionID
 }
 
-function startDecisions(state: WorkflowState, startMode: "new" | "resume" = "new", taskID?: string) {
-  if (startMode === "resume" && state.status === "recovered_unknown" && taskID) {
-    return [interruptedRetryDecision(state, taskID)]
-  }
+function startDecisions(state: WorkflowState, startMode: "new" | "resume" = "new", _taskID?: string) {
   if (startMode === "resume") return decideNextDispatches(state)
   if (state.task_graph?.tasks.length && state.current_phase === "plan-complete") {
     return decideNextDispatches(state, {
@@ -421,26 +455,6 @@ function startDecisions(state: WorkflowState, startMode: "new" | "resume" = "new
     status: "passed",
     summary: "Workflow start confirmed.",
   })
-}
-
-function interruptedRetryDecision(state: WorkflowState, taskID: string) {
-  const node = [...state.node_runs]
-    .reverse()
-    .find((run) => run.status === "interrupted" && (run.task_id === taskID || run.id === taskID))
-  if (!node) {
-    throw new Error(`No interrupted node found for task_id ${taskID}.`)
-  }
-  if (!isNodeAgentName(node.agent)) {
-    throw new Error(`Cannot retry interrupted node ${node.id}: unknown agent ${node.agent}.`)
-  }
-  return {
-    action: "create_session" as const,
-    phase: node.phase,
-    agent: node.agent,
-    primary_skill: node.primary_skill ?? AGENT_SKILL_MAP[node.agent],
-    task_id: node.task_id,
-    reason: `retry interrupted node ${node.id}`,
-  }
 }
 
 function retryDecisionForNode(state: WorkflowState, nodeIDOrTaskID?: string) {
@@ -466,6 +480,72 @@ function retryDecisionForNode(state: WorkflowState, nodeIDOrTaskID?: string) {
     task_id: node.task_id,
     reason: `controller retry node ${node.id}`,
   }
+}
+
+async function executeTaskResume(args: {
+  store: ProjectStore
+  orchestrator?: StartOrchestrator
+  progress: ProgressReporter
+  runID: string
+  parentSessionID: string
+  state: WorkflowState
+  taskIDs: string[]
+  startAction: StartAction
+}) {
+  if (args.state.status === "canceled" || args.state.status === "passed") {
+    throw new Error(`Cannot resume tasks while workflow is ${args.state.status}.`)
+  }
+  if (args.taskIDs.length === 0) {
+    throw new Error("sp_start resume found no incomplete tasks to resume.")
+  }
+  args.store.activateRun({
+    runID: args.runID,
+    parentSessionID: args.parentSessionID,
+  })
+  const resumedState = args.store.markWorkflowResumed({
+    runID: args.runID,
+    parentSessionID: args.parentSessionID,
+    taskIDs: args.taskIDs,
+  })
+  const decisions = decideTaskResumeDispatches(resumedState, args.taskIDs)
+  if (decisions.length === 0) {
+    throw new Error(`sp_start resume found no runnable phases for tasks ${args.taskIDs.join(", ")}.`)
+  }
+  const dispatches = await dispatchStart({
+    store: args.store,
+    orchestrator: args.orchestrator,
+    state: args.store.readCurrent() ?? resumedState,
+    startMode: "resume",
+    decisions,
+    resumeFromState: args.state,
+  })
+  await args.progress.report({
+    stage: "run_resumed",
+    title: "Superpowers workflow",
+    message: `${resumedState.workflow} workflow resumed tasks ${args.taskIDs.join(", ")}.`,
+    variant: dispatches.length > 0 ? "success" : "info",
+  })
+  const fresh = args.store.readCurrent() ?? resumedState
+  return {
+    state: fresh,
+    dispatches,
+    start_action: args.startAction,
+    controller_feedback: buildControllerFeedback(fresh),
+  }
+}
+
+function hasResumeRequest(
+  args: Record<string, unknown>,
+  state: WorkflowState,
+  requestedAction?: StartAction,
+): boolean {
+  if (args.resume !== undefined) return true
+  if (requestedAction === "resume_tasks") return true
+  return state.status === "recovered_unknown"
+    && typeof args.task_id === "string"
+    && args.task_id.trim().length > 0
+    && args.resume_input === undefined
+    && args.controller_decision === undefined
 }
 
 function isNodeAgentName(agent: string): agent is NodeAgentName {

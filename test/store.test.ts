@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createProjectStore } from "../src/state/store"
+import { createProjectStore, readCurrentWorkflowState } from "../src/state/store"
 
 describe("ProjectStore", () => {
   test("persists request, artifacts, task graph, and node record files in the run directory", () => {
@@ -156,6 +156,34 @@ describe("ProjectStore", () => {
       expect(current?.activation).toBe("draft")
       expect(current?.status).toBe("running")
       expect(readFileSync(join(runRoot, "events.jsonl"), "utf8")).not.toContain("startup_recovered")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("readCurrentWorkflowState reads only the active run pointer", () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-store-current-light-"))
+    try {
+      const store = createProjectStore(project)
+      const first = store.startRun({
+        workflow: "feature",
+        entrypoint: "execute",
+        goal: "First run",
+        request: "First run",
+        proposal: "First run",
+        parentSessionID: "session-1",
+      })
+      const second = store.startRun({
+        workflow: "feature",
+        entrypoint: "execute",
+        goal: "Second run",
+        request: "Second run",
+        proposal: "Second run",
+        parentSessionID: "session-2",
+      })
+
+      expect(readCurrentWorkflowState(project)?.id).toBe(second.id)
+      expect(readCurrentWorkflowState(project)?.id).not.toBe(first.id)
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

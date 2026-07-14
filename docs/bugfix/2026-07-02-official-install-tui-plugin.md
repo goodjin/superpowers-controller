@@ -18,7 +18,7 @@
 
 ## 修复方案
 
-- installer 同时写入 `tui.json`，添加 `superpowers-controller/tui`。
+- installer 同时写入 `tui.json`，添加 `superpowers-controller`（由宿主解析 `exports["./tui"]`；勿写 `package/tui`，见 2026-07-14 GitHub shorthand hang）。
 - 保持 server entry 为 `superpowers-controller`，避免改变 runtime/tool 加载路径。
 - 一键 shell 脚本直接兜底写入 TUI entry，避免 raw GitHub 脚本更新后仍被旧 npm CLI 卡住。
 - `doctor` 增加 TUI plugin 检查。

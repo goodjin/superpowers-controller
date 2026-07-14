@@ -52,6 +52,11 @@ export type ProjectStore = {
     runID: string
     parentSessionID: string
   }): WorkflowState
+  markWorkflowResumed(args: {
+    runID: string
+    parentSessionID: string
+    taskIDs: string[]
+  }): WorkflowState
   recordPreparedTaskConfirmation(args: {
     runID: string
     parentSessionID: string
@@ -131,6 +136,20 @@ export type ProjectStore = {
 
 export type ProjectStoreOptions = {
   reconcileOnLoad?: boolean
+}
+
+/** Read only current.json + the active run state, without scanning every historical run directory. */
+export function readCurrentWorkflowState(project: string): WorkflowState | null {
+  const root = join(project, ".opencode", "superpowers")
+  const currentPath = join(root, "current.json")
+  if (!existsSync(currentPath)) return null
+  try {
+    const pointer = JSON.parse(readFileSync(currentPath, "utf8")) as { run?: string }
+    if (!pointer.run) return null
+    return readStateFromDisk(root, pointer.run)
+  } catch {
+    return null
+  }
 }
 
 export function createProjectStore(project: string, options: ProjectStoreOptions = {}): ProjectStore {
@@ -287,6 +306,40 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       }
       persistCurrent(next)
       appendChangelog(root, next.id, `activated ${next.workflow} workflow from ${next.entrypoint}`)
+      return next
+    },
+    markWorkflowResumed(args) {
+      const current = this.readRun(args.runID)
+      if (!current) {
+        throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
+      }
+      const now = new Date().toISOString()
+      const parent = parentSessionFields(current, args.parentSessionID, now)
+      const next: WorkflowState = {
+        ...current,
+        session: parent.session,
+        parent_session_id: parent.parent_session_id,
+        status: current.status === "recovered_unknown" || current.status === "blocked" ? "running" : current.status,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...parent.history,
+          {
+            at: now,
+            event: "controller_resume_tasks",
+            from: current.phase,
+            to: current.phase,
+            summary: `Controller resumed tasks ${args.taskIDs.join(", ")} after workflow recovery.`,
+          },
+        ],
+      }
+      persistCurrent(next)
+      appendEvent(root, next.id, {
+        type: "controller_resume_tasks",
+        task_ids: args.taskIDs,
+        state_version: next.state_version,
+      })
+      appendChangelog(root, next.id, `controller resumed tasks ${args.taskIDs.join(", ")}`)
       return next
     },
     recordPreparedTaskConfirmation(args) {

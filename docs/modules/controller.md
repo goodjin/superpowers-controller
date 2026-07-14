@@ -133,7 +133,7 @@ workflow template 提供 controller 可选的默认 orchestration、task graph p
 
 - `draft` prepared task 经 `start_prepared_task` 激活后，phase 从等待确认态进入 active runtime；如果 confirmed workflow spec 或 task graph 已经包含 runnable implementation task，`sp_start` 应派发 runnable implementer，而不是回到固定 designer/planner 入口。
 - active run 的 `sp_start(run_id)` 是恢复动作。它必须先读取当前 state，再判断等待用户输入、blocked/canceled、running node、runnable tasks、finish retry 等情况。
-- 如果 plugin startup 把旧 running node 标成 `interrupted` 并把 workflow 置为 `recovered_unknown`，runtime 同时写入 `nodes/<node-id>/fallback-summary.json` 和 `documents.json` 索引。`sp_start(run_id)` 不能自动派发；主控应先向用户确认，再用 `sp_start(run_id, task_id)` 重试指定 interrupted task，或用 `sp_cancel` 取消。
+- 如果 plugin startup 把旧 running node 标成 `interrupted` 并把 workflow 置为 `recovered_unknown`，runtime 同时写入 `nodes/<node-id>/fallback-summary.json` 和 `documents.json` 索引。`sp_start(run_id)` 不能自动派发；主控应先向用户确认，再用 `sp_start(run_id, resume="all")` 或 `sp_start(run_id, resume=[task_id])` 恢复未完成 task。legacy `task_id` 在 `recovered_unknown` 下等价于单个 task resume。`sp_status` 的 `allowed_controller_decisions` 只提供 `mark_blocked` 和 `request_reprepare`，不返回 `retry_node` 或 `resolve_controller_decision` payload；恢复派发必须走 `sp_start(resume=...)`。
 - 当所有 task graph task 都完成检查且没有 running node 时，下一步是 `sp-finisher` 或 workflow finish，不是 `sp-designer` 或 `sp-planner`。
 - finish session 空跑、被取消或被标记 blocked 后，恢复动作应重新派发 finish 或进入明确 blocked recovery；不能因为 `entrypoint=implement` 就回到 feature 入口。
 - 改变任务目标、范围、workflow kind 或 source workflow 的恢复，需要先重新 `sp_prepare` 生成用户可确认的 proposal；继续同一个 durable run 的恢复，使用 `sp_start(run_id)`。

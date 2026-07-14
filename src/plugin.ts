@@ -1,6 +1,7 @@
 import type { Plugin, PluginModule } from "@opencode-ai/plugin"
 import { createAgentConfig } from "./agents"
 import { loadConfig } from "./config/load"
+import { resolveInteractionMode, shouldSelectChildOnPermission } from "./config/interaction"
 import { createNodeProgressStore } from "./progress/node-progress"
 import { resolveGlobalPermission } from "./config/permissions"
 import { evaluateToolGate } from "./router/gates"
@@ -55,9 +56,13 @@ export function createPluginModule(): PluginModule {
     await logStartupTiming("startup recovery", stepStart)
     stepStart = Date.now()
     const nodeProgress = createNodeProgressStore(ctx.directory)
-    const adapter = createOpenCodeSessionAdapter(ctx as Parameters<typeof createOpenCodeSessionAdapter>[0])
+    const adapter = createOpenCodeSessionAdapter(ctx as Parameters<typeof createOpenCodeSessionAdapter>[0], {
+      interactionMode: resolveInteractionMode(config),
+    })
     const progress = { report: adapter.showProgress }
-    const orchestrator = createSessionOrchestrator(adapter)
+    const orchestrator = createSessionOrchestrator(adapter, {
+      interactionMode: resolveInteractionMode(config),
+    })
     if (config.liveness.enabled) {
       createLivenessMonitor({
         readState: () => store.readCurrent(),
@@ -88,10 +93,12 @@ export function createPluginModule(): PluginModule {
         const state = store.readCurrent()
         const entry = nodeProgress.recordEvent(state, event)
         if (entry && isWaitingPermissionEvent(event)) {
-          await adapter.selectSession?.({
-            sessionID: entry.session_id,
-            reason: "child session waiting for permission",
-          })
+          if (shouldSelectChildOnPermission(resolveInteractionMode(config))) {
+            await adapter.selectSession?.({
+              sessionID: entry.session_id,
+              reason: "child session waiting for permission",
+            })
+          }
           await adapter.showProgress({
             stage: "child_waiting_permission",
             title: "Superpowers workflow",

@@ -240,31 +240,25 @@ export function renderRunningSessionsText(model: ProgressPanelViewModel, maxRows
 
 export function renderSidebarProgressText(model: ProgressPanelViewModel, maxRows = 6): string {
   if (!model.active) return ""
-  const lines = [renderWorkflowStatusText(model, 160)]
-  if (model.session_counts) lines.push(sessionCountsText(model.session_counts))
-  if (model.selector_hint) lines.push(`selectors: ${model.selector_hint}`)
+  const lines = [renderSidebarWorkflowHeader(model)]
   if (model.pending_question) {
     lines.push("waiting user")
-    if (model.pending_question.source_node_id) lines.push(`source: ${model.pending_question.source_node_id}`)
-    lines.push(`question: ${model.pending_question.prompt}`)
+    lines.push(`question: ${truncateLine(model.pending_question.prompt, 96)}`)
     if (model.pending_question.options?.length) {
-      lines.push("options")
-      lines.push(...model.pending_question.options.slice(0, 3).map((option) => `- ${option.label}${option.description ? `: ${option.description}` : ""}`))
+      lines.push(...model.pending_question.options.slice(0, 3).map((option) => `- ${option.label}`))
     }
     const latest = latestActivityRow(model)
-    if (latest) {
-      lines.push("latest")
-      lines.push(renderSidebarRow(latest))
-    }
+    if (latest) lines.push(...renderCompactSidebarRow(latest))
     return lines.join("\n")
   }
   if (model.rows.length > 0) {
-    lines.push("child sessions")
-    lines.push(...model.rows.slice(0, maxRows).map(renderSidebarRow))
+    for (const row of model.rows.slice(0, maxRows)) {
+      lines.push(...renderCompactSidebarRow(row))
+    }
     if (model.rows.length > maxRows) lines.push(`+${model.rows.length - maxRows} more`)
     const planned = plannedTaskRows(model)
     if (planned.length > 0) {
-      lines.push("planned sessions")
+      lines.push("planned")
       lines.push(...planned.slice(0, maxRows).map(renderPlannedTaskRow))
       if (planned.length > maxRows) lines.push(`+${planned.length - maxRows} more planned`)
     }
@@ -273,16 +267,9 @@ export function renderSidebarProgressText(model: ProgressPanelViewModel, maxRows
 
   const planned = plannedTaskRows(model)
   if (planned.length > 0) {
-    lines.push("planned sessions")
+    lines.push("planned")
     lines.push(...planned.slice(0, maxRows).map(renderPlannedTaskRow))
     if (planned.length > maxRows) lines.push(`+${planned.length - maxRows} more planned`)
-    return lines.join("\n")
-  }
-
-  const latest = model.rows.at(-1)
-  if (latest) {
-    lines.push("latest")
-    lines.push(renderSidebarRow(latest))
     return lines.join("\n")
   }
 
@@ -290,14 +277,39 @@ export function renderSidebarProgressText(model: ProgressPanelViewModel, maxRows
   return lines.join("\n")
 }
 
-function renderSidebarRow(row: ProgressPanelRow): string {
+function renderSidebarWorkflowHeader(model: ProgressPanelViewModel): string {
+  const workflow = model.workflow || "workflow"
+  const phase = model.current_phase || model.status || "active"
+  if (model.status && model.status !== "running" && model.status !== phase) {
+    return truncateLine(`SP ${workflow} · ${phase} (${model.status})`, 72)
+  }
+  return truncateLine(`SP ${workflow} · ${phase}`, 72)
+}
+
+function renderCompactSidebarRow(row: ProgressPanelRow): string[] {
   const task = row.task_id ? ` ${row.task_id}` : ""
-  const age = row.observed_age ? ` (${row.observed_age})` : ""
-  const detail = row.latest_detail ? `\n  ${truncateLine(row.latest_detail, 180)}` : ""
-  const marker = row.focused ? ">" : " "
+  const marker = row.focused ? "●" : " "
   const shortcut = row.shortcut ? `[${row.shortcut}] ` : ""
-  const attention = row.attention ? ` | attention ${row.attention}` : ""
-  return `${marker} ${shortcut}${row.agent}${task}: ${displaySessionStatus(row)} - ${row.latest_summary}${age} | node ${row.node_id} | session ${row.session_id}${attention}${detail}`
+  const status = displaySessionStatus(row)
+  const age = row.observed_age ? ` (${row.observed_age})` : ""
+  const lines = [`${marker} ${shortcut}${row.agent}${task}  ${status}`]
+  const activity = compactSidebarActivity(row.latest_summary, age)
+  if (activity) lines.push(`  ${activity}`)
+  return lines
+}
+
+function compactSidebarActivity(summary: string | undefined, age: string): string | undefined {
+  const trimmed = summary?.trim()
+  if (!trimmed) return undefined
+  if (isNoisySidebarDetail(trimmed)) return undefined
+  return truncateLine(`${trimmed}${age}`, 72)
+}
+
+function isNoisySidebarDetail(value: string): boolean {
+  if (value.includes("sidebar-debug.log")) return true
+  if (/^\/Users\/|^\/home\/|^[A-Za-z]:\\/.test(value)) return true
+  if (/^msg_[A-Za-z0-9]+$/.test(value)) return true
+  return false
 }
 
 function renderPlannedTaskRow(task: ProgressPanelTaskRow): string {

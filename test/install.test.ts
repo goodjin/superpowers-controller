@@ -25,7 +25,20 @@ describe("mergePluginEntry", () => {
     expect(output).toContain('"other-plugin"')
     expect(output).toContain('"superpowers-controller"')
     expect(output).toContain('"default_agent": "superpowers-agent"')
+    expect(output).toContain('"permission": "allow"')
     expect(output).toContain('"agent"')
+  })
+
+  test("does not overwrite an existing host permission setting", () => {
+    const input = `{
+  "permission": {
+    "bash": "ask"
+  }
+}
+`
+    const output = mergePluginEntry(input, "superpowers-controller")
+    expect(output).toContain('"bash": "ask"')
+    expect(output).not.toContain('"permission": "allow"')
   })
 
   test("does not duplicate existing plugin entry", () => {
@@ -61,8 +74,20 @@ describe("mergePluginEntry", () => {
     expect(output).toContain("// keep theme")
     expect(output).toContain('"theme": "system"')
     expect(output).toContain('"other-tui-plugin"')
-    expect(output).toContain('"superpowers-controller/tui"')
+    expect(output).toContain('"superpowers-controller"')
+    expect(output).not.toContain('"superpowers-controller/tui"')
     expect(output).toContain('"$schema": "https://opencode.ai/tui.json"')
+  })
+
+  test("migrates legacy package/tui TUI entry to the npm package name", () => {
+    const output = mergeTuiPluginEntry(`{
+  "plugin": ["superpowers-controller/tui", "other-tui-plugin"]
+}
+`)
+
+    expect(output).toContain('"other-tui-plugin"')
+    expect(output).toContain('"superpowers-controller"')
+    expect(output).not.toContain('"superpowers-controller/tui"')
   })
 
   test("installs skills without copying command assets", () => {
@@ -71,7 +96,8 @@ describe("mergePluginEntry", () => {
     install(configDir)
 
     expect(existsSync(join(configDir, "superpowers-controller.jsonc"))).toBe(true)
-    expect(readFileSync(join(configDir, "tui.jsonc"), "utf8")).toContain('"superpowers-controller/tui"')
+    expect(readFileSync(join(configDir, "tui.jsonc"), "utf8")).toContain('"superpowers-controller"')
+    expect(readFileSync(join(configDir, "tui.jsonc"), "utf8")).not.toContain('"superpowers-controller/tui"')
     const skills = readdirSync(join(configDir, "skills")).filter((entry) => entry.startsWith("superpowers-"))
     const commandsDir = join(configDir, "commands")
     const commands = existsSync(commandsDir) ? readdirSync(commandsDir).filter((entry) => entry.startsWith("sp")) : []
@@ -156,10 +182,11 @@ describe("mergePluginEntry", () => {
 
     const config = readFileSync(join(home, ".config", "opencode", "opencode.jsonc"), "utf8")
     const tuiConfig = readFileSync(join(home, ".config", "opencode", "tui.jsonc"), "utf8")
-    const matches = config.match(/superpowers-controller/g) ?? []
-    const tuiMatches = tuiConfig.match(/superpowers-controller\/tui/g) ?? []
+    const matches = config.match(/"superpowers-controller"/g) ?? []
+    const tuiMatches = tuiConfig.match(/"superpowers-controller"/g) ?? []
     expect(matches).toHaveLength(1)
     expect(tuiMatches).toHaveLength(1)
+    expect(tuiConfig).not.toContain("superpowers-controller/tui")
     expect(config).toContain('"default_agent": "superpowers-agent"')
     expect(existsSync(join(home, ".config", "opencode", "superpowers-controller.jsonc"))).toBe(true)
     expect(readdirSync(join(home, ".config", "opencode", "skills")).filter((entry) => entry.startsWith("superpowers-")).length).toBeGreaterThan(0)
@@ -241,7 +268,9 @@ exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
     expect(result.status, result.stderr || result.stdout).toBe(0)
     expect(result.stderr).not.toContain("BASH_SOURCE")
     expect(result.stdout).toContain("Superpowers Controller installed.")
-    expect(readFileSync(join(home, ".config", "opencode", "tui.jsonc"), "utf8")).toContain("superpowers-controller/tui")
+    const tuiConfig = readFileSync(join(home, ".config", "opencode", "tui.jsonc"), "utf8")
+    expect(tuiConfig).toContain('"superpowers-controller"')
+    expect(tuiConfig).not.toContain("superpowers-controller/tui")
   }, 30_000)
 
   test("one-click install script fails fast when remote bunx times out", () => {

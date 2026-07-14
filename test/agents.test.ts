@@ -45,6 +45,7 @@ describe("createAgentConfig", () => {
 
     expect(controller?.mode).toBe("primary")
     expect((controller?.permission as { edit?: string } | undefined)?.edit).toBe("deny")
+    expect((controller?.permission as { bash?: string } | undefined)?.bash).toBe("deny")
     expect((controller?.permission as { task?: string } | undefined)?.task).toBe("deny")
     expect((controller?.tools as { skill?: boolean } | undefined)?.skill).toBe(false)
     expect((controller?.tools as { task?: boolean } | undefined)?.task).toBe(false)
@@ -71,6 +72,16 @@ describe("createAgentConfig", () => {
     expect(prompt).toContain("action=start_prepared_task")
     expect(prompt).toContain("design-only/plan-only/review-only")
     expect(prompt).toContain("waiting_controller_decision")
+  })
+
+  test("controller prompt guides recovered_unknown resume without retry_node", () => {
+    const prompt = String(createAgentConfig()["superpowers-agent"]?.prompt ?? "")
+
+    expect(prompt).toContain("recovered_unknown")
+    expect(prompt).toContain('resume="all"')
+    expect(prompt).toContain("resume=[task_id]")
+    expect(prompt).toContain("Do not call sp_start(run_id) without resume")
+    expect(prompt).toContain("Do not invent resolve_controller_decision retry_node payloads")
   })
 
   test("inherits global allow permissions for controller and node agents", () => {
@@ -101,6 +112,12 @@ describe("createAgentConfig", () => {
     expect(String(agents["superpowers-agent"]?.prompt ?? "")).toContain("Never call the native task tool")
   })
 
+  test("node agents allow bash by default without host permission", () => {
+    const agents = createAgentConfig()
+    expect((agents["sp-implementer"]?.permission as { bash?: string } | undefined)?.bash).toBe("allow")
+    expect((agents["sp-verifier"]?.permission as { bash?: string } | undefined)?.bash).toBe("allow")
+  })
+
   test("inherits granular host permission rules while preserving control-plane denies", () => {
     const agents = createAgentConfig({
       globalPermission: {
@@ -126,14 +143,14 @@ describe("createAgentConfig", () => {
     const implementerPermission = agents["sp-implementer"]?.permission as Record<string, unknown>
 
     expect(controllerPermission.edit).toEqual({ "*": "ask", "src/**": "allow" })
-    expect(controllerPermission.bash).toEqual({ "*": "ask", "git status *": "allow" })
+    expect(controllerPermission.bash).toBe("deny")
     expect(controllerPermission.external_directory).toEqual({ "*": "ask", "/tmp/*": "allow" })
     expect(controllerPermission.task).toBe("deny")
     expect(controllerPermission.question).toBe("allow")
     expect(controllerPermission.skill).toBe("deny")
 
     expect(implementerPermission.edit).toEqual({ "*": "ask", "src/**": "allow" })
-    expect(implementerPermission.bash).toEqual({ "*": "ask", "git status *": "allow" })
+    expect(implementerPermission.bash).toBe("allow")
     expect(implementerPermission.external_directory).toEqual({ "*": "ask", "/tmp/*": "allow" })
     expect(implementerPermission.task).toBe("deny")
     expect(implementerPermission.question).toBe("deny")

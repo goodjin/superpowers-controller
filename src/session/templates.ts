@@ -1,6 +1,7 @@
 import type { DispatchDecision } from "../router/transition"
 import type { NodeRun, ResumeInput, WorkflowState } from "../state/types"
 import type { NodeTaskPacket } from "./task-packet"
+import type { TaskResumeContext } from "../runtime/task-resume"
 import type { WorkflowConfig } from "../config/schema"
 import { DEFAULT_CONFIG } from "../config/defaults"
 import { qualityGateHint, requiredQualityChecks, resolveQualityCommand } from "../runtime/quality-checks"
@@ -33,6 +34,7 @@ export function buildNodeTaskPrompt(packet: NodeTaskPacket): string {
     sourceArtifacts,
     sourceArtifacts ? "" : "",
     packet.retry_context ? `## Retry Context\n${packet.retry_context}\n` : "",
+    packet.recovery_context ? `## Recovery Context\n${packet.recovery_context}\n` : "",
     "## sp_report Contract",
     `- event: ${packet.record_contract.event}`,
     `- expected_artifacts: ${packet.record_contract.expected_artifacts.join(", ") || "none"}`,
@@ -208,11 +210,28 @@ export function buildChildRequestId(nodeID: string): string {
   return `node-${nodeID}`
 }
 
+export function buildRecoveryContext(context: TaskResumeContext): string {
+  const prior = context.prior_node_id
+    ? `Prior node: ${context.prior_node_id}${context.prior_node_status ? ` (${context.prior_node_status})` : ""}.`
+    : "Prior node: none recorded for this phase."
+  return [
+    "This task was interrupted before plugin restart and is now being resumed.",
+    "",
+    "Before doing new work, inspect the current task state:",
+    "- If the work is already complete and acceptance criteria are met, submit sp_report(status=passed) with a short summary.",
+    "- If the work is incomplete, continue from the interruption point without redoing finished work.",
+    "",
+    `${prior} Phase: ${context.phase}. Task: ${context.task_id}.`,
+    "Use existing run artifacts and progress as the source of truth.",
+  ].join("\n")
+}
+
 export function buildNodeTaskPacket(args: {
   state: WorkflowState
   decision: Extract<DispatchDecision, { action: "create_session" | "reuse_session" }>
   nodeID: string
   config?: WorkflowConfig
+  resumeContext?: TaskResumeContext
 }): NodeTaskPacket {
   const contract = recordContractForPhase(args.decision.phase)
   const config = args.config ?? DEFAULT_CONFIG
@@ -232,6 +251,7 @@ export function buildNodeTaskPacket(args: {
     context_sections: contextSections.length > 0 ? contextSections : undefined,
     required_artifacts: requiredArtifactsForPhase(args.decision.phase, args.state, args.decision.task_id),
     record_contract: contract,
+    recovery_context: args.resumeContext ? buildRecoveryContext(args.resumeContext) : undefined,
   }
 }
 

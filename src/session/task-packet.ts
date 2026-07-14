@@ -11,6 +11,7 @@ export type NodeTaskPacket = {
   required_artifacts: Array<{ name: string; path: string }>
   source_artifacts?: Array<{ name: string; path: string; body?: string; missing?: string }>
   retry_context?: string
+  recovery_context?: string
   record_contract: {
     event: string
     expected_artifacts: string[]

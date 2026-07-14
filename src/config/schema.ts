@@ -3,6 +3,9 @@ import { z } from "zod"
 export const GateModeSchema = z.enum(["strict", "guided", "off"])
 export type GateMode = z.infer<typeof GateModeSchema>
 
+export const InteractionModeSchema = z.enum(["legacy", "native", "hybrid"])
+export type InteractionMode = z.infer<typeof InteractionModeSchema>
+
 export const WorkflowConfigSchema = z.object({
   $schema: z.string().optional(),
   mode: GateModeSchema.default("guided"),
@@ -35,6 +38,11 @@ export const WorkflowConfigSchema = z.object({
       check_interval_ms: z.number().int().positive().default(15_000),
     })
     .default({ enabled: true, timeout_ms: 60_000, check_interval_ms: 15_000 }),
+  interaction: z
+    .object({
+      mode: InteractionModeSchema.default("native"),
+    })
+    .default({ mode: "native" }),
 })
 
 export type WorkflowConfig = z.infer<typeof WorkflowConfigSchema>

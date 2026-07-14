@@ -25,4 +25,7 @@ export const DEFAULT_CONFIG: WorkflowConfig = {
     timeout_ms: 60_000,
     check_interval_ms: 15_000,
   },
+  interaction: {
+    mode: "native",
+  },
 }

@@ -122,6 +122,9 @@ export function buildRecommendedNext(
   if (state.activation === "draft" && state.prepare_mode === "proposal_only") {
     return [{ action: "approve_proposal", run_id: state.id }, { action: "revise_request", run_id: state.id }, { action: "cancel_workflow", run_id: state.id }]
   }
+  if (state.status === "recovered_unknown") {
+    return [{ action: "blocked", reason: "Call sp_start(run_id, resume=\"all\") or resume=[task_id] to continue interrupted tasks." }]
+  }
   const dispatchFailed = [...state.node_runs].reverse().find((node) => node.status === "dispatch_failed")
   if (dispatchFailed) {
     return [
@@ -140,7 +143,7 @@ export function buildRecommendedNext(
   }
   if (state.status === "passed") return [{ action: "finish", run_id: state.id }]
   if (state.status === "canceled") return [{ action: "blocked", reason: "workflow is canceled" }]
-  if (state.status === "blocked" || state.status === "failed" || state.status === "waiting_user_decision" || state.status === "waiting_controller_decision" || state.status === "recovered_unknown") {
+  if (state.status === "blocked" || state.status === "failed" || state.status === "waiting_user_decision" || state.status === "waiting_controller_decision") {
     return [{ action: "blocked", reason: `workflow is ${state.status}` }]
   }
   return [{ action: "blocked", reason: "no runnable node or approval decision is available" }]
@@ -152,6 +155,30 @@ export function buildAllowedControllerDecisions(state: WorkflowState): AllowedCo
 
   if ((state.status === "running" || state.status === "intake") && !needsControllerAttention(state)) {
     return []
+  }
+
+  if (state.status === "recovered_unknown") {
+    return [
+      decisionOption(state, {
+        kind: "mark_blocked",
+        reason: "Controller decided not to continue while workflow is recovered_unknown.",
+        required_user_action: "Review interrupted tasks and choose resume, cancel, or reprepare.",
+      }, {
+        reason: "Stop automatic progress until the user chooses how to handle startup recovery.",
+        risk: "low",
+        tool: "sp_start",
+        requiresUserConfirmation: true,
+      }),
+      decisionOption(state, {
+        kind: "request_reprepare",
+        reason: "The existing workflow cannot safely continue; prepare a revised task before restarting.",
+      }, {
+        reason: "Persist that the controller should return to sp_prepare for a revised task.",
+        risk: "medium",
+        tool: "sp_start",
+        requiresUserConfirmation: true,
+      }),
+    ]
   }
 
   const decisions: AllowedControllerDecision[] = []
@@ -300,11 +327,12 @@ export function stateVersion(state: WorkflowState): string {
   return state.state_version ?? `${state.updated_at}:legacy`
 }
 
-export function inferStartAction(state: WorkflowState, args: { start_action?: StartAction; resume_input?: unknown; task_id?: string }): StartAction {
+export function inferStartAction(state: WorkflowState, args: { start_action?: StartAction; resume_input?: unknown; task_id?: string; resume?: unknown }): StartAction {
   if (args.start_action) return args.start_action
   if (args.resume_input) return "resume_user_input"
+  if (args.resume !== undefined) return "resume_tasks"
   if (state.status === "awaiting_design_approval" || state.status === "awaiting_plan_approval") return "resolve_controller_decision"
-  if (state.status === "recovered_unknown" && args.task_id) return "retry_node"
+  if (state.status === "recovered_unknown" && args.task_id) return "resume_tasks"
   return "start_prepared_task"
 }
 
@@ -384,7 +412,7 @@ function blockingReasonForState(
     return `Parallel workflow has ${parallel.failed_nodes.length} failed node(s) while ${parallel.running_nodes.length} node(s) are still running.`
   }
   if (state.status === "waiting_controller_decision") return "Controller needs to apply, replace, retry, block, reprepare, or cancel."
-  if (state.status === "recovered_unknown") return "Startup recovery found previously running nodes that may no longer be live."
+  if (state.status === "recovered_unknown") return "Startup recovery found previously running nodes. Call sp_start(run_id, resume=\"all\") or resume=[task_id] to continue interrupted tasks."
   if (stalled) return `Running node ${stalled.node_id} has had no progress for at least ${stalled.idle_ms}ms.`
   const attention = latestAttentionNode(state)
   if (attention) return `${attention.phase} node ${attention.id} is ${attention.status}.`
@@ -395,6 +423,13 @@ function inspectionHintsForState(
   state: WorkflowState,
   stalled: ReturnType<typeof findStalledRunningNode> | undefined,
 ): ControllerFeedback["inspection_hints"] {
+  if (state.status === "recovered_unknown") {
+    return [{
+      tool: "sp_status",
+      args: { run_id: state.id, detail: "full", include_progress: true },
+      reason: "Inspect interrupted tasks, then call sp_start(run_id, resume=\"all\") or resume=[task_id].",
+    }]
+  }
   if (!stalled) return undefined
   return [{
     tool: "sp_status",

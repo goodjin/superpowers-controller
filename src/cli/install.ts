@@ -6,7 +6,10 @@ import { modify, applyEdits, parse } from "jsonc-parser"
 import { DEFAULT_CONFIG } from "../config/defaults"
 
 export const PACKAGE_NAME = "superpowers-controller"
-export const TUI_PACKAGE_ENTRY = `${PACKAGE_NAME}/tui`
+/** OpenCode TUI config should use the npm package name; `exports["./tui"]` is resolved by the host. */
+export const TUI_PACKAGE_ENTRY = PACKAGE_NAME
+/** Older installs wrote `package/tui`, which OpenCode treats as GitHub `owner/repo`. */
+export const LEGACY_TUI_PACKAGE_ENTRY = `${PACKAGE_NAME}/tui`
 export const CONFIG_FILE_NAME = "superpowers-controller.jsonc"
 export const LEGACY_CONFIG_FILE_NAME = "opencode-superpowers.jsonc"
 const EXCLUDED_SKILL_DIRS = new Set([
@@ -20,14 +23,24 @@ const EXCLUDED_SKILL_DIRS = new Set([
 
 export function mergePluginEntry(content: string, pluginEntry = PACKAGE_NAME): string {
   let output = mergePluginArray(content, pluginEntry)
+  output = mergeDefaultPermission(output)
   const defaultAgentEdits = modify(output, ["default_agent"], "superpowers-agent", {
     formattingOptions: { insertSpaces: true, tabSize: 2 },
   })
   return applyEdits(output, defaultAgentEdits)
 }
 
+export function mergeDefaultPermission(content: string): string {
+  const parsed = parse(content)
+  if (parsed?.permission !== undefined) return content
+  const edits = modify(content || "{}", ["permission"], "allow", {
+    formattingOptions: { insertSpaces: true, tabSize: 2 },
+  })
+  return applyEdits(content || "{}", edits)
+}
+
 export function mergeTuiPluginEntry(content: string, pluginEntry = TUI_PACKAGE_ENTRY): string {
-  let output = mergePluginArray(content, pluginEntry)
+  let output = mergePluginArray(content, pluginEntry, [LEGACY_TUI_PACKAGE_ENTRY])
   if (!parse(output)?.$schema) {
     const schemaEdits = modify(output, ["$schema"], "https://opencode.ai/tui.json", {
       formattingOptions: { insertSpaces: true, tabSize: 2 },
@@ -37,10 +50,13 @@ export function mergeTuiPluginEntry(content: string, pluginEntry = TUI_PACKAGE_E
   return output
 }
 
-function mergePluginArray(content: string, pluginEntry: string): string {
+function mergePluginArray(content: string, pluginEntry: string, removeEntries: string[] = []): string {
   const parsed = parse(content)
-  const plugins = Array.isArray(parsed?.plugin) ? parsed.plugin.filter((entry: unknown): entry is string => typeof entry === "string") : []
-  const nextPlugins = plugins.includes(pluginEntry) ? plugins : [...plugins, pluginEntry]
+  const plugins: string[] = Array.isArray(parsed?.plugin)
+    ? parsed.plugin.filter((entry: unknown): entry is string => typeof entry === "string")
+    : []
+  const withoutRemoved = plugins.filter((entry: string) => !removeEntries.includes(entry))
+  const nextPlugins = withoutRemoved.includes(pluginEntry) ? withoutRemoved : [...withoutRemoved, pluginEntry]
   let output = content || "{}"
   const formattingOptions = { insertSpaces: true, tabSize: 2 }
   const pluginEdits = modify(output, ["plugin"], nextPlugins, {

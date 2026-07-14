@@ -68,6 +68,7 @@ export type PrepareMode = "proposal_only" | "managed_design" | "managed_planning
 export type StartAction =
   | "start_prepared_task"
   | "resume_user_input"
+  | "resume_tasks"
   | "retry_node"
   | "resolve_controller_decision"
 

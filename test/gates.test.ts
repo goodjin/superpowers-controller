@@ -85,6 +85,21 @@ describe("evaluateToolGate", () => {
     expect(result.reason).toContain("red_test_seen")
   })
 
+  test("superpowers-agent cannot execute shell commands", () => {
+    const result = evaluateToolGate({
+      config: DEFAULT_CONFIG,
+      state: null,
+      agent: "superpowers-agent",
+      tool: "bash",
+      args: { command: "ls -la" },
+    })
+
+    expect(result.allowed).toBe(false)
+    expect(result.severity).toBe("blocked")
+    expect(result.reason).toContain("shell commands")
+    expect(result.reason).toContain("sp_prepare")
+  })
+
   test("superpowers-agent cannot execute mutating production tools", () => {
     const state = createInitialState({
       id: "run-1",

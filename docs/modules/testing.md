@@ -21,7 +21,7 @@
 - `test/progress-panel.test.ts`：TUI progress panel view-model 和文本渲染，覆盖 workflow summary、total/running session counts、active sessions first、TodoWrite-style session list，以及 live activity 优先于 progress.jsonl。
 - `test/live-activity.test.ts`：从 TUI session messages 提取 child tool 活动，验证 `↳ Tool title` 摘要格式。
 - `test/plugin-progress-event.test.ts`：server plugin `event` hook 写入 child progress。
-- `test/tui-plugin.test.ts`：TUI route、keymap/command 会话导航、`app_bottom` 多行 child 面板、`sidebar_content` workflow 会话运行信息渲染、running child auto-focus / focus fallback 可见性、shortcut hints、home/prompt-right slot 不注册，以及无 session props 的 sidebar progress 渲染。
+- `test/tui-plugin.test.ts`：TUI route、keymap/command 会话导航、`sidebar_content` workflow 会话运行信息渲染、OpenCode 会话总览、running child auto-focus / focus fallback 可见性、shortcut hints、不注册 `app_bottom`/home/prompt-right slot，以及无 session props 的 sidebar progress 渲染。
 - `test/package-entrypoints.test.ts`：package build/export 包含 `./tui` 入口。
 - `test/e2e/opencode-workflow.test.ts`：workflow e2e，覆盖 proposal/start、prepare-review-start、debug root cause、strict debug gate、完整 feature lifecycle、`sp_report` 校验恢复、completion verification、active waiting reroute 和 strict execute gate 顺序。
 - `scripts/e2e-opencode-mock-llm.ts`：用临时 OpenCode 配置启动真实 `opencode run`，通过 mock provider 验证 request_id 匹配。
@@ -63,7 +63,7 @@ child session live progress 走事件归档，不靠 toast 断言：
 
 - `test/node-progress.test.ts` 覆盖 `message.part.updated`、`session.status`、`session.error` 等事件的归档形状。
 - `test/plugin-progress-event.test.ts` 覆盖 server hook 只处理 active workflow 中已登记的 child session。
-- `test/tui-plugin.test.ts` 覆盖 `superpowers-progress` route、parent/child session keymap 与 command 导航、resident progress slot 名单（无 `sidebar_footer`）、foreground child prompt binding、`app_bottom` 多行 child 面板与 refresh（含 `api.event.on` 事件驱动刷新）、`sidebar_content` 作为 workflow 会话运行信息主展示区域、workflow summary、total/running session counts、TodoWrite-style session list、shortcut hints、`session_prompt_right` / `home_prompt` / `home_prompt_right` 不注册、`sidebar_content` no-props 全局进度/主会话运行列表、无 agent 的新主控会话 fallback，以及 parent/child/no-props/unrelated session 下的 compact progress 行。
+- `test/tui-plugin.test.ts` 覆盖 `superpowers-progress` route、parent/child session keymap 与 command 导航、resident progress slot 名单（仅 `sidebar_content` + `session_prompt`）、foreground child prompt binding、`sidebar_content` 作为会话运行信息主展示区域与 refresh（含 `api.event.on`）、workflow summary、total/running session counts、TodoWrite-style session list、shortcut hints、`app_bottom` / `session_prompt_right` / `home_prompt` / `home_prompt_right` 不注册、`sidebar_content` no-props 全局进度/主会话运行列表、无 agent 的新主控会话 fallback，以及 parent/child/no-props/unrelated session 下的 compact progress 行。
 
 ## V5 Alignment Watchlist
 

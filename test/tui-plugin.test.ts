@@ -105,9 +105,9 @@ describe("Superpowers TUI plugin", () => {
       expect(typeof slots.sidebar_content).toBe("function")
       expect(slots.sidebar_footer).toBeUndefined()
       expect(slots.home_bottom).toBeUndefined()
-      expect(typeof slots.app_bottom).toBe("function")
+      expect(slots.app_bottom).toBeUndefined()
       expect(typeof slots.session_prompt).toBe("function")
-      expect(slots.session_prompt?.(undefined, { session_id: "session-main" })).toBe("SP foreground child: sp-implementer T1")
+      expect(slots.session_prompt?.(undefined, { session_id: "session-main" })).toBeNull()
       expect(slots.session_prompt_right).toBeUndefined()
       expect(slots.home_prompt).toBeUndefined()
       expect(slots.home_prompt_right).toBeUndefined()
@@ -160,14 +160,16 @@ describe("Superpowers TUI plugin", () => {
       )
       const globalSidebar = sidebarSlot() as { type: string; value: string }
       expect(globalSidebar.type).toBe("text")
-      expect(globalSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
-      expect(globalSidebar.value).toContain("sp-implementer T1: running - bash running")
-      expect(globalSidebar.value).toContain("bun run test")
+      expect(globalSidebar.value).toContain("SP feature · implement")
+      expect(globalSidebar.value).toContain("sp-implementer T1  running")
+      expect(globalSidebar.value).toContain("  bash running")
+      expect(globalSidebar.value).not.toContain("bun run test")
       const sessionSidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
       expect(sessionSidebar.type).toBe("text")
-      expect(sessionSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
-      expect(sessionSidebar.value).toContain("sp-implementer T1: running - bash running")
-      expect(sessionSidebar.value).toContain("bun run test")
+      expect(sessionSidebar.value).toContain("SP feature · implement")
+      expect(sessionSidebar.value).toContain("sp-implementer T1  running")
+      expect(sessionSidebar.value).toContain("  bash running")
+      expect(sessionSidebar.value).not.toContain("bun run test")
       const compactSlot = createCompactProgressSlot(
         api,
         (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
@@ -322,20 +324,127 @@ describe("Superpowers TUI plugin", () => {
       expect(prompt.type).toBe("prompt")
       expect(prompts[0]?.sessionID).toBe("session-design")
       expect(prompts[0]?.visible).toBe(true)
+      expect(prompts[0]?.hint).toBeUndefined()
+      expect(prompts[0]?.placeholders).toEqual({ normal: ["Reply to sp-designer"] })
       const childPrompt = slots.session_prompt?.(undefined, { session_id: "session-design", visible: true }) as { type: string; props: Record<string, unknown> }
       expect(childPrompt.type).toBe("prompt")
       expect(prompts[1]?.sessionID).toBe("session-design")
+      expect(prompts[1]?.hint).toBeUndefined()
 
       const sidebar = createProgressSlot(
         api,
         (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
         { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
       )(undefined, { session_id: "session-main" }) as { type: string; value: string }
-      expect(sidebar.value).toContain("foreground child")
+      expect(sidebar.value).not.toContain("foreground child")
+      expect(sidebar.value).toContain("SP feature · design")
       expect(sidebar.value).toContain("sp-designer")
-      expect(sidebar.value).toContain("assistant: Working on the design.")
+      expect(sidebar.value).not.toContain("assistant: Working on the design.")
     } finally {
       rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("defers parent session prompt binding to host permission UI in native mode", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-plugin-permission-native-"))
+    try {
+      const slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> = {}
+      const store = createProjectStore(project)
+      store.startRun({
+        workflow: "feature",
+        entrypoint: "implement",
+        goal: "Implement foreground",
+        request: "Implement foreground",
+        proposal: "Show implement child",
+        parentSessionID: "session-main",
+      })
+      store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        session_id: "session-child",
+        task_id: "T1",
+        task_markdown: "Implement task",
+      })
+      const plugin = createTuiPluginModule()
+      const api = {
+        route: {
+          register() {
+            return () => {}
+          },
+          navigate() {},
+        },
+        slots: {
+          register(plugin: { slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }) {
+            Object.assign(slots, plugin.slots)
+            return "superpowers-progress-slots"
+          },
+        },
+        ui: {
+          Prompt(props: Record<string, unknown>) {
+            return { type: "prompt", props }
+          },
+        },
+        state: {
+          path: { directory: project },
+          session: {
+            status(sessionID: string) {
+              return sessionID === "session-child" ? { type: "waiting_permission" } : { type: "busy" }
+            },
+          },
+        },
+      } as never
+
+      await plugin.tui(
+        api,
+        undefined,
+        { id: "superpowers-controller", source: "file", spec: "", target: "", first_time: 0, last_time: 0, time_changed: 0, load_count: 1, fingerprint: "", state: "first" },
+      )
+
+      expect(slots.session_prompt?.(undefined, { session_id: "session-main", visible: true })).toBeNull()
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("resolves workflow progress from the active session project directory", () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-session-project-"))
+    const tuiDirectory = mkdtempSync(join(tmpdir(), "sp-tui-directory-"))
+    try {
+      createWorkflowWithProgress({
+        project,
+        parentSessionID: "session-main",
+        childSessionID: "session-child",
+        summary: "session directory fallback progress",
+      })
+      const api = {
+        state: {
+          path: { directory: tuiDirectory },
+          session: {
+            get(sessionID: string) {
+              if (sessionID === "session-main") {
+                return { id: "session-main", directory: project, agent: "superpowers-agent" }
+              }
+              return undefined
+            },
+            status(sessionID: string) {
+              expect(sessionID).toBe("session-child")
+              return { type: "busy" }
+            },
+          },
+        },
+      } as never
+      const sidebarSlot = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
+      )
+      const sidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
+      expect(sidebar.value).toContain("SP feature · implement")
+      expect(sidebar.value).toContain("sp-implementer T1  running")
+      expect(sidebar.value).toContain("  session directory fallback progress")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+      rmSync(tuiDirectory, { recursive: true, force: true })
     }
   })
 
@@ -501,13 +610,14 @@ describe("Superpowers TUI plugin", () => {
         sidebarSlot({ session: { id: "session-current-main" } }),
       ] as Array<{ type: string; value: string }>) {
         expect(rendered.type).toBe("text")
-        expect(rendered.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
-        expect(rendered.value).toContain("sp-implementer T1 running - session owned progress")
-        expect(rendered.value).toContain("sp-implementer T1: running - session owned progress")
+        expect(rendered.value).toContain("SP feature · implement")
+        expect(rendered.value).toContain("sp-implementer T1  running")
+        expect(rendered.value).toContain("  session owned progress")
       }
       const fallbackSidebar = sidebarSlot(undefined, { session_id: "session-other" }) as { type: string; value: string }
       expect(fallbackSidebar.type).toBe("text")
-      expect(fallbackSidebar.value).toContain("sp-implementer T1: running - newer unrelated progress")
+      expect(fallbackSidebar.value).toContain("sp-implementer T1  running")
+      expect(fallbackSidebar.value).toContain("  newer unrelated progress")
     } finally {
       restoreEnv("SUPERAGENT_PROJECT_DIR", previousSuperagentProject)
       restoreEnv("OPENCODE_SUPERPOWERS_PROJECT_DIR", previousOpencodeProject)
@@ -545,11 +655,13 @@ describe("Superpowers TUI plugin", () => {
 
       const controllerSidebar = sidebarSlot({ session: { id: "session-new-controller", agent: "superpowers-agent" } }) as { type: string; value: string }
       expect(controllerSidebar.type).toBe("text")
-      expect(controllerSidebar.value).toContain("SP: feature running@implement | tasks 0/1 done | children 1 active (1 running)")
-      expect(controllerSidebar.value).toContain("sp-implementer T1: running - controller fallback progress")
+      expect(controllerSidebar.value).toContain("SP feature · implement")
+      expect(controllerSidebar.value).toContain("sp-implementer T1  running")
+      expect(controllerSidebar.value).toContain("  controller fallback progress")
       const noAgentSidebar = sidebarSlot(undefined, { session_id: "session-new-controller" }) as { type: string; value: string }
       expect(noAgentSidebar.type).toBe("text")
-      expect(noAgentSidebar.value).toContain("sp-implementer T1: running - controller fallback progress")
+      expect(noAgentSidebar.value).toContain("sp-implementer T1  running")
+      expect(noAgentSidebar.value).toContain("  controller fallback progress")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -608,14 +720,87 @@ describe("Superpowers TUI plugin", () => {
       expect(status.value).toContain("sp-implementer T1 waiting permission")
 
       const sidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
-      expect(sidebar.value).toContain("sp-implementer T1: waiting permission - checking local tools")
-      expect(sidebar.value).toContain("foreground child")
-      expect(sidebar.value).toContain("live: waiting_permission")
-      expect(sidebar.value).toContain("permissions: 1 pending")
-      expect(sidebar.value).toContain("assistant: Waiting for edit permission.")
+      expect(sidebar.value).toContain("sp-implementer T1  waiting permission")
+      expect(sidebar.value).toContain("  checking local tools")
+      expect(sidebar.value).not.toContain("foreground child")
+      expect(sidebar.value).not.toContain("live: waiting_permission")
+      expect(sidebar.value).not.toContain("assistant: Waiting for edit permission.")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
+  })
+
+  test("sidebar resolves session id from current route when props are missing", () => {
+    const api = {
+      route: {
+        current: { name: "session", params: { sessionID: "session-main" } },
+      },
+      state: {
+        path: { directory: "/tmp/project" },
+        session: {
+          get(sessionID: string) {
+            return {
+              id: sessionID,
+              title: "Main controller session",
+              agent: "superpowers-agent",
+              directory: "/tmp/project",
+            }
+          },
+          status() {
+            return { type: "busy" }
+          },
+          messages(sessionID: string) {
+            expect(sessionID).toBe("session-main")
+            return [{
+              info: { id: "msg-1", role: "assistant" },
+              parts: [{ type: "reasoning", text: "planning next step" }],
+            }]
+          },
+        },
+      },
+    } as never
+    const sidebarSlot = createProgressSlot(
+      api,
+      (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+      { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
+    )
+    const sidebar = sidebarSlot() as { type: string; value: string }
+    expect(sidebar.value).toBe("Session\n• thinking…\nMain controller session\nthinking: planning next step")
+  })
+
+  test("sidebar shows single-session focus when no workflow and one session is running", () => {
+    const api = {
+      state: {
+        path: { directory: "/tmp/project" },
+        session: {
+          get(sessionID: string) {
+            return {
+              id: sessionID,
+              title: "Investigate vpn routing",
+              agent: "build",
+              directory: "/tmp/project",
+            }
+          },
+          status() {
+            return { type: "busy" }
+          },
+          messages(sessionID: string) {
+            expect(sessionID).toBe("session-main")
+            return [{
+              info: { id: "msg-1", role: "assistant" },
+              parts: [{ type: "tool", tool: "grep", state: { status: "running", title: "sidebar" } }],
+            }]
+          },
+        },
+      },
+    } as never
+    const sidebarSlot = createProgressSlot(
+      api,
+      (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+      { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
+    )
+    const sidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
+    expect(sidebar.value).toBe("Session\n↳ Grep sidebar\nInvestigate vpn routing")
   })
 
   test("sidebar content shows running and planned child-session work", () => {
@@ -660,6 +845,15 @@ describe("Superpowers TUI plugin", () => {
         state: {
           path: { directory: project },
           session: {
+            get(sessionID: string) {
+              if (sessionID === "session-main") {
+                return { id: sessionID, title: "Controller", agent: "superpowers-agent" }
+              }
+              if (sessionID === "session-child") {
+                return { id: sessionID, title: "Implement task", agent: "sp-implementer", parentID: "session-main" }
+              }
+              return undefined
+            },
             status() {
               return { type: "busy" }
             },
@@ -673,10 +867,13 @@ describe("Superpowers TUI plugin", () => {
       )
 
       const sidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
-      expect(sidebar.value).toContain("children 1 active (1 running)")
-      expect(sidebar.value).toContain("child sessions")
-      expect(sidebar.value).toContain("sp-implementer T1: running - editing renderer")
-      expect(sidebar.value).toContain("planned sessions")
+      expect(sidebar.value).toContain("SP feature · implement")
+      expect(sidebar.value).not.toContain("children 1 active")
+      expect(sidebar.value).toContain("Sessions")
+      expect(sidebar.value).toContain("● sp-implementer child")
+      expect(sidebar.value).toContain("sp-implementer T1  running")
+      expect(sidebar.value).toContain("  editing renderer")
+      expect(sidebar.value).toContain("planned")
       expect(sidebar.value).toContain("sp-acceptance-reviewer T2: pending - Add progress tests")
       expect(sidebar.value).toContain("sp-doc-writer T3: pending - Update progress docs")
     } finally {

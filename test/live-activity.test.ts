@@ -1,7 +1,47 @@
 import { describe, expect, test } from "bun:test"
-import { extractChildLiveActivity, liveActivityBySession } from "../src/tui/live-activity"
+import { extractChildLiveActivity, extractSessionCurrentAction, liveActivityBySession } from "../src/tui/live-activity"
 
 describe("child live activity", () => {
+  test("extractSessionCurrentAction prefers running tool over thinking", () => {
+    const reader = {
+      messages() {
+        return [{
+          info: { id: "msg-1", role: "assistant" },
+          parts: [
+            { type: "reasoning", text: "still planning" },
+            { type: "tool", tool: "bash", state: { status: "running", title: "bun test" } },
+          ],
+        }]
+      },
+    }
+    expect(extractSessionCurrentAction(reader, "session-1", "busy")).toEqual({
+      kind: "tool",
+      label: "calling Bash bun test",
+    })
+  })
+
+  test("extractSessionCurrentAction reports thinking for busy session without tools", () => {
+    const reader = {
+      messages() {
+        return [{
+          info: { id: "msg-1", role: "assistant" },
+          parts: [{ type: "reasoning", text: "working through options" }],
+        }]
+      },
+    }
+    expect(extractSessionCurrentAction(reader, "session-1", "busy")).toEqual({
+      kind: "thinking",
+      label: "thinking",
+    })
+  })
+
+  test("extractSessionCurrentAction reports waiting permission", () => {
+    expect(extractSessionCurrentAction({ messages: () => [] }, "session-1", "waiting_permission")).toEqual({
+      kind: "waiting_permission",
+      label: "waiting permission",
+    })
+  })
+
   test("formats running tool with title like native task card", () => {
     const reader = {
       messages(sessionID: string) {
@@ -27,7 +67,7 @@ describe("child live activity", () => {
 
     const activity = extractChildLiveActivity(reader, "session-child")
     expect(activity).toEqual({
-      summary: "↳ Edit src/tui/progress-panel.ts",
+      summary: "calling Edit src/tui/progress-panel.ts",
       detail: "src/tui/progress-panel.ts",
       tool_count: 1,
       current_tool: "Edit src/tui/progress-panel.ts",
@@ -49,10 +89,26 @@ describe("child live activity", () => {
       },
     }
 
-    expect(extractChildLiveActivity(reader, "session-child")?.summary).toBe("↳ 1 toolcall")
+    expect(extractChildLiveActivity(reader, "session-child")?.summary).toBe("calling 1 toolcall")
   })
 
-  test("formats completed activity with tool count", () => {
+  test("extractSessionCurrentAction shows last completed tool when idle", () => {
+    const reader = {
+      messages() {
+        return [{
+          parts: [
+            { type: "tool", tool: "sp_status", state: { status: "completed" } },
+          ],
+        }]
+      },
+    }
+    expect(extractSessionCurrentAction(reader, "session-1", "idle")).toEqual({
+      kind: "tool",
+      label: "last Sp_status",
+    })
+  })
+
+  test("formats completed activity with last tool label", () => {
     const reader = {
       messages() {
         return [
@@ -65,7 +121,7 @@ describe("child live activity", () => {
       },
     }
 
-    expect(extractChildLiveActivity(reader, "session-child")?.summary).toBe("└ 1 toolcall · Bash bun test")
+    expect(extractChildLiveActivity(reader, "session-child")?.summary).toBe("last Bash bun test")
   })
 
   test("reads parts through api.state.part when message has no inline parts", () => {
@@ -85,7 +141,7 @@ describe("child live activity", () => {
       },
     }
 
-    expect(extractChildLiveActivity(reader, "session-child")?.summary).toBe("↳ Write docs/features/foo.md")
+    expect(extractChildLiveActivity(reader, "session-child")?.summary).toBe("calling Write docs/features/foo.md")
   })
 
   test("liveActivityBySession only includes sessions with tool activity", () => {
@@ -100,7 +156,7 @@ describe("child live activity", () => {
 
     expect(liveActivityBySession(reader, ["session-a", "session-b"])).toEqual({
       "session-a": {
-        summary: "↳ Bash bun test",
+        summary: "calling Bash bun test",
         detail: "bun test",
         tool_count: 1,
         current_tool: "Bash bun test",

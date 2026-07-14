@@ -5,7 +5,7 @@ import { createElement, insert } from "@opentui/solid"
 import { createSignal, onCleanup, type Accessor } from "solid-js"
 import { createNodeProgressStore } from "./progress/node-progress"
 import type { NodeProgressEntry } from "./progress/node-progress"
-import { createProjectStore } from "./state/store"
+import { createProjectStore, readCurrentWorkflowState } from "./state/store"
 import {
   buildProgressPanelViewModel,
   renderAppBottomChildPanelText,
@@ -16,11 +16,22 @@ import {
   renderWorkflowStatusText,
 } from "./tui/progress-panel"
 import { liveActivityBySession } from "./tui/live-activity"
+import {
+  collectSeedSessionIDs,
+  collectWorkflowSessionIDs,
+  loadHostSessions,
+  readHostSessionsSync,
+  resolveSidebarHostRenderMode,
+} from "./tui/host-sessions"
+import { buildSidebarHostModel, buildSidebarViewModel, renderSidebarViewModelText, type SidebarViewModel } from "./tui/sidebar-model"
+import { appendSidebarStartup, isSidebarDebugEnabled, logSidebarDiag, setSidebarDebugProjectDirectory, summarizeSidebarApi, summarizeSidebarModel } from "./tui/sidebar-debug"
+import { createSessionMessageReader, primeSessionMessageCache } from "./tui/session-message-cache"
+import { loadConfig } from "./config/load"
+import { resolveInteractionMode, shouldDeferChildPromptOnParentPermission } from "./config/interaction"
 import type { WorkflowState } from "./state/types"
 
 export const RESIDENT_PROGRESS_SLOT_NAMES = [
   "sidebar_content",
-  "app_bottom",
   "session_prompt",
 ] as const
 
@@ -75,7 +86,16 @@ type TuiApi = {
     }): (() => void) | void
   }
   slots?: {
-    register(plugin: { id: string; slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }): string
+    register(plugin: { id: string; order?: number; slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> }): string
+  }
+  theme?: {
+    current: {
+      text?: string
+      textMuted?: string
+      warning?: string
+      success?: string
+      info?: string
+    }
   }
   ui?: {
     Prompt(props: {
@@ -95,8 +115,11 @@ type TuiApi = {
   state: {
     path: {
       directory: string
+      worktree?: string
     }
     session: {
+      count?(): number
+      get?(sessionID: string): { id: string; title?: string; agent?: string; parentID?: string; directory?: string; time?: { updated?: number; created?: number } } | undefined
       messages?(sessionID: string): ReadonlyArray<unknown>
       status(sessionID: string): { type: string; attempt?: number; message?: string } | undefined
       permission?(sessionID: string): ReadonlyArray<unknown>
@@ -110,12 +133,25 @@ type TuiApi = {
   event?: {
     on(type: string, handler: () => void): (() => void) | void
   }
+  client?: {
+    session?: {
+      list?(): Promise<unknown>
+      messages?(input: { path: { id: string } }): Promise<unknown>
+    }
+  }
 }
 
 export function createTuiPluginModule() {
   return {
     id: "superpowers-controller",
     async tui(api: TuiApi, _options?: unknown, _meta?: unknown) {
+      const startupAt = Date.now()
+      const projectDirectory = api.state.path.directory
+      setSidebarDebugProjectDirectory(projectDirectory)
+      appendSidebarStartup(projectDirectory, {
+        slots: RESIDENT_PROGRESS_SLOT_NAMES,
+        debug: isSidebarDebugEnabled(projectDirectory),
+      })
       const disposers: Array<() => void> = []
       disposers.push(api.route.register([
         {
@@ -139,13 +175,22 @@ export function createTuiPluginModule() {
       ]))
       api.slots?.register({
         id: "superpowers-controller",
+        order: 600,
         slots: residentProgressSlots(api),
+      })
+      logSidebarDiag("plugin_ready", {
+        slots: RESIDENT_PROGRESS_SLOT_NAMES,
+        debug: isSidebarDebugEnabled(projectDirectory),
       })
       const disposeNavigation = registerWorkflowSessionNavigation(api)
       if (disposeNavigation) disposers.push(disposeNavigation)
       api.lifecycle?.onDispose(() => {
         for (const dispose of disposers) dispose()
       })
+      const startupMs = Date.now() - startupAt
+      if (startupMs >= 100) {
+        console.warn(`[superpowers-controller] tui startup: ${startupMs}ms`)
+      }
     },
   }
 }
@@ -254,7 +299,7 @@ function workflowNavigationRows(api: TuiApi) {
 }
 
 function currentRouteSessionID(api: TuiApi): string | undefined {
-  const current = api.route.current
+  const current = api.route?.current
   if (current?.name !== "session") return undefined
   const sessionID = current.params?.sessionID
   return typeof sessionID === "string" ? sessionID : undefined
@@ -291,9 +336,11 @@ function residentProgressSlots(api: TuiApi): Record<string, (_context?: unknown,
     name,
     name === "session_prompt"
       ? createForegroundChildPromptSlot(api)
-      : createProgressSlot(api, createTextElement, {
-        ...progressSlotOptions(name),
-      }),
+      : name === "sidebar_content"
+        ? createSidebarProgressSlot(api, createTextElement, progressSlotOptions(name))
+        : createProgressSlot(api, createTextElement, {
+          ...progressSlotOptions(name),
+        }),
   ]))
 }
 
@@ -321,8 +368,11 @@ export function createProgressSlot(
   renderText: (value: TextSource) => unknown = createTextElement,
   options: CompactProgressSlotOptions = {},
 ): (_context?: unknown, props?: Record<string, unknown>) => unknown {
+  if (options.renderer === "sidebar") {
+    return createSidebarProgressSlot(api, renderText, options)
+  }
   return (context, props) => {
-    const slotContext = slotContextFromArgs(context, props)
+    const slotContext = slotContextFromArgs(api, context, props)
     const sessionID = slotContext.sessionID
     const hasSession = typeof sessionID === "string"
     if (options.requireSession && !hasSession) return null
@@ -350,8 +400,6 @@ export function createProgressSlot(
 
 function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions, "renderer" | "maxChars" | "allowGlobal" | "requireSession" | "refreshOnEvents"> {
   switch (slotName) {
-    case "app_bottom":
-      return { renderer: "app-bottom-panel", allowGlobal: true, refreshOnEvents: true }
     case "sidebar_content":
       return { renderer: "sidebar", allowGlobal: true, refreshOnEvents: true }
     default:
@@ -359,10 +407,19 @@ function progressSlotOptions(slotName: string): Pick<CompactProgressSlotOptions,
   }
 }
 
-function slotContextFromArgs(context?: unknown, props?: Record<string, unknown>): { sessionID?: string } {
+function slotContextFromArgs(api: TuiApi, context?: unknown, props?: Record<string, unknown>): { sessionID?: string } {
   return {
-    sessionID: slotSessionID(props) ?? slotSessionID(context),
+    sessionID: resolveSidebarSessionID(api, context, props),
   }
+}
+
+function resolveSidebarSessionID(api: TuiApi, context?: unknown, props?: Record<string, unknown>): string | undefined {
+  return slotSessionID(props) ?? slotSessionID(context) ?? currentRouteSessionID(api)
+}
+
+function finalizeSidebarText(value: string | undefined): string {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : "Superpowers sidebar\nwaiting for session state"
 }
 
 function slotSessionID(value?: unknown): string | undefined {
@@ -394,7 +451,7 @@ function safeProgressSlotText(
     if (renderer === "workflow-status") return renderWorkflowStatusText(model, maxChars)
     if (renderer === "app-bottom-panel") return renderAppBottomChildPanelText(model)
     if (renderer === "running-sessions") return renderRunningSessionsText(model)
-    if (renderer === "sidebar") return sidebarProgressText(api, context.state, model)
+    if (renderer === "sidebar") return sidebarWorkflowProgressText(api, context.state, model)
     return renderCompactProgressText(model, maxChars)
   } catch {
     return "SP: progress unavailable"
@@ -403,13 +460,25 @@ function safeProgressSlotText(
 
 function createForegroundChildPromptSlot(api: TuiApi): (_context?: unknown, props?: Record<string, unknown>) => unknown {
   return (context, props) => {
-    const currentSessionID = slotContextFromArgs(context, props).sessionID
+    const currentSessionID = slotContextFromArgs(api, context, props).sessionID
     if (typeof currentSessionID !== "string") return null
     const workflow = currentWorkflowContext(api, currentSessionID).state
     const foreground = workflow ? foregroundChildNode(workflow) : undefined
     if (!workflow || !foreground) return null
     if (currentSessionID !== workflow.parent_session_id && currentSessionID !== foreground.session_id) return null
-    if (!api.ui?.Prompt) return `SP foreground child: ${foreground.agent}${foreground.task_id ? ` ${foreground.task_id}` : ""}`
+    const interactionMode = resolveInteractionMode(loadConfig(api.state.path.directory))
+    if (
+      shouldDeferChildPromptOnParentPermission(interactionMode)
+      && currentSessionID === workflow.parent_session_id
+      && isWaitingPermissionStatus(api, foreground.session_id)
+    ) {
+      return null
+    }
+    const childLabel = `${foreground.agent}${foreground.task_id ? ` ${foreground.task_id}` : ""}`
+    // Do not pass string `hint`: OpenCode inserts `U.hint` as raw children under a box,
+    // and orphan text-nodes fatal the TUI ("must have a <text> as a parent").
+    // Child targeting is enough; surface the agent via placeholder text instead.
+    if (!api.ui?.Prompt) return null
     const input = isRecord(props) ? props : isRecord(context) ? context : {}
     const targetSessionID = currentSessionID === foreground.session_id ? currentSessionID : foreground.session_id
     return api.ui.Prompt({
@@ -418,23 +487,235 @@ function createForegroundChildPromptSlot(api: TuiApi): (_context?: unknown, prop
       disabled: typeof input.disabled === "boolean" ? input.disabled : undefined,
       onSubmit: typeof input.on_submit === "function" ? input.on_submit as () => void : undefined,
       ref: typeof input.ref === "function" ? input.ref as (ref: unknown) => void : undefined,
-      hint: `SP -> ${foreground.agent}${foreground.task_id ? ` ${foreground.task_id}` : ""}`,
       showPlaceholder: true,
       placeholders: {
-        normal: [`Reply to ${foreground.agent}${foreground.task_id ? ` ${foreground.task_id}` : ""}`],
+        normal: [`Reply to ${childLabel}`],
       },
     })
   }
 }
 
-function sidebarProgressText(api: TuiApi, state: WorkflowState | null, model: ReturnType<typeof buildProgressPanelViewModel>): string {
-  const base = renderSidebarProgressText(model)
-  if (!state) return base
-  const foreground = foregroundChildNode(state)
-  if (!foreground) return base
-  const transcript = renderForegroundChildTranscript(api, foreground.session_id)
-  if (!transcript) return base
-  return `${base}\n\nforeground child\n${foreground.agent}${foreground.task_id ? ` ${foreground.task_id}` : ""}: ${foreground.phase} ${foreground.status}\n${transcript}`
+function createSidebarProgressSlot(
+  api: TuiApi,
+  renderText: (value: TextSource) => unknown = createTextElement,
+  options: CompactProgressSlotOptions = {},
+): (_context?: unknown, props?: Record<string, unknown>) => unknown {
+  // Keep sidebar_content on createTextElement path. Do not statically import sidebar-view.tsx:
+  // bun build emits jsxDEV against @opentui/solid/jsx-dev-runtime, which only resolves to a .d.ts
+  // and causes the whole TUI plugin module to fail before tui() runs.
+  const primeSidebarMessages = (sessionID: string | undefined) => {
+    const context = currentWorkflowContext(api, sessionID)
+    const ids = new Set(collectWorkflowSessionIDs(context.state, sessionID))
+    if (sessionID) ids.add(sessionID)
+    primeSessionMessageCache(api, [...ids])
+  }
+  return (context, props) => {
+    const sessionID = resolveSidebarSessionID(api, context, props)
+    primeSidebarMessages(sessionID)
+    const refreshMs = options.refreshMs ?? 1000
+    const buildModel = () => assembleSidebarViewModel(api, sessionID, options.allowGlobal)
+    const logRender = (renderer: "text" | "text_refresh", model: SidebarViewModel, error?: string) => {
+      if (!isSidebarDebugEnabled()) return
+      logSidebarDiag("render", {
+        renderer,
+        ...summarizeSidebarApi(api, sessionID),
+        ...summarizeSidebarModel(model),
+        error,
+      })
+    }
+    const loadModel = async () => {
+      try {
+        const context = currentWorkflowContext(api, sessionID)
+        if (context.state) {
+          const hostSessions = sidebarHostSessions(api, context, sessionID)
+          return assembleSidebarViewModel(api, sessionID, options.allowGlobal, context, hostSessions)
+        }
+        const syncSessions = sidebarHostSessions(api, context, sessionID)
+        if (resolveSidebarHostRenderMode(false, syncSessions) === "single-focus") {
+          return assembleSidebarViewModel(api, sessionID, options.allowGlobal, context, syncSessions)
+        }
+        const hostSessions = await loadHostSessions(api, context.project, collectWorkflowSessionIDs(context.state, sessionID))
+        return assembleSidebarViewModel(api, sessionID, options.allowGlobal, context, hostSessions)
+      } catch (error) {
+        logSidebarDiag("load_failed", {
+          sessionID,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return fallbackSidebarViewModel()
+      }
+    }
+    const renderSidebarText = () => {
+      try {
+        const model = buildModel()
+        logRender("text", model)
+        return renderText(finalizeSidebarText(renderSidebarViewModelText(model)))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logRender("text", fallbackSidebarViewModel(), message)
+        return renderText(finalizeSidebarText("SP: progress unavailable"))
+      }
+    }
+    if (refreshMs <= 0) {
+      return renderSidebarText()
+    }
+    try {
+      const [text, setText] = createSignal(finalizeSidebarText(renderSidebarViewModelText(buildModel())))
+      logRender("text", buildModel())
+      const scheduleRefresh = () => {
+        primeSidebarMessages(sessionID)
+        void loadModel()
+          .then((model) => {
+            const next = finalizeSidebarText(renderSidebarViewModelText(model))
+            if (next) {
+              setText(next)
+              logRender("text_refresh", model)
+            }
+          })
+          .catch(() => setText(finalizeSidebarText(renderSidebarViewModelText(buildModel()))))
+      }
+      const timer = setInterval(scheduleRefresh, refreshMs)
+      const initialDeferred = setTimeout(scheduleRefresh, SIDEBAR_ASYNC_REFRESH_DEFER_MS)
+      const eventDisposers = options.refreshOnEvents ? registerProgressRefreshEvents(api, scheduleRefresh) : []
+      onCleanup(() => {
+        clearInterval(timer)
+        clearTimeout(initialDeferred)
+        for (const dispose of eventDisposers) dispose()
+      })
+      return renderText(text)
+    } catch {
+      return renderSidebarText()
+    }
+  }
+}
+
+const SIDEBAR_ASYNC_REFRESH_DEFER_MS = 250
+
+async function loadSidebarContentText(
+  api: TuiApi,
+  sessionID: string | undefined,
+  allowGlobal = false,
+): Promise<string> {
+  try {
+    const model = await loadSidebarViewModel(api, sessionID, allowGlobal)
+    return finalizeSidebarText(renderSidebarViewModelText(model))
+  } catch {
+    return finalizeSidebarText("SP: progress unavailable")
+  }
+}
+
+async function loadSidebarViewModel(
+  api: TuiApi,
+  sessionID: string | undefined,
+  allowGlobal = false,
+): Promise<SidebarViewModel> {
+  const context = currentWorkflowContext(api, sessionID)
+  if (context.state) {
+    const hostSessions = sidebarHostSessions(api, context, sessionID)
+    return assembleSidebarViewModel(api, sessionID, allowGlobal, context, hostSessions)
+  }
+  const syncSessions = sidebarHostSessions(api, context, sessionID)
+  if (resolveSidebarHostRenderMode(false, syncSessions) === "single-focus") {
+    return assembleSidebarViewModel(api, sessionID, allowGlobal, context, syncSessions)
+  }
+  const hostSessions = await loadHostSessions(api, context.project, collectWorkflowSessionIDs(context.state, sessionID))
+  return assembleSidebarViewModel(api, sessionID, allowGlobal, context, hostSessions)
+}
+
+function sidebarHostSessions(
+  api: TuiApi,
+  context: WorkflowContext,
+  sessionID: string | undefined,
+): ReturnType<typeof readHostSessionsSync> {
+  const seedIDs = collectWorkflowSessionIDs(context.state, sessionID)
+  let rows = readHostSessionsSync(api, seedIDs)
+  if (!context.state && sessionID && rows.length === 0) {
+    rows = readHostSessionsSync(api, [sessionID])
+  }
+  return rows
+}
+
+function sidebarContentText(
+  api: TuiApi,
+  sessionID: string | undefined,
+  allowGlobal = false,
+): string {
+  try {
+    return renderSidebarViewModelText(assembleSidebarViewModel(api, sessionID, allowGlobal))
+  } catch {
+    return finalizeSidebarText("SP: progress unavailable")
+  }
+}
+
+function assembleSidebarViewModel(
+  api: TuiApi,
+  sessionID: string | undefined,
+  allowGlobal = false,
+  context = currentWorkflowContext(api, sessionID),
+  hostSessions = sidebarHostSessions(api, context, sessionID),
+): SidebarViewModel {
+  const hasWorkflow = Boolean(context.state)
+  const hostMode = resolveSidebarHostRenderMode(hasWorkflow, hostSessions)
+  const host = buildSidebarHostModel(
+    sidebarHostReader(api),
+    hostSessions,
+    hostMode,
+    hasWorkflow ? hostSessions.length : 8,
+  )
+  let workflowText = ""
+  let workflowDiagnostic: string | undefined
+  if (context.state) {
+    const progress = createNodeProgressStore(context.project).readRun(context.state)
+    const model = progressModel(api, context.state, progress, sessionID, allowGlobal)
+    workflowText = sidebarWorkflowProgressText(api, context.state, model)
+    if (context.diagnostic) workflowDiagnostic = context.diagnostic
+  } else if (context.diagnostic && hostMode !== "single-focus") {
+    workflowDiagnostic = context.diagnostic
+  }
+  return buildSidebarViewModel({
+    hasWorkflow,
+    hostMode,
+    host,
+    workflowText,
+    workflowDiagnostic,
+  })
+}
+
+function fallbackSidebarViewModel(): SidebarViewModel {
+  return buildSidebarViewModel({
+    hasWorkflow: false,
+    hostMode: "overview",
+    host: { kind: "message", lines: ["SP: progress unavailable"] },
+  })
+}
+
+function sidebarHostReader(api: TuiApi): import("./tui/host-sessions").HostSessionSidebarReader {
+  const messageReader = createSessionMessageReader({
+    state: api.state,
+    client: api.client,
+  })
+  return {
+    state: {
+      ...api.state,
+      session: {
+        ...api.state.session,
+        messages(sessionID: string) {
+          return messageReader.messages?.(sessionID) ?? []
+        },
+      },
+    },
+    client: api.client,
+    part: messageReader.part,
+  }
+}
+
+function sidebarWorkflowProgressText(
+  _api: TuiApi,
+  _state: WorkflowState | null,
+  model: ReturnType<typeof buildProgressPanelViewModel>,
+): string {
+  // Keep workflow status compact. Host Sessions rows carry live tool activity;
+  // do not dump foreground transcript / thinking into the sidebar.
+  return renderSidebarProgressText(model)
 }
 
 function registerProgressRefreshEvents(api: TuiApi, refresh: () => void): Array<() => void> {
@@ -462,7 +743,7 @@ function currentProgressModel(api: TuiApi, sessionID?: unknown) {
 
 function currentWorkflowContext(api: TuiApi, sessionID?: unknown): WorkflowContext {
   const directory = api.state.path.directory
-  const candidate = selectWorkflowCandidate(directory, sessionID)
+  const candidate = selectWorkflowCandidate(api, sessionID)
   if (candidate) {
     return {
       project: candidate.project,
@@ -478,12 +759,19 @@ function currentWorkflowContext(api: TuiApi, sessionID?: unknown): WorkflowConte
   }
 }
 
-function selectWorkflowCandidate(directory: string, sessionID?: unknown): WorkflowCandidate | null {
-  const candidates = workflowCandidates(directory)
+function selectWorkflowCandidate(api: TuiApi, sessionID?: unknown): WorkflowCandidate | null {
+  const candidates = workflowCandidates(api, sessionID)
   const session = typeof sessionID === "string" ? sessionID : undefined
   if (session) {
-    const matched = latestWorkflowCandidate(candidates.filter((candidate) => isWorkflowSession(candidate.state, session)))
-    if (matched) return matched
+    const matched = candidates.filter((candidate) => isWorkflowSession(candidate.state, session))
+    const unfinishedMatched = latestWorkflowCandidate(matched.filter((candidate) => isUnfinishedWorkflow(candidate.state)))
+    if (unfinishedMatched) return unfinishedMatched
+    const runningMatched = latestWorkflowCandidate(matched.filter((candidate) => candidate.state.node_runs.some((node) => node.status === "running")))
+    if (runningMatched) return runningMatched
+    const currentMatched = matched.find((candidate) => candidate.source === "current")
+    if (currentMatched) return currentMatched
+    const matchedLatest = latestWorkflowCandidate(matched)
+    if (matchedLatest) return matchedLatest
   }
 
   const unfinished = latestWorkflowCandidate(candidates.filter((candidate) => isUnfinishedWorkflow(candidate.state)))
@@ -492,11 +780,29 @@ function selectWorkflowCandidate(directory: string, sessionID?: unknown): Workfl
   return latestWorkflowCandidate(candidates)
 }
 
-function workflowCandidates(directory: string): WorkflowCandidate[] {
+function workflowCandidates(api: TuiApi, sessionID?: unknown): WorkflowCandidate[] {
+  const fast = workflowCandidatesFromRoots(api, sessionID, false)
+  if (!workflowCandidatesNeedHistory(fast, sessionID)) return fast
+  return workflowCandidatesFromRoots(api, sessionID, true)
+}
+
+function workflowCandidatesNeedHistory(candidates: WorkflowCandidate[], sessionID?: unknown): boolean {
+  if (typeof sessionID === "string") {
+    return !candidates.some((candidate) => isWorkflowSession(candidate.state, sessionID))
+  }
+  if (candidates.some((candidate) => isUnfinishedWorkflow(candidate.state))) return false
+  return candidates.length === 0
+}
+
+function workflowCandidatesFromRoots(
+  api: TuiApi,
+  sessionID: unknown,
+  includeHistory: boolean,
+): WorkflowCandidate[] {
   const seen = new Set<string>()
   const result: WorkflowCandidate[] = []
-  for (const project of [directory, ...workflowProjectCandidates(directory)]) {
-    for (const candidate of workflowCandidatesForProject(project)) {
+  for (const project of projectLookupRoots(api, sessionID)) {
+    for (const candidate of workflowCandidatesForProject(project, includeHistory)) {
       const key = `${candidate.project}:${candidate.state.id}`
       if (seen.has(key)) continue
       seen.add(key)
@@ -506,20 +812,51 @@ function workflowCandidates(directory: string): WorkflowCandidate[] {
   return result
 }
 
-function workflowCandidatesForProject(project: string): WorkflowCandidate[] {
-  const store = createProjectStore(project)
+function projectLookupRoots(api: TuiApi, sessionID?: unknown): string[] {
+  const directory = api.state.path.directory
+  const sessionDirectory = resolveSessionProjectDirectory(api, sessionID)
+  const roots = [
+    sessionDirectory,
+    directory,
+    api.state.path.worktree,
+    ...workflowProjectCandidates(directory),
+  ]
+  return [...new Set(roots.filter((root): root is string => Boolean(root)))]
+}
+
+function resolveSessionProjectDirectory(api: TuiApi, sessionID?: unknown): string | undefined {
+  if (typeof sessionID !== "string") return undefined
+  const session = api.state.session.get?.(sessionID)
+  const directory = session?.directory?.trim()
+  return directory || undefined
+}
+
+function workflowCandidatesForProject(project: string, includeHistory: boolean): WorkflowCandidate[] {
+  const superpowersRoot = join(project, ".opencode", "superpowers")
+  if (!existsSync(superpowersRoot)) return []
   const candidates: WorkflowCandidate[] = []
-  const current = readWorkflowState(project)
+  const current = readCurrentWorkflowState(project)
   if (current) candidates.push({ project, state: current, source: "current" })
-  for (const state of store.listRuns()) {
+  if (!includeHistory) return candidates
+  for (const state of getTuiProjectStore(project).listRuns()) {
+    if (current?.id === state.id) continue
     candidates.push({ project, state, source: "run" })
   }
   return candidates
 }
 
+const tuiProjectStoreCache = new Map<string, ReturnType<typeof createProjectStore>>()
+
+function getTuiProjectStore(project: string): ReturnType<typeof createProjectStore> {
+  const cached = tuiProjectStoreCache.get(project)
+  if (cached) return cached
+  const store = createProjectStore(project)
+  tuiProjectStoreCache.set(project, store)
+  return store
+}
+
 function readWorkflowState(project: string): WorkflowState | null {
-  if (!existsSync(join(project, ".opencode", "superpowers", "current.json"))) return null
-  return createProjectStore(project).readCurrent()
+  return readCurrentWorkflowState(project)
 }
 
 function latestWorkflowCandidate(candidates: WorkflowCandidate[]): WorkflowCandidate | null {
@@ -610,6 +947,11 @@ function isWorkflowSession(state: WorkflowState, sessionID: string): boolean {
   return sessionID === state.parent_session_id || state.node_runs.some((node) => node.session_id === sessionID)
 }
 
+function isWaitingPermissionStatus(api: TuiApi, sessionID: string): boolean {
+  const status = api.state.session.status?.(sessionID)
+  return Boolean(status && typeof status === "object" && (status as { type?: unknown }).type === "waiting_permission")
+}
+
 function foregroundChildNode(state: WorkflowState): WorkflowState["node_runs"][number] | undefined {
   if (state.pending_question?.source_node_id) {
     const questionNode = state.node_runs.find((node) => node.id === state.pending_question?.source_node_id)
@@ -628,60 +970,14 @@ function isForegroundSerialPhase(phase: string): boolean {
   return phase === "design" || phase === "plan"
 }
 
-function renderForegroundChildTranscript(api: TuiApi, sessionID: string): string {
-  const lines: string[] = []
-  const status = formatSessionStatus(api.state.session.status(sessionID))
-  lines.push(`live: ${status}`)
-  const permissions = api.state.session.permission?.(sessionID) ?? []
-  const questions = api.state.session.question?.(sessionID) ?? []
-  if (permissions.length > 0) lines.push(`permissions: ${permissions.length} pending`)
-  if (questions.length > 0) lines.push(`questions: ${questions.length} pending`)
-  const messages = api.state.session.messages?.(sessionID) ?? []
-  const rendered = messages.slice(-4).flatMap((message) => renderMessageLines(api, message))
-  if (rendered.length > 0) {
-    lines.push("recent")
-    lines.push(...rendered.slice(-12))
-  }
-  return lines.join("\n")
-}
-
-function renderMessageLines(api: TuiApi, message: unknown): string[] {
-  if (!isRecord(message)) return []
-  const info = isRecord(message.info) ? message.info : message
-  const messageID = typeof info.id === "string" ? info.id : undefined
-  const role = typeof info.role === "string" ? info.role : "message"
-  const parts = Array.isArray(message.parts)
-    ? message.parts
-    : messageID && api.state.part
-      ? api.state.part(messageID)
-      : []
-  const text = parts.flatMap(renderPartText).filter(Boolean).join(" | ")
-  if (!text) return [`${role}: ${messageID ?? "no text"}`]
-  return [`${role}: ${truncateSlotText(text.replace(/\s+/g, " "), 220)}`]
-}
-
-function renderPartText(part: unknown): string[] {
-  if (!isRecord(part) || typeof part.type !== "string") return []
-  if (part.type === "text" && typeof part.text === "string") return [part.text]
-  if (part.type === "reasoning" && typeof part.text === "string") return [`thinking: ${part.text}`]
-  if (part.type === "tool") return [renderToolPart(part)]
-  if (part.type === "patch" && Array.isArray(part.files)) return [`patch: ${part.files.join(", ")}`]
-  if (part.type === "agent" && typeof part.name === "string") return [`agent: ${part.name}`]
-  if (part.type === "step-finish" && typeof part.reason === "string") return [`step: ${part.reason}`]
-  return []
-}
-
-function renderToolPart(part: Record<string, unknown>): string {
-  const tool = typeof part.tool === "string" ? part.tool : "tool"
-  const state = isRecord(part.state) && typeof part.state.status === "string" ? part.state.status : "unknown"
-  const title = isRecord(part.state) && typeof part.state.title === "string" ? ` ${part.state.title}` : ""
-  return `${tool}: ${state}${title}`
-}
-
 function liveStatusBySession(api: TuiApi, state: WorkflowState | null): Record<string, string> {
   const result: Record<string, string> = {}
   for (const node of state?.node_runs ?? []) {
-    result[node.session_id] = formatSessionStatus(api.state.session.status(node.session_id))
+    try {
+      result[node.session_id] = formatSessionStatus(api.state.session.status(node.session_id))
+    } catch {
+      result[node.session_id] = "unknown"
+    }
   }
   return result
 }

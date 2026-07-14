@@ -79,7 +79,7 @@ describe("progress panel view model", () => {
       undefined,
       {
         "session-child": {
-          summary: "↳ Edit src/tui/progress-panel.ts",
+          summary: "calling Edit src/tui/progress-panel.ts",
           detail: "src/tui/progress-panel.ts",
           tool_count: 2,
           current_tool: "Edit src/tui/progress-panel.ts",
@@ -87,8 +87,8 @@ describe("progress panel view model", () => {
       },
     )
 
-    expect(model.rows[0]?.latest_summary).toBe("↳ Edit src/tui/progress-panel.ts")
-    expect(renderAppBottomChildPanelText(model)).toContain("> [⌘1] sp-implementer T1: running - ↳ Edit src/tui/progress-panel.ts")
+    expect(model.rows[0]?.latest_summary).toBe("calling Edit src/tui/progress-panel.ts")
+    expect(renderAppBottomChildPanelText(model)).toContain("> [⌘1] sp-implementer T1: running - calling Edit src/tui/progress-panel.ts")
   })
 
   test("summarizes active node runs with latest stored progress and live session status", () => {
@@ -213,11 +213,13 @@ describe("progress panel view model", () => {
     expect(appBottom).toContain("nav: ⌘1..⌘1, ⌘[/⌘]")
     expect(renderRunningSessionsText(model)).toContain("sp-implementer T1: running - bash running")
     const sidebar = renderSidebarProgressText(model)
-    expect(sidebar).toContain("SP: feature running@implement | tasks 0/2 done | children 1 active (1 running)")
-    expect(sidebar).toContain("sessions total 1 | running 1 | attention 0")
-    expect(sidebar).toContain("selectors: ⌘1..⌘1, ⌘[/⌘]")
-    expect(sidebar).toContain("> [⌘1] sp-implementer T1: running - bash running (5s ago) | node 001-implement-T1 | session session-child")
-    expect(sidebar).toContain("bun run test")
+    expect(sidebar).toContain("SP feature · implement")
+    expect(sidebar).not.toContain("selectors:")
+    expect(sidebar).not.toContain("sessions total")
+    expect(sidebar).toContain("● [⌘1] sp-implementer T1  running")
+    expect(sidebar).toContain("  bash running (5s ago)")
+    expect(sidebar).not.toContain("session session-child")
+    expect(sidebar).not.toContain("bun run test")
     expect(sidebar).toContain("T2: pending - Document progress surface")
   })
 
@@ -289,7 +291,8 @@ describe("progress panel view model", () => {
     expect(model.rows[0]?.latest_detail).toBe("Working on database migration.")
     expect(model.rows[0]?.observed_age).toBe("10s ago")
     expect(renderWorkflowStatusText(model, 160)).toContain("assistant text updated (10s ago)")
-    expect(renderSidebarProgressText(model)).toContain("Working on database migration.")
+    expect(renderSidebarProgressText(model)).toContain("  assistant text updated (10s ago)")
+    expect(renderSidebarProgressText(model)).not.toContain("Working on database migration.")
     expect(renderSidebarProgressText(model)).not.toContain("session idle")
   })
 
@@ -411,10 +414,11 @@ describe("progress panel view model", () => {
     const sidebar = renderSidebarProgressText(model)
     expect(renderWorkflowStatusText(model, 160)).toContain("waiting user")
     expect(sidebar).toContain("waiting user")
-    expect(sidebar).toContain("source: 001-design")
     expect(sidebar).toContain("question: 确认 Section 3 后端端点设计？")
-    expect(sidebar).toContain("- 认可 Section 3: 继续 Section 4")
-    expect(sidebar).toContain("Report accepted. Waiting for Section 3 confirmation.")
+    expect(sidebar).toContain("- 认可 Section 3")
+    expect(sidebar).not.toContain("source: 001-design")
+    expect(sidebar).toContain("sp-designer  needs_user")
+    expect(sidebar).toContain("  assistant text updated")
   })
 
   test("sidebar progress explains an active workflow before node dispatch", () => {
@@ -443,8 +447,7 @@ describe("progress panel view model", () => {
     const model = buildProgressPanelViewModel(state, {}, {})
 
     expect(renderSidebarProgressText(model)).toBe([
-      "SP: feature intake@intake | nodes 0 | children 0 active (0 running)",
-      "sessions total 0 | running 0 | attention 0",
+      "SP feature · intake",
       "waiting for node dispatch",
     ].join("\n"))
   })
@@ -528,9 +531,10 @@ describe("progress panel view model", () => {
 
     const sidebar = renderSidebarProgressText(model)
     expect(renderWorkflowStatusText(model)).toContain("children 1 active (1 running)")
-    expect(sidebar).toContain("child sessions")
-    expect(sidebar).toContain("sp-implementer T1: running - editing renderer")
-    expect(sidebar).toContain("planned sessions")
+    expect(sidebar).toContain("SP feature · implement")
+    expect(sidebar).toContain("● [⌘1] sp-implementer T1  running")
+    expect(sidebar).toContain("  editing renderer")
+    expect(sidebar).toContain("planned")
     expect(sidebar).toContain("sp-acceptance-reviewer T2: pending - Add progress tests")
     expect(sidebar).toContain("sp-doc-writer T3: pending - Update progress docs")
   })
@@ -677,12 +681,17 @@ describe("progress panel view model", () => {
     expect(model.rows.map((row) => row.shortcut)).toEqual(["⌘1", "⌘2", "⌘3", "⌘4"])
 
     const sidebar = renderSidebarProgressText(model)
-    expect(sidebar).toContain("sessions total 4 | running 1 | attention 3 (waiting 1, failed 1, fallback 1)")
-    expect(sidebar).toContain("selectors: ⌘1..⌘4, ⌘[/⌘]")
-    expect(sidebar).toMatch(/> \[⌘1\] sp-implementer T1: running - editing API .*session session-running/)
-    expect(sidebar).toMatch(/  \[⌘2\] sp-reviewer T2: needs_user - approval needed .*session session-user/)
-    expect(sidebar).toMatch(/  \[⌘3\] sp-verifier T4: dispatch_failed - fallback required .*session session-fallback/)
-    expect(sidebar).toMatch(/  \[⌘4\] sp-implementer T3: failed - test failed .*session session-failed/)
+    expect(sidebar).toContain("SP feature · implement")
+    expect(sidebar).not.toContain("selectors:")
+    expect(sidebar).not.toContain("sessions total")
+    expect(sidebar).toContain("● [⌘1] sp-implementer T1  running")
+    expect(sidebar).toContain("  editing API")
+    expect(sidebar).toContain("  [⌘2] sp-reviewer T2  needs_user")
+    expect(sidebar).toContain("  approval needed")
+    expect(sidebar).toContain("  [⌘3] sp-verifier T4  dispatch_failed")
+    expect(sidebar).toContain("  fallback required")
+    expect(sidebar).toContain("  [⌘4] sp-implementer T3  failed")
+    expect(sidebar).toContain("  test failed")
   })
 
   test("prefers the latest running retry node over an interrupted old node", () => {
@@ -762,8 +771,10 @@ describe("progress panel view model", () => {
     )
 
     expect(renderCompactProgressText(model)).toBe("SP: sp-implementer T3 running - bash running")
-    expect(renderSidebarProgressText(model)).toContain("sp-implementer T3: running - bash running")
-    expect(renderSidebarProgressText(model)).toContain("session error: Aborted")
+    expect(renderSidebarProgressText(model)).toContain("● [⌘1] sp-implementer T3  running")
+    expect(renderSidebarProgressText(model)).toContain("  bash running")
+    expect(renderSidebarProgressText(model)).toContain("sp-implementer T3  interrupted")
+    expect(renderSidebarProgressText(model)).toContain("  session error: Aborted")
     expect(model.tasks[0]?.status).toBe("running")
   })
 })

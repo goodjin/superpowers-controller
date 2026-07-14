@@ -9,6 +9,7 @@ import { createProjectStore } from "../src/state/store"
 import { createPrepareTool } from "../src/tools/sp-prepare"
 import { createStartTool } from "../src/tools/sp-start"
 import { createCancelTool } from "../src/tools/sp-cancel"
+import { buildNodeTaskPrompt } from "../src/session/templates"
 
 const toolContext = {
   sessionID: "session-main",
@@ -1164,6 +1165,7 @@ describe("sp_prepare and sp_start tools", () => {
         proposal: "# Proposal\n\nRun feature workflow.",
         parentSessionID: "session-main",
       })
+      seedTaskGraph(store, [{ id: "T3", title: "Implement T3", summary: "Implement T3", depends_on: [] }])
       store.addNodeRun({
         phase: "implement",
         agent: "sp-implementer",
@@ -1210,6 +1212,7 @@ describe("sp_prepare and sp_start tools", () => {
         proposal: "# Proposal\n\nRun feature workflow.",
         parentSessionID: "session-old-main",
       })
+      seedTaskGraph(store, [{ id: "T3", title: "Implement T3", summary: "Implement T3", depends_on: [] }])
       const oldNode = store.addNodeRun({
         phase: "implement",
         agent: "sp-implementer",
@@ -1270,6 +1273,7 @@ describe("sp_prepare and sp_start tools", () => {
         proposal: "# Proposal\n\nRun feature workflow.",
         parentSessionID: "session-main",
       })
+      seedTaskGraph(store, [{ id: "T3", title: "Implement T3", summary: "Implement T3", depends_on: [] }])
       store.addNodeRun({
         phase: "implement",
         agent: "sp-implementer",
@@ -1308,6 +1312,7 @@ describe("sp_prepare and sp_start tools", () => {
         proposal: "# Proposal\n\nRun feature workflow.",
         parentSessionID: "session-main",
       })
+      seedTaskGraph(store, [{ id: "T3", title: "Implement T3", summary: "Implement T3", depends_on: [] }])
       const oldNode = store.addNodeRun({
         phase: "implement",
         agent: "sp-implementer",
@@ -1356,6 +1361,65 @@ describe("sp_prepare and sp_start tools", () => {
         attempts: 2,
       })
       expect(store.readCurrent()?.status).toBe("running")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start resume all dispatches incomplete tasks with recovery context", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-start-resume-all-"))
+    try {
+      const store = createProjectStore(project)
+      const state = store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Resume all interrupted tasks",
+        request: "# Request\n\nResume all interrupted tasks.",
+        proposal: "# Proposal\n\nRun feature workflow.",
+        parentSessionID: "session-main",
+      })
+      seedTaskGraph(store, [
+        { id: "T1", title: "Task 1", summary: "First", depends_on: [] },
+        { id: "T2", title: "Task 2", summary: "Second", depends_on: ["T1"] },
+      ])
+      store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        primary_skill: "superpowers-test-driven-development",
+        session_id: "session-t1",
+        task_id: "T1",
+        task_markdown: "# Implement T1",
+      })
+      store.recoverInterruptedRunningNodes({ reason: "Plugin process started." })
+      let resumedPrompt = ""
+      const start = createStartTool(store, {
+        async dispatch(args) {
+          resumedPrompt = buildNodeTaskPrompt(args.packet)
+          return {
+            action: args.decision.action,
+            session_id: `session-${args.decision.task_id}`,
+            task_markdown: resumedPrompt,
+          }
+        },
+      })
+
+      const output = await start.execute({ run_id: state.id, resume: "all" }, toolContext)
+      const result = JSON.parse(toolOutput(output))
+
+      expect(result.state.status).toBe("running")
+      expect(result.start_action).toBe("resume_tasks")
+      expect(result.dispatches).toEqual([
+        {
+          action: "create_session",
+          phase: "implement",
+          agent: "sp-implementer",
+          task_id: "T1",
+          session_id: "session-T1",
+        },
+      ])
+      expect(resumedPrompt).toContain("## Recovery Context")
+      expect(resumedPrompt).toContain("interrupted before plugin restart")
+      expect(store.readCurrent()?.history.some((entry) => entry.event === "controller_resume_tasks")).toBe(true)
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -1655,6 +1719,22 @@ function recordTaskNode(
     task_markdown: `# ${phase}`,
   })
   store.recordNodeResult({ nodeID: node.id, input })
+}
+
+function seedTaskGraph(
+  store: ReturnType<typeof createProjectStore>,
+  tasks: Array<{ id: string; title: string; summary: string; depends_on: string[] }>,
+) {
+  store.recordNodeResult({
+    input: {
+      event: "plan",
+      status: "passed",
+      summary: "Plan ready.",
+      artifacts: { plan: "# Plan\n\nSeed task graph." },
+      gates: { plan_written: true },
+      task_graph: { tasks },
+    },
+  })
 }
 
 function toolOutput(value: unknown): string {

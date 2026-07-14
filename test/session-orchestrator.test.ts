@@ -284,7 +284,7 @@ describe("createSessionOrchestrator", () => {
     expect(order).toEqual(["create", "register", "prompt"])
   })
 
-  test("selects serial design and plan children in the foreground", async () => {
+  test("selects serial design and plan children in the foreground when interaction mode is legacy", async () => {
     const selected: string[] = []
     const orchestrator = createSessionOrchestrator({
       async createNodeSession(input) {
@@ -295,7 +295,7 @@ describe("createSessionOrchestrator", () => {
         selected.push(input.sessionID)
       },
       async showProgress() {},
-    })
+    }, { interactionMode: "legacy" })
 
     await orchestrator.dispatch({
       project: "/repo",
@@ -335,7 +335,7 @@ describe("createSessionOrchestrator", () => {
         selected.push(input.sessionID)
       },
       async showProgress() {},
-    })
+    }, { interactionMode: "legacy" })
 
     await orchestrator.dispatch({
       project: "/repo",
@@ -364,6 +364,46 @@ describe("createSessionOrchestrator", () => {
     })
 
     expect(selected).toEqual(["session-implement"])
+  })
+
+  test("keeps the parent route in native interaction mode after dispatch", async () => {
+    const selected: string[] = []
+    const orchestrator = createSessionOrchestrator({
+      async createNodeSession() {
+        return "session-design"
+      },
+      async continueNodeSession() {},
+      async selectSession(input) {
+        selected.push(input.sessionID)
+      },
+      async showProgress() {},
+    }, { interactionMode: "native" })
+
+    await orchestrator.dispatch({
+      project: "/repo",
+      runID: "run-1",
+      parentSessionID: "session-main",
+      decision: {
+        action: "create_session",
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        reason: "design next",
+      },
+      packet: {
+        run_id: "run-1",
+        node_id: "001-design",
+        workflow: "feature",
+        phase: "design",
+        agent: "sp-designer",
+        primary_skill: "superpowers-brainstorming",
+        objective: "Create design.",
+        required_artifacts: [],
+        record_contract: { event: "design", expected_artifacts: ["spec"], allowed_gates: ["spec_written"] },
+      },
+    })
+
+    expect(selected).toEqual([])
   })
 
   test("reuses an existing node session for retry dispatch", async () => {
@@ -421,7 +461,7 @@ describe("createSessionOrchestrator", () => {
         selected.push(input.sessionID)
       },
       async showProgress() {},
-    })
+    }, { interactionMode: "legacy" })
 
     await orchestrator.resumeNode({
       sessionID: "session-design",
@@ -431,6 +471,29 @@ describe("createSessionOrchestrator", () => {
     })
 
     expect(selected).toEqual(["session-design"])
+  })
+
+  test("resumeNode keeps the parent route in native interaction mode", async () => {
+    const selected: string[] = []
+    const orchestrator = createSessionOrchestrator({
+      async createNodeSession() {
+        throw new Error("unexpected create")
+      },
+      async continueNodeSession() {},
+      async selectSession(input) {
+        selected.push(input.sessionID)
+      },
+      async showProgress() {},
+    }, { interactionMode: "native" })
+
+    await orchestrator.resumeNode({
+      sessionID: "session-design",
+      agent: "sp-designer",
+      prompt: "User answered the pending question.",
+      phase: "design",
+    })
+
+    expect(selected).toEqual([])
   })
 
   test("resumeNode returns after scheduling a prompt that has not completed", async () => {

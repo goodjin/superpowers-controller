@@ -1,4 +1,6 @@
 import type { ProgressUpdate } from "../progress/reporter"
+import type { InteractionMode } from "../config/interaction"
+import { shouldAttachParentID } from "../config/interaction"
 
 export type SessionAdapter = {
   createNodeSession(input: {
@@ -38,7 +40,10 @@ type OpenCodePluginContext = {
   }
 }
 
-export function createOpenCodeSessionAdapter(ctx: OpenCodePluginContext): SessionAdapter {
+export function createOpenCodeSessionAdapter(
+  ctx: OpenCodePluginContext,
+  options?: { interactionMode?: InteractionMode },
+): SessionAdapter {
   async function continueNodeSession(input: { sessionID: string; agent: string; prompt: string }): Promise<void> {
     if (process.env.OPENCODE_SUPERPOWERS_DISABLE_CHILD_PROMPT === "1") return
     const methods = process.env.OPENCODE_SUPERPOWERS_E2E_CHILD_REQUEST_MARKERS === "1"
@@ -58,11 +63,15 @@ export function createOpenCodeSessionAdapter(ctx: OpenCodePluginContext): Sessio
       if (process.env.OPENCODE_SUPERPOWERS_DISABLE_CHILD_PROMPT === "1") {
         return `session-suppressed-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
       }
+      const body: Record<string, unknown> = {
+        title: input.title,
+        agent: input.agent,
+      }
+      if (shouldAttachParentID(options?.interactionMode ?? "native")) {
+        body.parentID = input.parentSessionID
+      }
       const created = await callMethod(ctx.client.session, "create", {
-        body: {
-          title: input.title,
-          agent: input.agent,
-        },
+        body,
       })
       const sessionID = extractSessionID(created)
       if (!sessionID) throw new Error("OpenCode session.create did not return a session id")

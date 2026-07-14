@@ -9,7 +9,9 @@
     "emitDeclarationOnly": true,
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid"
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

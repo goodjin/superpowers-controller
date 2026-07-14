@@ -130,6 +130,59 @@ bun run build
 bun run e2e:opencode
 ```
 
+## TUI Sidebar 实现说明
+
+OpenCode 原生 **TodoWrite** 在 sidebar 里展示 todo 列表，并不是把多行文字塞进一个 `<text>` 节点，而是用 SolidJS 组件逐行渲染。Superpowers sidebar 已对齐这套模式。
+
+排查 sidebar 不显示时，可开启调试日志：
+
+```bash
+SUPERPOWERS_SIDEBAR_DEBUG=1 opencode --agent superpowers-agent
+```
+
+日志前缀为 `[superpowers-controller][sidebar]`，会输出 session id、activity、渲染模式等信息。`dist/tui.js` 必须把 `solid-js` 作为 external 打包，否则会误用 `solid-js/dist/server.js`，导致 TUI 无法响应式刷新。
+
+### 数据流（TodoWrite 官方）
+
+```text
+Agent 调用 TodoWrite 工具
+  → SessionTodo.update() 写入 SQLite
+  → 发布 todo.updated 事件
+  → TUI 通过 api.state.session.todo(session_id) 读取（响应式）
+```
+
+### 渲染方式（TodoWrite 官方）
+
+内置插件 `internal:sidebar-todo`（`order: 400`）在 `sidebar_content` slot 返回 JSX 组件：
+
+- `createMemo(() => api.state.session.todo(session_id))` 绑定数据
+- `<For each={list()}>` 渲染列表（用 `each` 而不是 index，保证 status 更新正确）
+- 每行 `TodoItem`：`[✓]` / `[•]` / `[ ]` + 内容，各自独立 `<text>` 节点
+
+### Superpowers 的做法
+
+| 点 | 实现 |
+|---|---|
+| 文件 | `src/tui/sidebar-view.tsx`（展示）、`src/tui/sidebar-model.ts`（数据） |
+| slot | `sidebar_content`，`order: 600`（排在内置 todo/files 之后） |
+| 列表 | `<For each={rows}>` + `SessionListRow` 组件 |
+| 单会话 | `single-focus` 模式：标题行、动作行、可选 detail 行各自独立 `<text>` |
+| 刷新 | `createSignal` + 事件订阅 + 1s 轮询；异步 `session.list` 延迟 250ms |
+| 测试 | `renderSidebarViewModelText()` 把结构化 model 转回文本，单测不依赖 TUI 运行时 |
+
+### 不要这样做
+
+- 不要向 slot 返回裸字符串（会触发 host 渲染崩溃）
+- 不要用单个 `<text>` + `\n` 拼接模拟列表（多行展示不稳定）
+- 不要把 TodoWrite 面板当成 Superpowers progress 是否成功的依据（两条独立 UI 链路）
+
+### 参考源码
+
+- OpenCode：`packages/tui/src/feature-plugins/sidebar/todo.tsx`
+- OpenCode：`packages/tui/src/component/todo-item.tsx`
+- OpenCode：`packages/opencode/specs/tui-plugins.md`
+- 本项目：`docs/features/2026-07-13-tui-sidebar-component-list.md`
+
 更多设计细节见：
 
 ```text

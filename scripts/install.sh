@@ -434,15 +434,19 @@ seed_opencode_plugin_cache_from_bunx() {
 
 ensure_tui_plugin_config() {
   local config_dir="$HOME/.config/opencode"
-  local tui_entry="$PACKAGE_NAME/tui"
+  # OpenCode resolves exports["./tui"] from the npm package name.
+  # "package/tui" is parsed as GitHub owner/repo and hangs on git ls-remote.
+  local tui_entry="$PACKAGE_NAME"
+  local legacy_tui_entry="$PACKAGE_NAME/tui"
 
   mkdir -p "$config_dir"
-  CONFIG_DIR="$config_dir" TUI_PACKAGE_ENTRY="$tui_entry" bun --eval '
+  CONFIG_DIR="$config_dir" TUI_PACKAGE_ENTRY="$tui_entry" LEGACY_TUI_PACKAGE_ENTRY="$legacy_tui_entry" bun --eval '
 const fs = require("fs")
 const path = require("path")
 
 const configDir = process.env.CONFIG_DIR
 const entry = process.env.TUI_PACKAGE_ENTRY
+const legacyEntry = process.env.LEGACY_TUI_PACKAGE_ENTRY
 const jsoncPath = path.join(configDir, "tui.jsonc")
 const jsonPath = path.join(configDir, "tui.json")
 const target = fs.existsSync(jsoncPath) || !fs.existsSync(jsonPath) ? jsoncPath : jsonPath
@@ -450,15 +454,14 @@ let content = fs.existsSync(target)
   ? fs.readFileSync(target, "utf8")
   : "{\n  \"$schema\": \"https://opencode.ai/tui.json\"\n}\n"
 
-if (!content.includes(entry)) {
-  if (/"plugin"\s*:\s*\[/.test(content)) {
-    content = content.replace(/("plugin"\s*:\s*\[)([\s\S]*?)(\])/m, (_match, start, body, end) => {
-      const needsComma = body.trim().length > 0 && !body.trimEnd().endsWith(",")
-      return `${start}${body}${needsComma ? ", " : ""}"${entry}"${end}`
-    })
-  } else {
-    content = content.replace(/\}\s*$/, `,\n  "plugin": ["${entry}"]\n}\n`)
-  }
+if (/"plugin"\s*:\s*\[/.test(content)) {
+  content = content.replace(/("plugin"\s*:\s*\[)([\s\S]*?)(\])/m, (_match, start, body, end) => {
+    const plugins = [...body.matchAll(/"([^"]+)"/g)].map((m) => m[1]).filter((p) => p !== legacyEntry)
+    if (!plugins.includes(entry)) plugins.push(entry)
+    return `${start}${plugins.map((p) => `"${p}"`).join(", ")}${end}`
+  })
+} else {
+  content = content.replace(/\}\s*$/, `,\n  "plugin": ["${entry}"]\n}\n`)
 }
 
 if (!content.includes("\"$schema\"")) {

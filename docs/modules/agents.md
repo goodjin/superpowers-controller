@@ -49,6 +49,7 @@ agent prompt 不能成为 workflow state machine。职责边界如下：
 - `superpowers-agent` 需要能力目录时调用 `sp_status(include_capabilities=true)`，读取 agent catalog、workflow schema、built-in workflow templates 和 examples。
 - 每个执行任务先 `sp_prepare`，再由用户确认后 `sp_start(action="start_prepared_task", prepared_task_id, start_config)`；`start_config` 可选内置 workflow id 或自定义 orchestration。
 - `superpowers-agent` 收到 `waiting_user` / `pending_question` controller prompt 后，只负责在主会话里问用户；用户回答后调用 `sp_start(run_id, resume_input)`，不能替用户决定答案。
+- 当 workflow `status` 为 `recovered_unknown`（插件重启后）时，主控 prompt 要求：先 `sp_status(detail="full", include_progress=true)` 检查 interrupted task；向用户说明旧 child session 已不可 live；用户确认后用 `sp_start(run_id, resume="all")` 或 `sp_start(run_id, resume=[task_id])` 恢复。禁止不带 `resume` 的 `sp_start(run_id)` 期望自动派发；禁止自造 `resolve_controller_decision` / `retry_node` payload。插件按 task graph 为每个 task 派下一未完成 phase，主控不能跳 phase。
 - 节点 agent 只读取 node task packet 中给出的 scope、artifacts 和 required outputs。
 - 节点 agent 结束当前节点时调用 `sp_report`。它不能在 report 里提交 `next_action`、`child_session_id`、`reuse_session_id` 或自造 workflow transition。
 - planner 或其他 node 可以提交 `task_graph` 或 `workflow_expansion`，但 runtime 负责校验依赖、共享写文件隐式依赖、auto expansion policy 和 runnable task。
@@ -79,10 +80,12 @@ OpenCode's runtime `Always` approval is still owned by OpenCode. If OpenCode exp
 
 When global `permission` is not `"allow"` and no granular host rule overrides a permission, agents keep the default workflow boundaries:
 
-- `superpowers-agent` cannot edit files directly, asks before bash, cannot use native `task`, and has `tools.skill` disabled.
+- `superpowers-agent` cannot edit files directly, denies bash, cannot use native `task`, and has `tools.skill` disabled.
 - Node agents ask or deny edits according to their role, allow bash after workflow dispatch, deny nested tasks, deny native child questions, and can load only their primary skill.
 
-Node agents allow `bash` by default after workflow dispatch. The workflow start/approval step is the user confirmation boundary, and repeated child-shell probes should not strand the user in per-command prompts. File edits still use the existing agent-specific `edit` policy, verifier/reviewer/investigator agents remain read-only, and the plugin gate layer still evaluates workflow gates such as `design_approved`, `plan_written`, and `red_test_seen`.
+Node agents allow `bash` by default after workflow dispatch, even when the host exposes granular `bash` ask rules. The workflow start/approval step is the user confirmation boundary, and repeated child-shell probes should not strand the user in per-command prompts. File edits still use the existing agent-specific `edit` policy, verifier/reviewer/investigator agents remain read-only, and the plugin gate layer still evaluates workflow gates such as `design_approved`, `plan_written`, and `red_test_seen`.
+
+Fresh installs merge `"permission": "allow"` into OpenCode config only when the user has not configured `permission` yet. Plugin agents still apply control-plane denies (`task`, child `question`, controller `skill`, controller `bash`) on top of that host posture.
 
 When global `permission` is `"allow"`, plugin agents inherit that posture for read, edit, bash, external directory, plan, and related OpenCode permission points. The same inheritance applies to granular host permission objects. The exceptions are native `task` and child native `question`: `superpowers-agent` and node agents still deny the native `task` tool because child session creation is a Superpowers control-plane responsibility, and node agents deny native `question` because user-input requests must be recorded through `sp_report needs_user`. `superpowers-agent` keeps native `question` permission for controller-level clarification and denies `skill`; node agents keep skill access so they can load their assigned primary skill or any host-allowed skill rule.
 

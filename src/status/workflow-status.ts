@@ -334,6 +334,12 @@ function recommendedNext(
       reason: "Candidate plan is waiting for approval or revision.",
     }
   }
+  if (state.status === "recovered_unknown") {
+    return {
+      action: "resume_or_cancel_recovered_workflow",
+      reason: "Startup recovery found previously running nodes. Call sp_start(run_id, resume=\"all\") or resume=[task_id] to continue interrupted tasks; use sp_cancel to stop.",
+    }
+  }
   const dispatchFailed = [...state.node_runs].reverse().find((node) => node.status === "dispatch_failed")
   if (dispatchFailed) {
     return {
@@ -350,12 +356,6 @@ function recommendedNext(
       reason: "Startup recovery marked a previously running node as interrupted.",
       task_id: interrupted?.task_id,
       node_id: interrupted?.id,
-    }
-  }
-  if (state.status === "recovered_unknown") {
-    return {
-      action: "resume_or_cancel_recovered_workflow",
-      reason: "Startup recovery found a workflow that was previously running; no live child session is assumed.",
     }
   }
   if (state.status === "waiting_controller_decision") {

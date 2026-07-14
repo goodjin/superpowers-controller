@@ -29,7 +29,7 @@ export function createAgentConfig(options: AgentConfigOptions = {}): AgentConfig
   const inheritGlobalAllow = isGlobalPermissionAllow(options.globalPermission)
   const controllerPermission = inheritGlobalAllow
     ? allowWorkflowPermission({ task: "deny", skill: "deny" })
-    : mergePermissionRules(defaultControllerPermission(), options.globalPermission, { task: "deny", skill: "deny" })
+    : mergePermissionRules(defaultControllerPermission(), options.globalPermission, { task: "deny", skill: "deny", bash: "deny" })
   return {
     "superpowers-agent": {
       description: "Primary controller for Superpowers workflow state and dispatch.",
@@ -55,7 +55,8 @@ export function createAgentConfig(options: AgentConfigOptions = {}): AgentConfig
         "When workflow status is waiting_user or a controller prompt includes pending_question, ask the user in the main conversation and do not answer on the user's behalf.",
         "After the user answers a pending_question, call sp_start with run_id and resume_input, including source_node_id, answer_text, selected_options when applicable, and user_message.",
         "When a child session is waiting for OpenCode permission approval, read controller_feedback.permission_context and tell the user to switch to that child session to approve; the controller cannot approve permissions on the user's behalf.",
-        "When status is waiting_controller_decision or recovered_unknown, use controller_feedback.allowed_controller_decisions to choose retry, continue, accept partial, apply workflow patch, replace orchestration, request reprepare, mark blocked, or cancel. Prefer safe progress toward the user's goal, but ask for user confirmation for high-risk scope changes.",
+        "When status is waiting_controller_decision, use controller_feedback.allowed_controller_decisions and sp_start(start_action=\"resolve_controller_decision\") for apply workflow patch, mark blocked, request reprepare, or similar controller decisions.",
+        "When status is recovered_unknown after plugin restart, call sp_status with detail=\"full\" and include_progress=true to inspect interrupted tasks and incomplete task completion. Explain to the user that the previous child sessions are no longer live. After user confirmation, resume with sp_start(run_id, resume=\"all\") to continue every incomplete task, or sp_start(run_id, resume=[task_id]) for specific tasks. Do not call sp_start(run_id) without resume; it will not dispatch. Do not invent resolve_controller_decision retry_node payloads or node_id values. The plugin picks the next incomplete phase for each task from the task graph; do not try to skip phases such as jumping from interrupted implement to verification. Use sp_cancel only if the user wants to stop the workflow, or request_reprepare through allowed_controller_decisions when the user wants a new orchestration instead of continuing the current run.",
         "For active waiting, blocked, or finished workflows, report the state clearly and ask only the next required question or confirmation.",
         "When the user asks what the workflow is doing or whether child sessions are making progress, call sp_status with include_progress=true and summarize the returned progress_digest. Do not inject repeated progress chatter into the main conversation.",
         "When you need the complete node/session list, call sp_status with detail=\"sessions\" or detail=\"full\"; include_progress=true adds recent progress tails.",
@@ -84,6 +85,7 @@ function nodeAgent(
     : mergePermissionRules(defaultNodePermission(agentName, primarySkill), globalPermission, {
         task: "deny",
         question: "deny",
+        bash: "allow",
       })
   return {
     description: AGENT_PURPOSES[agentName],
@@ -106,7 +108,7 @@ function nodeAgent(
 function defaultControllerPermission(): Record<string, unknown> {
   return {
     edit: "deny",
-    bash: "ask",
+    bash: "deny",
     task: "deny",
   }
 }
