@@ -40,6 +40,27 @@ export function createReportHandler(deps: {
       sessionID: context.sessionID,
       agent: context.agent,
     })
+    if (deps.store.lastRecordOutcome()?.lateIgnored) {
+      await progress.report({
+        stage: "node_recorded",
+        title: "Superpowers workflow",
+        message: `${record.event} late report ignored; workflow stays at ${state.current_phase ?? state.phase}.`,
+        variant: "warning",
+      })
+      return JSON.stringify(
+        {
+          state,
+          decisions: [],
+          dispatches: [],
+          late_report_ignored: true,
+          controller_feedback: buildControllerFeedback(state, {
+            blocking_reason: "This session is no longer the running node. If the workflow is waiting_user, answer in the parent controller session (or rely on the child-answer bridge) instead of calling sp_report again.",
+          }),
+        },
+        null,
+        2,
+      )
+    }
     const decisions = decideNextDispatches(state, record)
     const dispatches = []
 

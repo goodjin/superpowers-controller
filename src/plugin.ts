@@ -12,6 +12,7 @@ import { createProjectStore } from "./state/store"
 import { createTools } from "./tools"
 import { createLivenessMonitor } from "./runtime/liveness"
 import { createUnreportedExitHandler } from "./runtime/unreported-exit-handler"
+import { bridgeChildAnswerToPendingQuestion } from "./runtime/child-answer-bridge"
 
 const startupRecoveryProjects = new Set<string>()
 
@@ -90,6 +91,27 @@ export function createPluginModule(): PluginModule {
     await logStartupTiming("total", startupStart)
     return {
       tool: createTools(store, orchestrator, progress, config),
+      "chat.message": async (input, output) => {
+        const bridged = bridgeChildAnswerToPendingQuestion({
+          store,
+          sessionID: input.sessionID,
+          parts: output.parts,
+          progress,
+        })
+        if (bridged.bridged) {
+          try {
+            await ctx.client.app.log({
+              body: {
+                service: "superpowers-controller",
+                level: "info",
+                message: `Bridged child answer for ${bridged.node_id} from session ${input.sessionID}.`,
+              },
+            })
+          } catch {
+            // Logging failure must not block bridging.
+          }
+        }
+      },
       event: async ({ event }) => {
         const state = store.readCurrent()
         const entry = nodeProgress.recordEvent(state, event)

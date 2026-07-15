@@ -43,6 +43,7 @@ export function buildNodeTaskPrompt(packet: NodeTaskPacket): string {
     "- Optional fields: artifacts, gates, checks, findings, question, task_graph",
     checksContractHint(packet),
     '- question.options uses objects: [{ "label": "...", "description": "..." }].',
+    "- After sp_report(status=needs_user), stop the turn immediately. Do not restate the question or continue to the next clarification; the parent controller collects the answer and resumes this session.",
     "- Do not include next_action, target_session_id, child_session_id, reuse_session_id, create_sessions, or skills_used.",
   ]
     .filter(Boolean)
@@ -194,6 +195,9 @@ export function buildControllerUserInputPrompt(
     options.conversation === "foreground"
       ? "Ask the user this pending_question in the current foreground child conversation. Do not answer it yourself."
       : "Ask the user this pending_question in the main conversation. Do not answer it yourself.",
+    options.conversation === "foreground"
+      ? ""
+      : "Keep the user in this parent controller session for the answer. Do not tell them to switch into the child session to reply.",
     "",
     "## Question",
     question.prompt,

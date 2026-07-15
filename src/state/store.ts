@@ -30,6 +30,8 @@ export type ProjectStore = {
   readCurrent(): WorkflowState | null
   readRun(runID: string): WorkflowState | null
   listRuns(): WorkflowState[]
+  /** Outcome of the most recent recordNodeResult call in this process. */
+  lastRecordOutcome(): { lateIgnored: boolean } | null
   start(args: { session: string; mode: WorkflowMode; goal: string }): WorkflowState
   startRun(args: {
     workflow: WorkflowKind
@@ -171,6 +173,7 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
   let loaded = false
   let currentRunID: string | undefined
   const runtimeRuns = new Map<string, WorkflowState>()
+  let lastRecordOutcome: { lateIgnored: boolean } | null = null
 
   function loadRuntimeMemory(): void {
     if (loaded) return
@@ -221,6 +224,9 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
 
   return {
     root,
+    lastRecordOutcome() {
+      return lastRecordOutcome
+    },
     readCurrent() {
       loadRuntimeMemory()
       return currentRunID ? runtimeRuns.get(currentRunID) ?? null : null
@@ -730,8 +736,10 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
           summary: args.input.summary,
         })
         appendChangelog(root, current.id, `ignored late report from ${staleSessionNode.id}: ${args.input.event} ${args.input.status}`)
+        lastRecordOutcome = { lateIgnored: true }
         return current
       }
+      lastRecordOutcome = { lateIgnored: false }
       const nodeID = resolveNodeID(current, args)
       if (!isDraftCandidateRecord(current, args.input)) writeArtifacts(root, current.id, args.input.artifacts ?? {})
       writeNodeRecordByID(root, current.id, nodeID, args.input)

@@ -84,7 +84,13 @@ Acceptance 的 required artifacts 会指向 `spec.md`、`plan.md`、`tasks.json`
 
 当 child session 通过 `sp_report(status="needs_user")` 请求用户输入时，report handler 会先写入 state，再调度一条等待用户输入的 prompt，并 `selectSession` 到目标会话。`interaction.mode=native|hybrid`（默认 native）时，design/plan 澄清/审批也投到 `parent_session_id` + `superpowers-agent`，避免用户留在 parent 却把提问打进仍 busy 的 child。仅 `legacy` 模式把 design/plan 问题投回 foreground child。并行/parent-led 阶段始终投 parent。通知后台提交；插件不在 TUI 里额外做选择题面板。
 
-用户回答后，`sp_start(run_id, resume_input)` 会调用 store 消费 `pending_question`，再通过 `orchestrator.resumeNode()` 把 resume prompt 发回原 `node_runs[].session_id`，并请求 TUI 切回该 child session。这不是新的 dispatch decision，不创建新 child session，也不改变 task graph；它只是调度原等待节点继续执行。`sp_start` 在 resume prompt 调度后返回，不等待该 child session 完成。
+**方案 A（主控单入口）补充：**
+
+- 子会话在 `sp_report(needs_user)` 后被要求立刻停轮，不得复述问题。
+- 若用户仍在子会话输入，`chat.message` 钩子会把该消息桥接为 `consumePendingQuestion`（不额外 `resumeNode`，因为 host 已把用户消息交给子会话本轮）。
+- 来自非 running 节点的迟到 `sp_report` 只审计为 `late_report_ignored`，**不再**二次 `notifyParent` 重推旧 `pending_question`。
+
+用户通过主会话回答后，`sp_start(run_id, resume_input)` 会调用 store 消费 `pending_question`，再通过 `orchestrator.resumeNode()` 把 resume prompt 发回原 `node_runs[].session_id`。`native` 模式 resume 后默认不切 child。这不是新的 dispatch decision，不创建新 child session，也不改变 task graph。`sp_start` 在 resume prompt 调度后返回，不等待该 child session 完成。
 
 ## Interaction Mode
 
