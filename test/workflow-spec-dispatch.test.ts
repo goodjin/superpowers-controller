@@ -79,4 +79,79 @@ describe("workflow-spec-driven dispatch", () => {
 
     expect(decisions.map((decision) => ("task_id" in decision ? decision.task_id : undefined))).toEqual(["T1"])
   })
+
+  test("without task_graph, serial implement depends_on unlocks on node passed", () => {
+    const decisions = decideNextDispatches(
+      state({
+        entrypoint: "implement",
+        mode: "execute",
+        current_phase: "implementation-complete",
+        workflow_spec: {
+          id: "run-spec-workflow-spec",
+          kind: "orchestration",
+          title: "Serial implements",
+          auto_expansion: { allow: false, source: "controller_override", reason: "bounded" },
+          orchestration: {
+            nodes: [
+              {
+                id: "implement-t71",
+                agent: "sp-implementer",
+                phase: "implement",
+                task_id: "t07-1",
+                depends_on: [],
+                report_contract: ["sp_report"],
+              },
+              {
+                id: "implement-t72",
+                agent: "sp-implementer",
+                phase: "implement",
+                task_id: "t07-2",
+                depends_on: ["implement-t71"],
+                report_contract: ["sp_report"],
+              },
+              {
+                id: "acceptance-phase7",
+                agent: "sp-acceptance-reviewer",
+                phase: "acceptance",
+                depends_on: ["implement-t72"],
+                report_contract: ["sp_report"],
+              },
+            ],
+            edges: [
+              { from: "implement-t71", to: "implement-t72", condition: "passed" },
+              { from: "implement-t72", to: "acceptance-phase7", condition: "passed" },
+            ],
+          },
+          created_at: "2026-07-17T00:00:00.000Z",
+          updated_at: "2026-07-17T00:00:00.000Z",
+        },
+        node_runs: [
+          {
+            id: "implement-t71",
+            task_id: "t07-1",
+            phase: "implement",
+            agent: "sp-implementer",
+            session_id: "session-t71",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-07-17T00:00:00.000Z",
+          },
+        ],
+      }),
+      {
+        event: "implementation",
+        status: "passed",
+        summary: "T7.1 done.",
+        artifacts: { implementation: "skeleton landed" },
+      },
+    )
+
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]).toMatchObject({
+      action: "create_session",
+      agent: "sp-implementer",
+      phase: "implement",
+      task_id: "t07-2",
+    })
+  })
 })

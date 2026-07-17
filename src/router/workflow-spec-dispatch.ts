@@ -278,8 +278,12 @@ function isDependencySatisfied(
 ): boolean {
   const dependencyNode = findNodeByID(state, dependencyID)
   if (!dependencyNode) return false
+  // With a planner task_graph, cross-task implement edges still map to implement node IDs,
+  // so unlock only after the dependency task's full check chain (task-level passed).
+  // Without task_graph, honor workflow-spec literally: node passed is enough.
   if (
-    dependentNode.agent === "sp-implementer"
+    state.task_graph?.tasks.length
+    && dependentNode.agent === "sp-implementer"
     && dependentNode.task_id
     && dependencyNode.agent === "sp-implementer"
     && dependencyNode.task_id
