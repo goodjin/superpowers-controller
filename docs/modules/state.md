@@ -229,11 +229,11 @@ task-level passed 不是“任意同 `task_id` 的 node run passed”。它按 t
 - 未声明 agent 或普通 implementation task 继续按 workflow definition 要求的 check chain 判断，例如 feature 默认需要 implementation、acceptance、verification 和 code-review 全部 passed。
 - 没有同 `task_id` 的 running、failed、blocked、needs_user 或 interrupted node 阻塞后续推进。
 
-Transition 在 `code-review` passed 后回到 `getRunnableTasks()`，继续派发依赖已满足的后续 implementation task；如果所有 graph task 都达到 task-level passed 且没有 running node，才进入 finish。
+Transition 在 `code-review` passed 后回到 workflow-spec 计算 runnable nodes（跨 task 依赖已指向前序 `…-code-review`）；如果 finisher 的 depends_on 均已满足则派发 finish，否则继续后续 implement。
 
-无 `task_graph` 的自定义 `workflow-spec` 不走 task-level 门：`depends_on` 只要求被依赖 **节点** passed。详见 `docs/modules/controller.md` 与 `docs/features/2026-07-17-spec-depends-node-level.md`。
+`task_graph` 只负责生成/更新完整 `workflow-spec`；调度与完成判定按节点图执行，不再用 task-level 作为第二套门禁。详见 `docs/features/2026-07-18-spec-only-dispatch.md`。
 
-后续如果要支持每个 task 自定义裁剪 checks，应把 task-level passed 从 `node_runs.status` 中独立出来，落到显式 task/check state 上。`node_runs` 仍保留审计事实，但不应作为唯一的 task 完成模型。
+后续如果要支持每个 task 自定义裁剪 checks，应把裁剪结果写进 workflow-spec 节点，而不是在 runtime 另开一套 task 完成模型。
 
 ## Runtime Memory vs Durable Snapshot
 

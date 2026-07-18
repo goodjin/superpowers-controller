@@ -49,13 +49,20 @@ describe("workflow-spec-driven dispatch", () => {
         updated_at: "2026-07-10T00:00:00.000Z",
       },
       task_graph: {
-        tasks: [{ id: "T1", title: "Task", summary: "Do work", depends_on: [] }],
+        tasks: [
+          { id: "T1", title: "Task", summary: "Do work", depends_on: [] },
+          { id: "T2", title: "Next", summary: "Depends on T1", depends_on: ["T1"] },
+        ],
       },
     }))
 
     expect(spec.orchestration.nodes.some((node) => node.id === "task-T1")).toBe(true)
     expect(spec.orchestration.nodes.some((node) => node.id === "task-T1-acceptance")).toBe(true)
     expect(spec.orchestration.edges?.some((edge) => edge.from === "task-T1" && edge.to === "task-T1-acceptance")).toBe(true)
+    const t2 = spec.orchestration.nodes.find((node) => node.id === "task-T2")
+    expect(t2?.depends_on).toContain("task-T1-code-review")
+    const finish = spec.orchestration.nodes.find((node) => node.agent === "sp-finisher" && !node.task_id)
+    expect(finish?.depends_on).toEqual(["task-T1-code-review", "task-T2-code-review"])
   })
 
   test("plan passed dispatches from workflow-spec task nodes instead of template implement node", () => {

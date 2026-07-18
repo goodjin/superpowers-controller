@@ -1,6 +1,6 @@
 import { findBuiltInWorkflowTemplate, createWorkflowSpec } from "../capabilities/workflows"
 import { AGENT_SKILL_MAP, type NodeAgentName } from "./modes"
-import { hasRunningNodeRuns, isTaskLevelPassed, latestNodeRun, taskRunSetsForWorkflow } from "../state/task-status"
+import { hasRunningNodeRuns, latestNodeRun } from "../state/task-status"
 import type { DispatchDecision, ReviewContext } from "./dispatch-types"
 import type { NodeRun, SpRecordInput, WorkflowNodeSpec, WorkflowOrchestration, WorkflowSpec, WorkflowState } from "../state/types"
 
@@ -104,15 +104,6 @@ export function decideFromWorkflowSpec(state: WorkflowState, record?: SpRecordIn
       .map((node) => decisionForSpecNode(state, node, record, sourceNode, sourceRun))
       .filter((decision): decision is DispatchDecision => decision !== undefined)
     if (decisions.length > 0) return decisions
-    if (record.status === "passed" && record.event === "code-review" && state.task_graph?.tasks.length) {
-      const runnableImplementers = findRunnableSpecNodes(state, orchestration.nodes, transition)
-        .filter((node) => node.agent === "sp-implementer")
-      if (runnableImplementers.length > 0) {
-        return runnableImplementers
-          .map((node) => decisionForSpecNode(state, node, record, sourceNode, sourceRun)!)
-          .filter(Boolean)
-      }
-    }
     if (record.status === "passed" && isWorkflowComplete(state, spec)) {
       return [{ action: "finish", reason: workflowFinishReason(state, spec) }]
     }
@@ -273,25 +264,21 @@ function isSpecNodeRunnable(
 function isDependencySatisfied(
   state: WorkflowState,
   dependencyID: string,
-  dependentNode: WorkflowNodeSpec,
+  _dependentNode: WorkflowNodeSpec,
   transition: TransitionContext = { passed_node_ids: new Set() },
 ): boolean {
   const dependencyNode = findNodeByID(state, dependencyID)
   if (!dependencyNode) return false
-  // With a planner task_graph, cross-task implement edges still map to implement node IDs,
-  // so unlock only after the dependency task's full check chain (task-level passed).
-  // Without task_graph, honor workflow-spec literally: node passed is enough.
-  if (
-    state.task_graph?.tasks.length
-    && dependentNode.agent === "sp-implementer"
-    && dependentNode.task_id
-    && dependencyNode.agent === "sp-implementer"
-    && dependencyNode.task_id
-    && dependencyNode.task_id !== dependentNode.task_id
-  ) {
-    return isTaskLevelPassed(state, dependencyNode.task_id)
+  if (transition.passed_node_ids.has(dependencyID)) {
+    const phase = dependencyNode.phase ?? phaseForAgent(dependencyNode.agent)
+    // Check-chain reports only unlock dependents when prior check nodes already passed.
+    // Implement/design/plan reports unlock their direct downstream without re-proving earlier template stages.
+    if (!CHECK_RETRY_PHASES.has(phase)) return true
+    const emptyTransition: TransitionContext = { passed_node_ids: new Set() }
+    return (dependencyNode.depends_on ?? []).every((prerequisite) =>
+      isDependencySatisfied(state, prerequisite, dependencyNode, emptyTransition),
+    )
   }
-  if (transition.passed_node_ids.has(dependencyID)) return true
   return isSpecNodePassed(state, dependencyNode)
 }
 
@@ -323,24 +310,10 @@ function shouldSkipSupersededTemplateNode(state: WorkflowState, node: WorkflowNo
 
 function isSpecNodeTerminal(state: WorkflowState, node: WorkflowNodeSpec): boolean {
   const run = latestRunForSpecNode(state, node)
-  if (!run) return false
-  if (run.status === "passed") return true
-  if (node.task_id && isTaskLevelPassed(state, node.task_id)) return true
-  return false
+  return run?.status === "passed"
 }
 
 function isSpecNodePassed(state: WorkflowState, node: WorkflowNodeSpec): boolean {
-  if (node.task_id && node.agent === "sp-planner") {
-    const run = latestRunForSpecNode(state, node)
-    return run?.status === "passed"
-  }
-  if (node.task_id && node.agent === "sp-implementer" && (node.phase ?? "implement") === "implement") {
-    const run = latestRunForSpecNode(state, node)
-    return run?.status === "passed"
-  }
-  if (node.task_id && (node.phase === "code-review" || node.agent === "sp-code-reviewer")) {
-    return isTaskLevelPassed(state, node.task_id)
-  }
   const run = latestRunForSpecNode(state, node)
   return run?.status === "passed"
 }
@@ -467,12 +440,11 @@ function retryImplementerDecision(
 }
 
 function isWorkflowComplete(state: WorkflowState, spec: WorkflowSpec): boolean {
-  if (state.task_graph?.tasks.length) {
-    const { passed, running, failed } = taskRunSetsForWorkflow(state)
-    if (running.size > 0 || failed.size > 0) return false
-    return state.task_graph.tasks.every((task) => passed.has(task.id))
-  }
+  if (hasRunningNodeRuns(state)) return false
+  const finisher = spec.orchestration.nodes.find((node) => node.agent === "sp-finisher")
+  if (finisher) return isSpecNodePassed(state, finisher)
   const leafNodes = spec.orchestration.nodes.filter((node) => {
+    if (shouldSkipStaleTemplateEntryNode(state, node) || shouldSkipSupersededTemplateNode(state, node)) return false
     const hasOutgoing = (spec.orchestration.edges ?? []).some((edge) => edge.from === node.id)
     const hasDependents = spec.orchestration.nodes.some((other) => other.depends_on?.includes(node.id))
     return !hasOutgoing && !hasDependents
@@ -498,11 +470,23 @@ function mergeTaskGraphIntoOrchestration(
     ? orchestration.nodes.find((node) => node.agent === "sp-planner")?.id
     : undefined
   const taskNodes = buildTaskGraphSpecNodes(state.task_graph.tasks, planNodeID)
-  const nodes = mergeSpecNodes(orchestration.nodes, taskNodes)
+  let nodes = mergeSpecNodes(orchestration.nodes, taskNodes)
+  const terminalIDs = state.task_graph.tasks.map((task) => terminalWorkflowNodeIDForTask(task))
+  const finish = nodes.find((node) => node.agent === "sp-finisher" && !node.task_id)
   const edges = [
     ...(orchestration.edges ?? []),
     ...(buildTaskGraphSpecEdges(taskNodes, planNodeID) ?? []),
   ]
+  if (finish && terminalIDs.length > 0) {
+    nodes = nodes.map((node) =>
+      node.id === finish.id
+        ? { ...node, depends_on: terminalIDs }
+        : node,
+    )
+    for (const terminalID of terminalIDs) {
+      edges.push({ from: terminalID, to: finish.id, condition: "passed" })
+    }
+  }
   return { ...orchestration, nodes, edges }
 }
 
@@ -510,12 +494,16 @@ export function buildTaskGraphSpecNodes(
   tasks: NonNullable<WorkflowState["task_graph"]>["tasks"],
   planNodeID?: string,
 ): WorkflowNodeSpec[] {
+  const tasksByID = new Map(tasks.map((task) => [task.id, task]))
   const nodes: WorkflowNodeSpec[] = []
   for (const task of tasks) {
     const implementID = workflowNodeIDForTask(task.id)
     const agent = task.agent ?? "sp-implementer"
     const dependsOn = [
-      ...task.depends_on.map(workflowNodeIDForTask),
+      ...task.depends_on.map((dependencyID) => {
+        const dependency = tasksByID.get(dependencyID)
+        return dependency ? terminalWorkflowNodeIDForTask(dependency) : workflowNodeIDForTask(dependencyID)
+      }),
       ...(planNodeID ? [planNodeID] : []),
     ]
     nodes.push({
@@ -625,6 +613,16 @@ function mergeSpecNodes(existing: WorkflowNodeSpec[], incoming: WorkflowNodeSpec
 
 function workflowNodeIDForTask(taskID: string): string {
   return `task-${taskID}`
+}
+
+export function terminalWorkflowNodeIDForTask(task: {
+  id: string
+  agent?: string
+}): string {
+  const base = workflowNodeIDForTask(task.id)
+  const agent = task.agent ?? "sp-implementer"
+  if (agent === "sp-implementer") return `${base}-code-review`
+  return base
 }
 
 function phaseForAgent(agent: string): string {

@@ -1,5 +1,7 @@
 # Spec Depends_On Uses Node-Level Gates (Unless Task Graph)
 
+> Superseded by `docs/features/2026-07-18-spec-only-dispatch.md`: dispatch is now fully spec-only; `task_graph` only materializes complete nodes (cross-task deps point at terminal gates).
+
 ## Goal
 
 Fix the mismatch where controller-authored orchestration (often with `auto_expansion=false` and no `task_graph`) declared serial implement nodes, but dispatch still required `isTaskLevelPassed` (implement + acceptance + verification + code-review) before unlocking the next implement.

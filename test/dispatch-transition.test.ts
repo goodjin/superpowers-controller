@@ -94,6 +94,16 @@ describe("decideNextDispatches", () => {
       current_phase: "acceptance",
       node_runs: [
         {
+          id: "003-implement-T1",
+          task_id: "T1",
+          phase: "implement",
+          agent: "sp-implementer",
+          session_id: "session-impl",
+          status: "passed",
+          attempts: 1,
+          started_at: "2026-06-14T00:00:00.000Z",
+        },
+        {
           id: "004-acceptance-T1",
           task_id: "T1",
           phase: "acceptance",
@@ -101,7 +111,7 @@ describe("decideNextDispatches", () => {
           session_id: "session-acceptance",
           status: "passed",
           attempts: 1,
-          started_at: "2026-06-14T00:00:00.000Z",
+          started_at: "2026-06-14T00:01:00.000Z",
         },
       ],
     }), {
@@ -119,6 +129,26 @@ describe("decideNextDispatches", () => {
       current_phase: "verification",
       node_runs: [
         {
+          id: "003-implement-T1",
+          task_id: "T1",
+          phase: "implement",
+          agent: "sp-implementer",
+          session_id: "session-impl",
+          status: "passed",
+          attempts: 1,
+          started_at: "2026-06-14T00:00:00.000Z",
+        },
+        {
+          id: "004-acceptance-T1",
+          task_id: "T1",
+          phase: "acceptance",
+          agent: "sp-acceptance-reviewer",
+          session_id: "session-acceptance",
+          status: "passed",
+          attempts: 1,
+          started_at: "2026-06-14T00:01:00.000Z",
+        },
+        {
           id: "005-verification-T1",
           task_id: "T1",
           phase: "verification",
@@ -126,7 +156,7 @@ describe("decideNextDispatches", () => {
           session_id: "session-verification",
           status: "passed",
           attempts: 1,
-          started_at: "2026-06-14T00:00:00.000Z",
+          started_at: "2026-06-14T00:02:00.000Z",
         },
       ],
     }), {

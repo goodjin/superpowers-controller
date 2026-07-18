@@ -81,9 +81,9 @@ transition 是插件内的状态转移规则，不是模型提示。v5 运行时
 规则摘要：
 
 - `workflow_spec` 缺失时，从内置 template 合成；`task_graph` 会合并进 spec（含 implement → acceptance → verification → code-review 链）。
-- `sp_report(status="passed")` 后，先匹配 source node，再沿 `edges` 或 `depends_on` 找 target；同一 transition 中刚 passed 的 node 可解锁直接下游。
-- **无 `task_graph`**：`depends_on` / edges 按 **节点级** passed 判定（自定义 orchestration / `auto_expansion=false` 的字面图）。
-- **有 `task_graph`**：跨 task 的 implement → implement 仍要求依赖 task 达到 `isTaskLevelPassed()`（整条检查链），因为展开后的 `depends_on` 仍指向前序 implement 节点 ID。
+- `sp_report(status="passed")` 后，先匹配 source node，再沿 `edges` 或 `depends_on` 找 target；同一 transition 中刚 passed 的 node 可解锁直接下游，但仅当该 node 自身的 `depends_on` 已满足。
+- **调度只认节点级 passed**：不再用「有没有 `task_graph`」做第二套门禁。
+- `task_graph` 合并进 spec 时写全图：跨 task 依赖指向前序 task 的 **terminal gate**（implementer 为 `…-code-review`）；模板 `sp-finisher` 改挂到全部 task terminal gates。
 - 已有 `task_graph` 时，跳过 template 里的 design/plan/generic implement 节点，改派 task-scoped nodes。
 - `task_graph` 扩展默认 `append` 到现有 spec，避免 plan 节点被 replace 掉。
 
