@@ -284,7 +284,7 @@ describe("createSessionOrchestrator", () => {
     expect(order).toEqual(["create", "register", "prompt"])
   })
 
-  test("selects serial design and plan children in the foreground when interaction mode is legacy", async () => {
+  test("does not auto-select child sessions after dispatch", async () => {
     const selected: string[] = []
     const orchestrator = createSessionOrchestrator({
       async createNodeSession(input) {
@@ -295,7 +295,7 @@ describe("createSessionOrchestrator", () => {
         selected.push(input.sessionID)
       },
       async showProgress() {},
-    }, { interactionMode: "legacy" })
+    })
 
     await orchestrator.dispatch({
       project: "/repo",
@@ -321,10 +321,10 @@ describe("createSessionOrchestrator", () => {
       },
     })
 
-    expect(selected).toEqual(["session-sp-designer"])
+    expect(selected).toEqual([])
   })
 
-  test("selects implement children in the foreground", async () => {
+  test("does not auto-select implement children after dispatch", async () => {
     const selected: string[] = []
     const orchestrator = createSessionOrchestrator({
       async createNodeSession() {
@@ -335,7 +335,7 @@ describe("createSessionOrchestrator", () => {
         selected.push(input.sessionID)
       },
       async showProgress() {},
-    }, { interactionMode: "legacy" })
+    })
 
     await orchestrator.dispatch({
       project: "/repo",
@@ -363,10 +363,10 @@ describe("createSessionOrchestrator", () => {
       },
     })
 
-    expect(selected).toEqual(["session-implement"])
+    expect(selected).toEqual([])
   })
 
-  test("keeps the parent route in native interaction mode after dispatch", async () => {
+  test("keeps the parent route after dispatch", async () => {
     const selected: string[] = []
     const orchestrator = createSessionOrchestrator({
       async createNodeSession() {
@@ -377,7 +377,7 @@ describe("createSessionOrchestrator", () => {
         selected.push(input.sessionID)
       },
       async showProgress() {},
-    }, { interactionMode: "native" })
+    })
 
     await orchestrator.dispatch({
       project: "/repo",
@@ -450,7 +450,7 @@ describe("createSessionOrchestrator", () => {
     expect(continued).toEqual(["session-impl"])
   })
 
-  test("resumeNode selects the resumed child session in the foreground", async () => {
+  test("resumeNode does not auto-select the resumed child session", async () => {
     const selected: string[] = []
     const orchestrator = createSessionOrchestrator({
       async createNodeSession() {
@@ -461,30 +461,7 @@ describe("createSessionOrchestrator", () => {
         selected.push(input.sessionID)
       },
       async showProgress() {},
-    }, { interactionMode: "legacy" })
-
-    await orchestrator.resumeNode({
-      sessionID: "session-design",
-      agent: "sp-designer",
-      prompt: "User answered the pending question.",
-      phase: "design",
     })
-
-    expect(selected).toEqual(["session-design"])
-  })
-
-  test("resumeNode keeps the parent route in native interaction mode", async () => {
-    const selected: string[] = []
-    const orchestrator = createSessionOrchestrator({
-      async createNodeSession() {
-        throw new Error("unexpected create")
-      },
-      async continueNodeSession() {},
-      async selectSession(input) {
-        selected.push(input.sessionID)
-      },
-      async showProgress() {},
-    }, { interactionMode: "native" })
 
     await orchestrator.resumeNode({
       sessionID: "session-design",

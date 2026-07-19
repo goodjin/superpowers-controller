@@ -26,8 +26,6 @@ import {
 import { buildSidebarHostModel, buildSidebarViewModel, renderSidebarViewModelText, type SidebarViewModel } from "./tui/sidebar-model"
 import { appendSidebarStartup, isSidebarDebugEnabled, logSidebarDiag, setSidebarDebugProjectDirectory, summarizeSidebarApi, summarizeSidebarModel } from "./tui/sidebar-debug"
 import { createSessionMessageReader, primeSessionMessageCache } from "./tui/session-message-cache"
-import { loadConfig } from "./config/load"
-import { resolveInteractionMode, shouldDeferChildPromptOnParentPermission } from "./config/interaction"
 import type { WorkflowState } from "./state/types"
 
 export const RESIDENT_PROGRESS_SLOT_NAMES = [
@@ -465,24 +463,16 @@ function createForegroundChildPromptSlot(api: TuiApi): (_context?: unknown, prop
     const workflow = currentWorkflowContext(api, currentSessionID).state
     const foreground = workflow ? foregroundChildNode(workflow) : undefined
     if (!workflow || !foreground) return null
-    if (currentSessionID !== workflow.parent_session_id && currentSessionID !== foreground.session_id) return null
-    const interactionMode = resolveInteractionMode(loadConfig(api.state.path.directory))
-    if (
-      shouldDeferChildPromptOnParentPermission(interactionMode)
-      && currentSessionID === workflow.parent_session_id
-      && isWaitingPermissionStatus(api, foreground.session_id)
-    ) {
-      return null
-    }
+    // Native-only: bind input to a child only when the user is viewing that child session.
+    // Parent route keeps the host default prompt so answers go to the controller.
+    if (currentSessionID !== foreground.session_id) return null
+    if (!api.ui?.Prompt) return null
+    const input = isRecord(props) ? props : isRecord(context) ? context : {}
     const childLabel = `${foreground.agent}${foreground.task_id ? ` ${foreground.task_id}` : ""}`
     // Do not pass string `hint`: OpenCode inserts `U.hint` as raw children under a box,
     // and orphan text-nodes fatal the TUI ("must have a <text> as a parent").
-    // Child targeting is enough; surface the agent via placeholder text instead.
-    if (!api.ui?.Prompt) return null
-    const input = isRecord(props) ? props : isRecord(context) ? context : {}
-    const targetSessionID = currentSessionID === foreground.session_id ? currentSessionID : foreground.session_id
     return api.ui.Prompt({
-      sessionID: targetSessionID,
+      sessionID: currentSessionID,
       visible: typeof input.visible === "boolean" ? input.visible : undefined,
       disabled: typeof input.disabled === "boolean" ? input.disabled : undefined,
       onSubmit: typeof input.on_submit === "function" ? input.on_submit as () => void : undefined,
@@ -945,11 +935,6 @@ function progressModel(
 
 function isWorkflowSession(state: WorkflowState, sessionID: string): boolean {
   return sessionID === state.parent_session_id || state.node_runs.some((node) => node.session_id === sessionID)
-}
-
-function isWaitingPermissionStatus(api: TuiApi, sessionID: string): boolean {
-  const status = api.state.session.status?.(sessionID)
-  return Boolean(status && typeof status === "object" && (status as { type?: unknown }).type === "waiting_permission")
 }
 
 function foregroundChildNode(state: WorkflowState): WorkflowState["node_runs"][number] | undefined {

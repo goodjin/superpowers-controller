@@ -99,7 +99,7 @@ sp_status(include_progress=true)
 - `recent_activity`：按 `progress_tail` 限制后的最近 progress。
 - `attention`：等待用户、等待批准、阻塞、失败、stalled 等需要优先说明的状态。
 
-这条按需查询通道不能替代 `sidebar_content`。TUI 仍是常驻可见 surface；dispatch/resume 后 orchestrator 会切到 child session，让用户直接观察 live transcript。等待用户、等待批准、阻塞、失败等关键事件仍由 controller 在主会话里显式说明。
+orchestrator 创建 child session 后**不**自动切焦点；用户默认留在主控，用侧栏观察。等待用户、等待批准、阻塞、失败等关键事件由 controller 在主会话里显式说明。
 
 ## TUI Surfaces
 
@@ -114,7 +114,7 @@ workflow 用户输入不再通过独立 TUI question route 处理。节点需要
 主会话常驻进度通过 TUI slot 展示。不同 slot 不再复用同一条 compact 文本，而是按可用空间分工：
 
 - `sidebar_content`：右侧栏主体，**唯一的会话状态常驻面**。**无 workflow 且仅 1 个会话在运行**时，顶部显示会话标题，下方显示当前动作（`thinking…` / `calling Tool …` / `last Tool …` / `waiting permission`），不展示会话列表。**有 workflow 时**排版收敛为：`SP <workflow> · <phase>` 短标题；每个 child 两行（`● [⌘n] agent  status` + 缩进活动摘要，不带 node/session id）；下方接 host **Sessions** 列表承载 live tool 活动。不再堆 `foreground child`/`recent` thinking transcript，也不再重复 `selectors`/`sessions total` 计数行。活动文案区分进行中（`calling`）与最近完成（`last`）；读不到 live status 时显示 `idle`。订阅 `api.event.on(...)` 刷新，1s 轮询兜底。
-- `session_prompt`：当当前 session 是 foreground/running child，或当前 session 是 `parent_session_id` 且存在 foreground/running child 时注册有效内容。它使用 OpenCode TUI 的 `api.ui.Prompt({ sessionID: childID })` 保持底部输入区域并把提交目标绑定到当前 foreground child。不要传字符串 `hint`——宿主会把它当 box 下的裸 text node，触发 OpenTUI orphan text 崩溃；agent 提示走 `placeholders`。没有 foreground child 或没有 `api.ui.Prompt` 时返回空。
+- `session_prompt`：仅当**当前 route 就是** foreground/running child 时注册有效内容，用 `api.ui.Prompt({ sessionID: childID })` 保持该子会话底部输入。主控 route **不**把输入绑到子会话，避免抢走主控通道。不要传字符串 `hint`。没有 foreground child 或没有 `api.ui.Prompt` 时返回空。
 - `app_bottom`：不再注册（主区底部不再叠会话状态；可用 renderer 仅保留供调试/测试）。
 - `session_prompt_right`、`home_prompt`、`home_prompt_right`、`home_bottom`、`home_footer`：不注册 Superpowers resident progress。workflow 会话运行信息不放在 prompt/right 区域；`home_*` 是首页区域，不作为主会话运行态展示入口。
 
@@ -151,6 +151,6 @@ resolver 不再简单返回第一个 `current.json`。选择规则是：
 
 `sidebar_content` 的列表结构向 OpenCode 原生 TodoWrite 的可扫读形态靠拢，但数据源仍然是 Superpowers workflow state。短标题后直接列已创建的 child（active 优先），再列 `planned` 未派发任务。child 行只保留 shortcut、agent、task、状态与一条活动摘要；完整 session id 与 node id 不进侧栏正文。
 
-当 workflow 进入 `waiting_user` 时，`sidebar_content` 会显示问题正文、最多三个选项标签，以及相关 child 的短状态行。真正的提问气泡由插件向目标会话 `prompt`：默认 `native`/`hybrid` 投递主控并切到 parent；`legacy` 才把 design/plan 问题投回 child。用户在主控答完后用 `sp_start(resume_input)` 续跑。
+当 workflow 进入 `waiting_user` 时，`sidebar_content` 会显示问题正文、最多三个选项标签，以及相关 child 的短状态行。真正的提问气泡由插件向**主控会话** `prompt`；用户在主控答完后用 `sp_start(resume_input)` 续跑。
 
 OpenCode 原生 Todo 面板来自 child session 的 `todowrite` tool part，和 Superpowers progress surface 是两条不同 UI 链路。看到 Todo 只能说明该 session 调用了 `todowrite`，不能说明 Superpowers resident progress 已经成功显示。

@@ -3,8 +3,12 @@ import { z } from "zod"
 export const GateModeSchema = z.enum(["strict", "guided", "off"])
 export type GateMode = z.infer<typeof GateModeSchema>
 
-export const InteractionModeSchema = z.enum(["legacy", "native", "hybrid"])
-export type InteractionMode = z.infer<typeof InteractionModeSchema>
+/** Native-only. Legacy/hybrid config values coerce to native. */
+export const InteractionModeSchema = z
+  .enum(["native", "legacy", "hybrid"])
+  .catch("native")
+  .transform((): "native" => "native")
+export type InteractionMode = "native"
 
 export const WorkflowConfigSchema = z.object({
   $schema: z.string().optional(),

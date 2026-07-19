@@ -568,66 +568,6 @@ describe("sp_report dispatch integration", () => {
     }
   })
 
-  test("legacy design needs_user prompt stays in the design child session", async () => {
-    const project = mkdtempSync(join(tmpdir(), "sp-record-legacy-design-question-"))
-    try {
-      const store = createProjectStore(project)
-      store.startRun({
-        workflow: "feature",
-        entrypoint: "feature",
-        goal: "Design with user choice",
-        request: "# Request",
-        proposal: "# Proposal",
-        parentSessionID: "session-main",
-      })
-      const node = store.addNodeRun({
-        phase: "design",
-        agent: "sp-designer",
-        primary_skill: "superpowers-brainstorming",
-        session_id: "session-design",
-        task_markdown: "# Design task",
-      })
-      const notifications: Array<{ sessionID: string; agent: string; prompt: string }> = []
-      const handler = createReportHandler({
-        store,
-        orchestrator: {
-          async dispatch() {
-            throw new Error("unexpected dispatch")
-          },
-          async notifyParent(input: { sessionID: string; agent: string; prompt: string }) {
-            notifications.push(input)
-          },
-        } as never,
-        config: {
-          ...DEFAULT_CONFIG,
-          interaction: { mode: "legacy" },
-        },
-      })
-
-      await handler(
-        {
-          event: "design",
-          status: "needs_user",
-          summary: "Need design choice.",
-          question: {
-            prompt: "Should design include a review gate?",
-            options: [{ label: "yes" }, { label: "no" }],
-          },
-        },
-        { sessionID: node.session_id, agent: "sp-designer" },
-      )
-
-      expect(store.readCurrent()?.status).toBe("waiting_user")
-      expect(notifications).toHaveLength(1)
-      expect(notifications[0].sessionID).toBe("session-design")
-      expect(notifications[0].agent).toBe("sp-designer")
-      expect(notifications[0].prompt).toContain("current foreground child conversation")
-      expect(notifications[0].prompt).toContain("Should design include a review gate?")
-    } finally {
-      rmSync(project, { recursive: true, force: true })
-    }
-  })
-
   test("native plan approval prompt goes to the parent controller session", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-record-native-plan-approval-"))
     try {

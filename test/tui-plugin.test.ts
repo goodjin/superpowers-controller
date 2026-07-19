@@ -248,7 +248,7 @@ describe("Superpowers TUI plugin", () => {
     }
   })
 
-  test("binds the parent session prompt to the foreground design child", async () => {
+  test("keeps parent route input on the controller; binds prompt only on the child route", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-tui-plugin-foreground-"))
     try {
       const slots: Record<string, (_context?: unknown, props?: Record<string, unknown>) => unknown> = {}
@@ -320,16 +320,14 @@ describe("Superpowers TUI plugin", () => {
         { id: "superpowers-controller", source: "file", spec: "", target: "", first_time: 0, last_time: 0, time_changed: 0, load_count: 1, fingerprint: "", state: "first" },
       )
 
-      const prompt = slots.session_prompt?.(undefined, { session_id: "session-main", visible: true }) as { type: string; props: Record<string, unknown> }
-      expect(prompt.type).toBe("prompt")
-      expect(prompts[0]?.sessionID).toBe("session-design")
-      expect(prompts[0]?.visible).toBe(true)
-      expect(prompts[0]?.hint).toBeUndefined()
-      expect(prompts[0]?.placeholders).toEqual({ normal: ["Reply to sp-designer"] })
+      expect(slots.session_prompt?.(undefined, { session_id: "session-main", visible: true })).toBeNull()
+      expect(prompts).toHaveLength(0)
+
       const childPrompt = slots.session_prompt?.(undefined, { session_id: "session-design", visible: true }) as { type: string; props: Record<string, unknown> }
       expect(childPrompt.type).toBe("prompt")
-      expect(prompts[1]?.sessionID).toBe("session-design")
-      expect(prompts[1]?.hint).toBeUndefined()
+      expect(prompts[0]?.sessionID).toBe("session-design")
+      expect(prompts[0]?.hint).toBeUndefined()
+      expect(prompts[0]?.placeholders).toEqual({ normal: ["Reply to sp-designer"] })
 
       const sidebar = createProgressSlot(
         api,

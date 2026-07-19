@@ -1,11 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import { isAbsolute, join, normalize } from "node:path"
 import type { DispatchDecision } from "../router/transition"
-import type { InteractionMode } from "../config/interaction"
-import {
-  shouldSelectChildOnDispatch,
-  shouldSelectChildOnResume,
-} from "../config/interaction"
 import type { SessionAdapter } from "./adapter"
 import { buildNodeTaskPrompt } from "./templates"
 import type { NodeTaskPacket } from "./task-packet"
@@ -24,11 +19,7 @@ export type SessionResumeResult = {
 
 export type SessionOrchestrator = ReturnType<typeof createSessionOrchestrator>
 
-export function createSessionOrchestrator(
-  adapter: SessionAdapter,
-  options?: { interactionMode?: InteractionMode },
-) {
-  const interactionMode = options?.interactionMode ?? "native"
+export function createSessionOrchestrator(adapter: SessionAdapter) {
   return {
     async dispatch(args: {
       project: string
@@ -79,11 +70,6 @@ export function createSessionOrchestrator(
           message: `Scheduled ${args.decision.agent} for ${args.packet.node_id}.`,
           variant: "info",
         })
-        await maybeSelectWorkflowSession(adapter, interactionMode, "dispatch", {
-          phase: args.decision.phase,
-          sessionID: args.decision.session_id,
-          parentSessionID: args.parentSessionID,
-        })
         return {
           action: "reuse_session",
           session_id: args.decision.session_id,
@@ -122,11 +108,6 @@ export function createSessionOrchestrator(
         message: `Scheduled ${args.decision.agent} for ${args.packet.node_id}.`,
         variant: "success",
       })
-      await maybeSelectWorkflowSession(adapter, interactionMode, "dispatch", {
-        phase: args.decision.phase,
-        sessionID,
-        parentSessionID: args.parentSessionID,
-      })
       return {
         action: "create_session",
         session_id: sessionID,
@@ -156,11 +137,6 @@ export function createSessionOrchestrator(
         title: "Superpowers dispatch",
         message: `Scheduled resume for ${args.agent} in ${args.sessionID}.`,
         variant: "info",
-      })
-      await maybeSelectWorkflowSession(adapter, interactionMode, "resume", {
-        phase: args.phase ?? "resume",
-        sessionID: args.sessionID,
-        parentSessionID: "",
       })
       return {
         action: "resume_session",
@@ -199,38 +175,6 @@ export function createSessionOrchestrator(
       })
     },
   }
-}
-
-async function maybeSelectWorkflowSession(
-  adapter: SessionAdapter,
-  interactionMode: InteractionMode,
-  trigger: "dispatch" | "resume",
-  args: {
-    phase: string
-    sessionID: string
-    parentSessionID: string
-  },
-): Promise<void> {
-  const shouldSelect = trigger === "dispatch"
-    ? shouldSelectChildOnDispatch(interactionMode)
-    : shouldSelectChildOnResume(interactionMode)
-  if (!shouldSelect) return
-  await selectWorkflowSession(adapter, args)
-}
-
-async function selectWorkflowSession(
-  adapter: SessionAdapter,
-  args: {
-    phase: string
-    sessionID: string
-    parentSessionID: string
-  },
-): Promise<void> {
-  if (!adapter.selectSession) return
-  await adapter.selectSession({
-    sessionID: args.sessionID,
-    reason: `foreground ${args.phase} child`,
-  })
 }
 
 function inlineRequiredArtifacts(args: {

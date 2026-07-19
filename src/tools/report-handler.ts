@@ -8,8 +8,6 @@ import type { ProjectStore } from "../state/store"
 import type { NodeStatus, WorkflowState } from "../state/types"
 import { buildControllerFeedback } from "../controller/feedback"
 import type { WorkflowConfig } from "../config/schema"
-import { DEFAULT_CONFIG } from "../config/defaults"
-import { resolveInteractionMode, shouldRouteUserInputToParent } from "../config/interaction"
 import { validateQualityGateForRecord } from "../runtime/quality-checks"
 
 export type ReportHandlerContext = {
@@ -74,8 +72,7 @@ export function createReportHandler(deps: {
     for (const decision of decisions) {
       if (decision.action === "wait_user") {
         const current = deps.store.readCurrent() ?? state
-        const interactionMode = resolveInteractionMode(deps.config ?? DEFAULT_CONFIG)
-        const target = userInputNotificationTarget(current, context, interactionMode)
+        const target = userInputNotificationTarget(current)
         if (deps.orchestrator.notifyParent) {
           try {
             await deps.orchestrator.notifyParent({
@@ -231,40 +228,18 @@ export function createReportHandler(deps: {
   }
 }
 
-function userInputNotificationTarget(
-  state: WorkflowState,
-  context: ReportHandlerContext,
-  interactionMode: ReturnType<typeof resolveInteractionMode>,
-): {
+function userInputNotificationTarget(state: WorkflowState): {
   sessionID: string
   agent: string
   conversation: "main" | "foreground"
   label: string
 } {
-  const reportingNode = context.sessionID
-    ? state.node_runs.find((node) => node.session_id === context.sessionID)
-    : undefined
-  const canUseForegroundChild = Boolean(
-    reportingNode && isForegroundSerialPhase(reportingNode.phase) && !shouldRouteUserInputToParent(interactionMode),
-  )
-  if (canUseForegroundChild && reportingNode) {
-    return {
-      sessionID: reportingNode.session_id,
-      agent: reportingNode.agent,
-      conversation: "foreground",
-      label: "Foreground child",
-    }
-  }
   return {
     sessionID: state.parent_session_id,
     agent: "superpowers-agent",
     conversation: "main",
     label: "Parent",
   }
-}
-
-function isForegroundSerialPhase(phase: string): boolean {
-  return phase === "design" || phase === "plan"
 }
 
 function errorMessage(error: unknown): string {

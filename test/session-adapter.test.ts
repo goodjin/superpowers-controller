@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { createOpenCodeSessionAdapter } from "../src/session/adapter"
 
 describe("createOpenCodeSessionAdapter", () => {
-  test("creates node sessions without parentID in legacy interaction mode", async () => {
+  test("creates node sessions with parentID", async () => {
     const createdInputs: unknown[] = []
     const adapter = createOpenCodeSessionAdapter({
       client: {
@@ -13,37 +13,7 @@ describe("createOpenCodeSessionAdapter", () => {
           },
         },
       },
-    } as never, { interactionMode: "legacy" })
-
-    const sessionID = await adapter.createNodeSession({
-      parentSessionID: "session-main",
-      title: "Design node",
-      agent: "sp-designer",
-    })
-
-    expect(sessionID).toBe("session-design")
-    expect(createdInputs).toEqual([
-      {
-        body: {
-          title: "Design node",
-          agent: "sp-designer",
-        },
-      },
-    ])
-  })
-
-  test("creates node sessions with parentID in native interaction mode", async () => {
-    const createdInputs: unknown[] = []
-    const adapter = createOpenCodeSessionAdapter({
-      client: {
-        session: {
-          async create(input: unknown) {
-            createdInputs.push(input)
-            return { id: "session-design" }
-          },
-        },
-      },
-    } as never, { interactionMode: "native" })
+    } as never)
 
     const sessionID = await adapter.createNodeSession({
       parentSessionID: "session-main",
