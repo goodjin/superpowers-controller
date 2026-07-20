@@ -122,7 +122,7 @@ candidate 不会绕过用户确认直接启动正式执行。v5 主路径由 `sp
 | Status | State effect | Dispatch effect |
 |---|---|---|
 | `progress` | 更新 report/artifact、`reported_at` 和 history；node 保持 running。 | 不派发后续节点。 |
-| `passed` | 当前 node 进入 passed/closed，gate 和 artifact 生效。 | 按 transition 计算下一步。 |
+| `passed` | 当前 node 进入 passed/closed，gate 和 artifact 生效。 | 按 transition 自动派发下一步（不经主会话）。`implementation` passed 后若检查链曾失败则重派 acceptance；若检查链已全部 passed 则推进下一 task / finish。边目标被滤空时回落 runnable，禁止空决策静默停摆。 |
 | `failed` | 当前 node 进入 failed，workflow 进入 failed。 | 检查节点失败时可回派 implementer；其他失败通常 blocked。 |
 | `blocked` | 当前 node 或 workflow 进入 blocked。 | 不派发后续节点，等待用户或 controller recovery。 |
 | `needs_user` | workflow 进入 `waiting_user`，写入 `pending_question`。 | 不派发后续节点；report handler 通知 parent controller session。 |
@@ -172,7 +172,9 @@ matching node 的归属顺序是：显式 `nodeID`、child `sessionID`、event p
 
 `addNodeRun()` 是 runtime 确认派发新节点后的恢复点。只要 workflow 还没有 `passed` 或 `canceled`，新增 node run 会把 workflow `status` 设回 `running`，并把 `phase/current_phase` 更新为新节点 phase。这样 acceptance、verification 或 code review 失败后触发 retry implementer 时，UI 不会继续停留在 failed 状态。
 
-插件进程启动时会启用 startup reconciliation。因为 host 进程停止后不可能继承旧 child turn，持久化 state 中遗留的 `node_runs[].status === "running"` 会被改成 `interrupted`，并设置 `closed_at/ended_at`。如果 active workflow 顶层仍是 `status === "running"`，即使没有 running node，也会被改成 `recovered_unknown`。draft prepared workflow 不属于已启动运行，不会被 startup recovery 改写。`recovered_unknown` 表示需要主控会话询问用户是恢复、取消还是先检查，不允许启动时自动重派发。TUI slot 的 store 读取保持只读，依赖插件启动时已经写回的 reconciled snapshot，避免 UI 读操作误中断仍在运行的 child。
+插件进程启动时会启用 startup reconciliation。因为 host 进程停止后不可能继承旧 child turn，持久化 state 中遗留的 `node_runs[].status === "running"` 会被改成 `interrupted`，并设置 `closed_at/ended_at`。如果 active workflow 顶层仍是 `status === "running"`，即使没有 running node，也会被改成 `recovered_unknown`。draft prepared workflow 不属于已启动运行，不会被 startup recovery 改写。`recovered_unknown` 表示需要主控会话询问用户是恢复、取消还是先检查，不允许启动时自动重派发。
+
+短生命周期 CLI（如 `opencode agent list`、`opencode debug …`）也会加载服务端插件，但它们看不到 TUI 进程里真实的 session busy。因此这些调用默认**跳过写盘启动恢复**（`shouldWriteStartupRecovery()`）；可用 `SUPERPOWERS_SKIP_STARTUP_RECOVERY=1` / `SUPERPOWERS_FORCE_STARTUP_RECOVERY=1` 覆盖。TUI 侧栏在刷新时若发现节点已是 `interrupted` 而 host `session.status` 仍为 busy/retry/waiting_permission，会调用 `healInterruptedBusySessions` 写回 `running`，并在 workflow 为 `recovered_unknown` 时恢复为 `running`。TUI slot 的常规 store 读取仍默认只读（不带 `reconcileOnLoad`），避免 UI 读路径本身制造中断。
 
 `node_runs` 是执行事实来源：
 

@@ -3,4 +3,6 @@ node_modules/
 tools/opencode-1.16.2/node_modules/
 tools/opencode-1.16.2/bun.lock
 .opencode/superpowers/
+.superpowers/
+tmp/
 .DS_Store

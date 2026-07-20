@@ -375,6 +375,59 @@ copy_local_checkout_package_to() {
   cp "$REPO_ROOT/scripts/install.sh" "$target_package/scripts/install.sh"
 }
 
+# OpenCode loads the npm package from cache and resolves imports relative to that
+# package. A dist-only seed without node_modules breaks `@opencode-ai/plugin/tool`,
+# so agent injection never runs and default_agent falls back to build.
+seeded_package_has_runtime_deps() {
+  local target_package="$1"
+  [[ -f "$target_package/node_modules/@opencode-ai/plugin/package.json" ]] || return 1
+  [[ -f "$target_package/node_modules/@opencode-ai/plugin/dist/tool.js" ]] || return 1
+  return 0
+}
+
+install_seeded_package_dependencies() {
+  local target_package="$1"
+  if [[ ! -f "$target_package/package.json" ]]; then
+    printf 'error: cannot install plugin dependencies; missing package.json at %s\n' "$target_package" >&2
+    return 1
+  fi
+
+  log "Installing production dependencies for seeded OpenCode plugin package: $target_package"
+  local start
+  start="$(now_ms)"
+  set +e
+  (
+    cd "$target_package"
+    bun install --production
+  )
+  local status=$?
+  set -e
+  log_timing "seeded plugin bun install --production" "$start"
+  if [[ "$status" -ne 0 ]]; then
+    printf 'error: bun install --production failed for seeded plugin package %s\n' "$target_package" >&2
+    return "$status"
+  fi
+  if ! seeded_package_has_runtime_deps "$target_package"; then
+    printf 'error: seeded plugin package %s is missing @opencode-ai/plugin (tool entry). OpenCode will not load superpowers agents.\n' "$target_package" >&2
+    return 1
+  fi
+  return 0
+}
+
+copy_seeded_package_node_modules() {
+  local source_package="$1"
+  local target_package="$2"
+  rm -rf "$target_package/node_modules"
+  cp -R "$source_package/node_modules" "$target_package/node_modules"
+  if [[ -f "$source_package/bun.lock" ]]; then
+    cp "$source_package/bun.lock" "$target_package/bun.lock"
+  fi
+  if ! seeded_package_has_runtime_deps "$target_package"; then
+    printf 'error: copied plugin node_modules into %s but @opencode-ai/plugin/tool is still missing\n' "$target_package" >&2
+    return 1
+  fi
+}
+
 seed_opencode_plugin_cache_from_local_checkout() {
   if [[ -z "$REPO_ROOT" || ! -f "$REPO_ROOT/package.json" || ! -f "$REPO_ROOT/dist/index.js" || ! -f "$REPO_ROOT/dist/tui.js" ]]; then
     return 1
@@ -388,6 +441,7 @@ seed_opencode_plugin_cache_from_local_checkout() {
 
   local root_target="$cache_root/node_modules/$PACKAGE_NAME"
   copy_local_checkout_package_to "$root_target"
+  install_seeded_package_dependencies "$root_target" || return 1
   write_opencode_root_cache_manifest "$cache_root"
   log "Seeded OpenCode root package cache from local checkout: $root_target"
 
@@ -397,6 +451,7 @@ seed_opencode_plugin_cache_from_local_checkout() {
     local key_target="$key_dir/node_modules/$PACKAGE_NAME"
     mkdir -p "$key_dir/node_modules"
     copy_local_checkout_package_to "$key_target"
+    copy_seeded_package_node_modules "$root_target" "$key_target" || return 1
     write_opencode_package_cache_manifest "$key_dir" "$version_spec"
     log "Seeded OpenCode package-key cache from local checkout: $key_target"
   done
@@ -420,6 +475,11 @@ seed_opencode_plugin_cache_from_bunx() {
 
   local version_spec
   version_spec="$(local_package_version "$source_modules/$PACKAGE_NAME")"
+  local root_target="$cache_root/node_modules/$PACKAGE_NAME"
+  if ! seeded_package_has_runtime_deps "$root_target"; then
+    install_seeded_package_dependencies "$root_target" || return 1
+  fi
+
   local cache_keys=("$PACKAGE_NAME" "$PACKAGE_NAME@latest")
   for key in "${cache_keys[@]}"; do
     local key_dir="$cache_root/$key"
@@ -427,6 +487,13 @@ seed_opencode_plugin_cache_from_bunx() {
     rm -rf "$key_target"
     mkdir -p "$key_dir/node_modules"
     cp -R "$source_modules/$PACKAGE_NAME" "$key_target"
+    if ! seeded_package_has_runtime_deps "$key_target"; then
+      if seeded_package_has_runtime_deps "$root_target"; then
+        copy_seeded_package_node_modules "$root_target" "$key_target" || return 1
+      else
+        install_seeded_package_dependencies "$key_target" || return 1
+      fi
+    fi
     write_opencode_package_cache_manifest "$key_dir" "$version_spec"
   done
   log "Seeded OpenCode plugin cache from bunx package cache: $source_modules"

@@ -121,11 +121,38 @@ State / Router / Gate / Session Control
 
 `strict` 会阻断工具调用；`guided` 记录 warning；`off` 关闭对应 gate。
 
+## Codex 弱增强（可选）
+
+OpenCode 版是带状态机的强控制面。Codex 另有一套**弱增强**适配：只安装可选用的 Agent，由你在 Codex 里选择；不做 hooks / MCP / 默认入口切换。
+
+一行命令安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-controller/main/scripts/install-codex.sh | bash
+```
+
+卸载：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-controller/main/scripts/uninstall-codex.sh | bash
+```
+
+本地仓库也可：
+
+```bash
+bash scripts/install-codex.sh
+# 或
+bun run install:codex
+```
+
+安装后显式选用或 spawn `superpowers-agent`。详见 `adapters/codex/README.md`。
+
 ## 开发验证
 
 ```bash
 bun install
 bun run test
+bun run test:codex
 bun run build
 bun run e2e:opencode
 ```

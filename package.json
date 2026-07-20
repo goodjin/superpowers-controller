@@ -1,6 +1,6 @@
 {
   "name": "superpowers-controller",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Unofficial stateful workflow controller for the Superpowers methodology on OpenCode.",
   "type": "module",
   "main": "./dist/index.js",
@@ -32,7 +32,10 @@
     "doctor": "bun run src/cli/index.ts doctor",
     "deploy:superagent": "bash scripts/deploy-superagent-runtime.sh restart",
     "e2e:opencode": "bun run build && bun run scripts/e2e-opencode-1.16.2.ts",
-    "e2e:opencode:mock-llm": "bun run build && bun run scripts/e2e-opencode-mock-llm.ts"
+    "e2e:opencode:mock-llm": "bun run build && bun run scripts/e2e-opencode-mock-llm.ts",
+    "install:codex": "bash scripts/install-codex.sh",
+    "uninstall:codex": "bash scripts/uninstall-codex.sh",
+    "test:codex": "bun test ./adapters/codex/scripts/install.test.mjs ./test/install-codex.test.ts"
   },
   "keywords": [
     "opencode",

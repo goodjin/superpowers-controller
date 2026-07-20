@@ -15,7 +15,7 @@ import {
   renderSidebarProgressText,
   renderWorkflowStatusText,
 } from "./tui/progress-panel"
-import { liveActivityBySession } from "./tui/live-activity"
+import { liveActivityBySession, isActiveHostSessionStatus, normalizeSessionLiveStatus } from "./tui/live-activity"
 import {
   collectSeedSessionIDs,
   collectWorkflowSessionIDs,
@@ -735,10 +735,11 @@ function currentWorkflowContext(api: TuiApi, sessionID?: unknown): WorkflowConte
   const directory = api.state.path.directory
   const candidate = selectWorkflowCandidate(api, sessionID)
   if (candidate) {
+    const state = healInterruptedBusySessionsInTui(api, candidate.project, candidate.state) ?? candidate.state
     return {
       project: candidate.project,
-      state: candidate.state,
-      diagnostic: workflowContextDiagnostic(candidate, directory),
+      state,
+      diagnostic: workflowContextDiagnostic({ ...candidate, state }, directory),
     }
   }
 
@@ -746,6 +747,37 @@ function currentWorkflowContext(api: TuiApi, sessionID?: unknown): WorkflowConte
     project: directory,
     state: null,
     diagnostic: `SP: no workflow state in ${formatProjectPath(directory, directory)}`,
+  }
+}
+
+function healInterruptedBusySessionsInTui(
+  api: TuiApi,
+  project: string,
+  state: WorkflowState,
+): WorkflowState | null {
+  const busyInterruptedSessionIDs = state.node_runs
+    .filter((node) => node.status === "interrupted")
+    .filter((node) => isActiveHostSessionStatus(readTuiSessionLiveStatus(api, node.session_id)))
+    .map((node) => node.session_id)
+  if (busyInterruptedSessionIDs.length === 0) return null
+  try {
+    return getTuiProjectStore(project).healInterruptedBusySessions({
+      sessionIDs: busyInterruptedSessionIDs,
+      reason: "TUI sidebar observed host session still busy after a false startup interruption.",
+    })
+  } catch {
+    return null
+  }
+}
+
+function readTuiSessionLiveStatus(api: TuiApi, sessionID: string): string {
+  try {
+    const status = api.state.session.status?.(sessionID)
+    if (!status) return "unknown"
+    if (status.type === "retry") return "retry"
+    return normalizeSessionLiveStatus(status.type)
+  } catch {
+    return "unknown"
   }
 }
 

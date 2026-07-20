@@ -38,7 +38,11 @@ describe("plugin config and runtime injection", () => {
     const project = mkdtempSync(join(tmpdir(), "sp-plugin-node-permission-"))
     try {
       const hooks = await createHooks(project)
-      const hostConfig: Record<string, unknown> = {}
+      // Explicit non-allow host permission so this assertion does not inherit
+      // the developer's real OpenCode global `permission: "allow"`.
+      const hostConfig: Record<string, unknown> = {
+        permission: {},
+      }
 
       await hooks.config?.(hostConfig)
 

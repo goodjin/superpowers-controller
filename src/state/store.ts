@@ -119,6 +119,10 @@ export type ProjectStore = {
     summary: string
   }): WorkflowState | null
   recoverInterruptedRunningNodes(args: { reason: string }): WorkflowState | null
+  healInterruptedBusySessions(args: {
+    sessionIDs: string[]
+    reason?: string
+  }): WorkflowState | null
   consumePendingQuestion(args: {
     runID: string
     parentSessionID?: string
@@ -510,6 +514,53 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       persistCurrent(withFallback)
       appendStartupRecoveryEvidence(root, withFallback, reconciled, args.reason)
       return withFallback
+    },
+    healInterruptedBusySessions(args) {
+      const current = this.readCurrent()
+      if (!current) return null
+      const live = new Set(args.sessionIDs.filter((id) => typeof id === "string" && id.length > 0))
+      if (live.size === 0) return null
+      const now = new Date().toISOString()
+      const healedIDs: string[] = []
+      const nodeRuns = current.node_runs.map((node) => {
+        if (node.status !== "interrupted" || !live.has(node.session_id)) return node
+        healedIDs.push(node.id)
+        return {
+          ...node,
+          status: "running" as const,
+          closed_at: undefined,
+          ended_at: undefined,
+          reported_at: undefined,
+        }
+      })
+      if (healedIDs.length === 0) return null
+      const reason = args.reason ?? "TUI observed host session still busy; restored interrupted node to running."
+      const next: WorkflowState = {
+        ...current,
+        status: resumableStatus(current.status),
+        node_runs: nodeRuns,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...current.history,
+          {
+            at: now,
+            event: "tui_healed_interrupted_busy_sessions",
+            from: current.phase,
+            to: current.phase,
+            summary: `${reason} Nodes: ${healedIDs.join(", ")}.`,
+          },
+        ],
+      }
+      persistCurrent(next)
+      appendEvent(root, next.id, {
+        type: "tui_healed_interrupted_busy_sessions",
+        node_ids: healedIDs,
+        session_ids: [...live],
+        reason,
+      })
+      appendChangelog(root, next.id, `tui healed interrupted busy nodes ${healedIDs.join(", ")}: ${reason}`)
+      return next
     },
     consumePendingQuestion(args) {
       const current = this.readRun(args.runID)

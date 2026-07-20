@@ -12,6 +12,7 @@ import { createTools } from "./tools"
 import { createLivenessMonitor } from "./runtime/liveness"
 import { createUnreportedExitHandler } from "./runtime/unreported-exit-handler"
 import { bridgeChildAnswerToPendingQuestion } from "./runtime/child-answer-bridge"
+import { shouldWriteStartupRecovery } from "./runtime/startup-recovery-gate"
 
 const startupRecoveryProjects = new Set<string>()
 
@@ -36,10 +37,11 @@ export function createPluginModule(): PluginModule {
     const config = loadConfig(ctx.directory)
     await logStartupTiming("config load", stepStart)
     stepStart = Date.now()
-    const store = createProjectStore(ctx.directory, { reconcileOnLoad: true })
+    const writeStartupRecovery = shouldWriteStartupRecovery()
+    const store = createProjectStore(ctx.directory, { reconcileOnLoad: writeStartupRecovery })
     await logStartupTiming("store init", stepStart)
     stepStart = Date.now()
-    if (!startupRecoveryProjects.has(ctx.directory)) {
+    if (writeStartupRecovery && !startupRecoveryProjects.has(ctx.directory)) {
       startupRecoveryProjects.add(ctx.directory)
       const recovered = store.recoverInterruptedRunningNodes({
         reason: "Plugin process started; persisted running child sessions cannot be assumed live after startup.",
@@ -52,6 +54,18 @@ export function createPluginModule(): PluginModule {
             message: `Recovered workflow ${recovered.id} with interrupted running node sessions after plugin startup.`,
           },
         })
+      }
+    } else if (!writeStartupRecovery) {
+      try {
+        await ctx.client.app.log({
+          body: {
+            service: "superpowers-controller",
+            level: "info",
+            message: "Skipped write-path startup recovery for short-lived or non-interactive OpenCode invocation.",
+          },
+        })
+      } catch {
+        // Diagnostic only.
       }
     }
     await logStartupTiming("startup recovery", stepStart)

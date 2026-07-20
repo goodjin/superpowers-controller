@@ -121,11 +121,36 @@ Default mode is guided: gate issues are reported but not blocked. You can make i
 
 `strict` blocks the tool call. `guided` records a warning. `off` disables that gate.
 
+## Codex weak enhancement (optional)
+
+OpenCode ships the stateful controller. Codex gets a lighter adapter: install selectable agents only. No hooks, no MCP, and no default-agent switch.
+
+Install with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-controller/main/scripts/install-codex.sh | bash
+```
+
+Uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/goodjin/superpowers-controller/main/scripts/uninstall-codex.sh | bash
+```
+
+From a local checkout:
+
+```bash
+bash scripts/install-codex.sh
+```
+
+Then spawn or select `superpowers-agent` in Codex. See `adapters/codex/README.md`.
+
 ## Development
 
 ```bash
 bun install
 bun run test
+bun run test:codex
 bun run build
 bun run e2e:opencode
 ```

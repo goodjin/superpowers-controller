@@ -140,4 +140,39 @@ describe("ProjectStore node runs", () => {
       rmSync(project, { recursive: true, force: true })
     }
   })
+
+  test("healInterruptedBusySessions restores interrupted nodes whose sessions are still busy", () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-node-heal-"))
+    try {
+      const store = createProjectStore(project)
+      store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Heal false interruption",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+      })
+      const node = store.addNodeRun({
+        phase: "acceptance",
+        agent: "sp-acceptance-reviewer",
+        session_id: "session-accept",
+        task_markdown: "# Acceptance",
+      })
+      store.recoverInterruptedRunningNodes({ reason: "false CLI recovery" })
+      expect(store.readCurrent()?.status).toBe("recovered_unknown")
+      expect(store.readCurrent()?.node_runs.find((run) => run.id === node.id)?.status).toBe("interrupted")
+
+      const healed = store.healInterruptedBusySessions({
+        sessionIDs: ["session-accept"],
+        reason: "TUI saw busy",
+      })
+      expect(healed?.status).toBe("running")
+      expect(healed?.node_runs.find((run) => run.id === node.id)?.status).toBe("running")
+      expect(healed?.node_runs.find((run) => run.id === node.id)?.closed_at).toBeUndefined()
+      expect(store.healInterruptedBusySessions({ sessionIDs: ["session-accept"] })).toBeNull()
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
 })

@@ -194,6 +194,14 @@ describe("mergePluginEntry", () => {
     expect(existsSync(join(cacheRoot, "superpowers-controller@latest", "node_modules", "superpowers-controller", "package.json"))).toBe(true)
     expect(existsSync(join(cacheRoot, "opencode-superpowers-controller@latest"))).toBe(true)
     expect(existsSync(join(cacheRoot, "node_modules", "superpowers-controller"))).toBe(true)
+    for (const seeded of [
+      join(cacheRoot, "node_modules", "superpowers-controller"),
+      join(cacheRoot, "superpowers-controller", "node_modules", "superpowers-controller"),
+      join(cacheRoot, "superpowers-controller@latest", "node_modules", "superpowers-controller"),
+    ]) {
+      expect(existsSync(join(seeded, "node_modules", "@opencode-ai", "plugin", "package.json")), seeded).toBe(true)
+      expect(existsSync(join(seeded, "node_modules", "@opencode-ai", "plugin", "dist", "tool.js")), seeded).toBe(true)
+    }
     expect(existsSync(join(cacheRoot, "node_modules", "oh-my-opencode"))).toBe(true)
     expect(existsSync(join(cacheRoot, "node_modules", "oh-my-opencode-darwin-arm64"))).toBe(true)
     expect(existsSync(join(cacheRoot, "node_modules", ".bin", "superpowers-controller"))).toBe(false)
@@ -228,7 +236,7 @@ describe("mergePluginEntry", () => {
     expect(existsSync(join(temp, `bunx-${uid}-superpowers-controller@latest`))).toBe(false)
     expect(existsSync(join(temp, `bunx-${uid}-oh-my-opencode@latest`))).toBe(true)
     expect(existsSync(join(temp, `bunx-${uid}-opencode-superpowers-controller@latest`))).toBe(true)
-  }, 30_000)
+  }, 120_000)
 
   test("one-click install script works when piped into bash", () => {
     const home = mkdtempSync(join(tmpdir(), "sp-install-pipe-home-"))
@@ -371,7 +379,7 @@ printf 'opencode 1.17.13\\n'
 set -euo pipefail
 package_dir="\${TMPDIR%/}/bunx-\$(id -u)-superpowers-controller@latest/node_modules/superpowers-controller"
 mkdir -p "$package_dir"
-printf '{"name":"superpowers-controller","version":"9.9.9"}\\n' > "$package_dir/package.json"
+printf '%s\\n' '{"name":"superpowers-controller","version":"9.9.9","dependencies":{"@opencode-ai/plugin":"^1.15.4"}}' > "$package_dir/package.json"
 shift
 exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
 `, { mode: 0o755 })
@@ -394,10 +402,18 @@ exec bun run "${process.cwd()}/src/cli/index.ts" "$@"
     expect(readFileSync(join(home, ".cache", "opencode", "packages", "node_modules", "superpowers-controller", "package.json"), "utf8")).toContain('"version":"9.9.9"')
     expect(readFileSync(join(home, ".cache", "opencode", "packages", "superpowers-controller", "node_modules", "superpowers-controller", "package.json"), "utf8")).toContain('"version":"9.9.9"')
     expect(readFileSync(join(home, ".cache", "opencode", "packages", "superpowers-controller@latest", "node_modules", "superpowers-controller", "package.json"), "utf8")).toContain('"version":"9.9.9"')
+    for (const seeded of [
+      join(home, ".cache", "opencode", "packages", "node_modules", "superpowers-controller"),
+      join(home, ".cache", "opencode", "packages", "superpowers-controller", "node_modules", "superpowers-controller"),
+      join(home, ".cache", "opencode", "packages", "superpowers-controller@latest", "node_modules", "superpowers-controller"),
+    ]) {
+      expect(existsSync(join(seeded, "node_modules", "@opencode-ai", "plugin", "package.json")), seeded).toBe(true)
+      expect(existsSync(join(seeded, "node_modules", "@opencode-ai", "plugin", "dist", "tool.js")), seeded).toBe(true)
+    }
     const packageRoot = JSON.parse(readFileSync(join(cacheRoot, "package.json"), "utf8"))
     expect(packageRoot.dependencies["superpowers-controller"]).toBe("latest")
     expect(packageRoot.dependencies["oh-my-opencode"]).toBe("latest")
-  }, 30_000)
+  }, 60_000)
 
   test("one-click install script can skip OpenCode plugin cache refresh", () => {
     const home = mkdtempSync(join(tmpdir(), "sp-install-skip-refresh-home-"))
