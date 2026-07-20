@@ -128,6 +128,15 @@ describe("mergePluginEntry", () => {
   })
 
   test("one-click install script installs idempotently through the local CLI", () => {
+    // Local checkout seeding needs dist/; CI publish used to run tests before build.
+    if (!existsSync(join(process.cwd(), "dist", "index.js")) || !existsSync(join(process.cwd(), "dist", "tui.js"))) {
+      const build = spawnSync("bun", ["run", "build"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      })
+      expect(build.status, build.stderr || build.stdout).toBe(0)
+    }
+
     const home = mkdtempSync(join(tmpdir(), "sp-install-home-"))
     const temp = join(home, "tmp")
     const binDir = join(home, "bin")

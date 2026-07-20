@@ -34,15 +34,15 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Build
+        run: bun run build
+
       - name: Test
         run: |
           bun test \
             $(git ls-files 'test/**/*.test.ts' 'test/*.test.ts' \
               | grep -Ev '^(test/deploy-superagent-runtime\.test\.ts|test/e2e/|test/support/opencode-e2e/)' \
               | sed 's#^#./#')
-
-      - name: Build
-        run: bun run build
 
       - name: Package dry run
         run: npm pack --dry-run
