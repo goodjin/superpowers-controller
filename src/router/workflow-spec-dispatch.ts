@@ -110,10 +110,104 @@ export function decideFromWorkflowSpec(state: WorkflowState, record?: SpRecordIn
     if (record.event === "plan" && state.workflow === "plan-only" && record.status === "passed") {
       return [{ action: "finish", reason: "plan-only workflow complete" }]
     }
+    // Implement passed but direct check targets were filtered (e.g. prior acceptance still
+    // "passed"): either reopen a stale failed check chain, or advance to the next task/finish.
+    if (record.event === "implementation" && record.status === "passed") {
+      const afterImplement = continueAfterImplementPassed(state, spec, sourceNode, record, sourceRun)
+      if (afterImplement.length > 0) return afterImplement
+    }
+    // Any other passed report that unlocked no edge targets should still look for runnable work
+    // instead of silently returning [].
+    if (record.status === "passed") {
+      const fallback = decideRunnableFromSpec(state, spec)
+      if (fallback.length > 0) return fallback
+    }
     return []
   }
 
   return decideRunnableFromSpec(state, spec)
+}
+
+/**
+ * After implementation passed, the immediate acceptance edge may be filtered because an older
+ * acceptance run is still marked passed. Decide whether to reopen the check chain or advance.
+ */
+function continueAfterImplementPassed(
+  state: WorkflowState,
+  spec: WorkflowSpec,
+  sourceNode: WorkflowNodeSpec,
+  record: SpRecordInput,
+  sourceRun?: NodeRun,
+): DispatchDecision[] {
+  const checkChain = checkChainNodesFromImplement(spec, sourceNode)
+  if (checkChain.length === 0) return decideRunnableFromSpec(state, spec)
+
+  const latestByNode = checkChain.map((node) => ({
+    node,
+    run: latestRunForSpecNode(state, node),
+  }))
+
+  const hasFailedCheck = latestByNode.some(({ run }) =>
+    Boolean(run && ["failed", "blocked", "needs_user"].includes(run.status)),
+  )
+  if (hasFailedCheck) {
+    const acceptance =
+      checkChain.find((node) => (node.phase ?? phaseForAgent(node.agent)) === "acceptance")
+      ?? checkChain[0]
+    const decision = decisionForSpecNode(state, acceptance, record, sourceNode, sourceRun)
+    return decision ? [decision] : []
+  }
+
+  for (const { node, run } of latestByNode) {
+    if (!run || run.status !== "passed") {
+      const decision = decisionForSpecNode(state, node, record, sourceNode, sourceRun)
+      if (decision) return [decision]
+    }
+  }
+
+  // Full check chain already passed → current task complete; continue to next task / finish.
+  return decideRunnableFromSpec(state, spec)
+}
+
+function checkChainNodesFromImplement(
+  spec: WorkflowSpec,
+  implementNode: WorkflowNodeSpec,
+): WorkflowNodeSpec[] {
+  const nodesByID = new Map(spec.orchestration.nodes.map((node) => [node.id, node]))
+  const chain: WorkflowNodeSpec[] = []
+  let currentID = implementNode.id
+  const visited = new Set<string>()
+
+  while (true) {
+    if (visited.has(currentID)) break
+    visited.add(currentID)
+    const nextCheck = (spec.orchestration.edges ?? [])
+      .filter((edge) => edge.from === currentID && matchesPassedCondition(edge.condition))
+      .map((edge) => nodesByID.get(edge.to))
+      .find((node) => node && CHECK_RETRY_PHASES.has(node.phase ?? phaseForAgent(node.agent)))
+    if (!nextCheck) break
+    chain.push(nextCheck)
+    currentID = nextCheck.id
+  }
+
+  if (chain.length > 0) return chain
+
+  let dependencyID = implementNode.id
+  while (true) {
+    const next = spec.orchestration.nodes.find((node) => {
+      const phase = node.phase ?? phaseForAgent(node.agent)
+      return CHECK_RETRY_PHASES.has(phase) && (node.depends_on ?? []).includes(dependencyID)
+    })
+    if (!next) break
+    chain.push(next)
+    dependencyID = next.id
+  }
+  return chain
+}
+
+function matchesPassedCondition(condition: string | undefined): boolean {
+  if (!condition) return true
+  return condition.trim().toLowerCase() === "passed"
 }
 
 function decideRunnableFromSpec(state: WorkflowState, spec: WorkflowSpec): DispatchDecision[] {

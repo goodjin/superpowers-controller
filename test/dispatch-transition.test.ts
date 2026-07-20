@@ -355,7 +355,17 @@ describe("decideNextDispatches", () => {
       },
     )
 
-    expect(decisions).toEqual([])
+    // Must not unlock T2 before the check chain completes. Falling back to runnable
+    // work may reopen T1 acceptance, but must not skip ahead to T2.
+    expect(decisions.every((decision) => !("task_id" in decision) || decision.task_id !== "T2")).toBe(true)
+    if (decisions.length > 0) {
+      expect(decisions[0]).toMatchObject({
+        action: "create_session",
+        agent: "sp-acceptance-reviewer",
+        phase: "acceptance",
+        task_id: "T1",
+      })
+    }
   })
 
   test("investigation passed dispatches finisher", () => {

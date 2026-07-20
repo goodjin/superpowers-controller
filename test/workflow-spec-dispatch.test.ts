@@ -161,4 +161,212 @@ describe("workflow-spec-driven dispatch", () => {
       task_id: "t07-2",
     })
   })
+
+  test("after code-review failed, implement passed reopens acceptance even if prior acceptance passed", () => {
+    const template = findBuiltInWorkflowTemplate("feature")!
+    const decisions = decideNextDispatches(
+      state({
+        current_phase: "implementation-complete",
+        status: "running",
+        workflow_spec: {
+          id: "run-spec-workflow-spec",
+          kind: "built_in_workflow",
+          title: "Feature",
+          auto_expansion: { allow: false },
+          orchestration: template.orchestration,
+          created_at: "2026-07-20T00:00:00.000Z",
+          updated_at: "2026-07-20T00:00:00.000Z",
+        },
+        gates: {
+          implementation_done: true,
+          acceptance_passed: true,
+          verification_fresh: true,
+          code_review_passed: false,
+        },
+        node_runs: [
+          {
+            id: "006-implement",
+            phase: "implement",
+            agent: "sp-implementer",
+            session_id: "session-impl-1",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-07-20T00:00:00.000Z",
+          },
+          {
+            id: "008-acceptance",
+            phase: "acceptance",
+            agent: "sp-acceptance-reviewer",
+            session_id: "session-acc",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-07-20T00:10:00.000Z",
+          },
+          {
+            id: "010-verification",
+            phase: "verification",
+            agent: "sp-verifier",
+            session_id: "session-ver",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-07-20T00:20:00.000Z",
+          },
+          {
+            id: "011-code-review",
+            phase: "code-review",
+            agent: "sp-code-reviewer",
+            session_id: "session-cr",
+            status: "failed",
+            attempts: 1,
+            started_at: "2026-07-20T00:30:00.000Z",
+          },
+          {
+            id: "013-implement",
+            phase: "implement",
+            agent: "sp-implementer",
+            session_id: "session-impl-2",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-07-20T01:00:00.000Z",
+          },
+        ],
+      }),
+      {
+        event: "implementation",
+        status: "passed",
+        summary: "CR fixes landed.",
+        artifacts: { patch_summary: "fixed" },
+        gates: { implementation_done: true },
+      },
+    )
+
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]).toMatchObject({
+      action: "create_session",
+      agent: "sp-acceptance-reviewer",
+      phase: "acceptance",
+    })
+  })
+
+  test("implement passed with full check chain already passed advances to next task", () => {
+    const decisions = decideNextDispatches(
+      state({
+        current_phase: "implementation-complete",
+        status: "running",
+        task_graph: {
+          tasks: [
+            { id: "T1", title: "First", summary: "Task one", depends_on: [] },
+            { id: "T2", title: "Second", summary: "Task two", depends_on: ["T1"] },
+          ],
+        },
+        gates: {
+          implementation_done: true,
+          acceptance_passed: true,
+          verification_fresh: true,
+          code_review_passed: true,
+        },
+        node_runs: [
+          {
+            id: "task-T1",
+            task_id: "T1",
+            phase: "implement",
+            agent: "sp-implementer",
+            session_id: "session-t1-impl",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-07-20T00:00:00.000Z",
+          },
+          {
+            id: "task-T1-acceptance",
+            task_id: "T1",
+            phase: "acceptance",
+            agent: "sp-acceptance-reviewer",
+            session_id: "session-t1-acc",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-07-20T00:10:00.000Z",
+          },
+          {
+            id: "task-T1-verification",
+            task_id: "T1",
+            phase: "verification",
+            agent: "sp-verifier",
+            session_id: "session-t1-ver",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-07-20T00:20:00.000Z",
+          },
+          {
+            id: "task-T1-code-review",
+            task_id: "T1",
+            phase: "code-review",
+            agent: "sp-code-reviewer",
+            session_id: "session-t1-cr",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-07-20T00:30:00.000Z",
+          },
+        ],
+      }),
+      {
+        event: "implementation",
+        status: "passed",
+        summary: "T1 already checked; implement reconfirmed.",
+        artifacts: { patch_summary: "ok" },
+        gates: { implementation_done: true },
+      },
+    )
+
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]).toMatchObject({
+      action: "create_session",
+      agent: "sp-implementer",
+      phase: "implement",
+      task_id: "T2",
+    })
+  })
+
+  test("first implement passed still dispatches acceptance when check chain has not run", () => {
+    const template = findBuiltInWorkflowTemplate("feature")!
+    const decisions = decideNextDispatches(
+      state({
+        current_phase: "implementation-complete",
+        status: "running",
+        workflow_spec: {
+          id: "run-spec-workflow-spec",
+          kind: "built_in_workflow",
+          title: "Feature",
+          auto_expansion: { allow: false },
+          orchestration: template.orchestration,
+          created_at: "2026-07-20T00:00:00.000Z",
+          updated_at: "2026-07-20T00:00:00.000Z",
+        },
+        node_runs: [
+          {
+            id: "006-implement",
+            phase: "implement",
+            agent: "sp-implementer",
+            session_id: "session-impl",
+            status: "passed",
+            attempts: 1,
+            started_at: "2026-07-20T00:00:00.000Z",
+          },
+        ],
+      }),
+      {
+        event: "implementation",
+        status: "passed",
+        summary: "First implement done.",
+        artifacts: { patch_summary: "ok" },
+        gates: { implementation_done: true },
+      },
+    )
+
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]).toMatchObject({
+      action: "create_session",
+      agent: "sp-acceptance-reviewer",
+      phase: "acceptance",
+    })
+  })
 })

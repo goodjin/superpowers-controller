@@ -112,6 +112,12 @@ Feature implementation task 的检查链是 task-scoped：
 - `verification` passed 后派发同一 `task_id` 的 `sp-code-reviewer`。
 - `code-review` passed 后重新计算 task graph runnable tasks；如果还有依赖已满足的 task，继续派发 implementer，否则进入 finish。
 
+检查失败回派 implementer 后，再次 `implementation` passed 时不能空停：
+
+- 若同 scope 检查链（acceptance → verification → code-review）的 latest 状态含 `failed` / `blocked` / `needs_user`，即使历史 acceptance 仍是 `passed`，也要从 acceptance 强制重派整条检查链。
+- 若检查链已全部 `passed`，判定当前任务完成，回落到 runnable 计算：派发下一 task 的 implementer，或 finisher / `finish`。
+- 任意 `passed` report 若边目标被滤空且 workflow 未完成，同样回落 runnable，禁止返回空 `decisions` 静默停摆。这条路径仍是插件自动派发，不需要先回复主会话。
+
 ## Workflow Template Summary
 
 workflow template 提供 controller 可选的默认 orchestration、task graph policy、检查策略和汇总方式。v5 runtime 的 dispatch 以 confirmed `workflow-spec.json` 为准；下表不是固定 workflow dispatch 规则。
