@@ -28,7 +28,7 @@ export function createStartTool(
       prepared_task_id: tool.schema.string().optional().describe("Alias for run_id."),
       action: tool.schema.enum(["start_prepared_task", "resume_user_input", "resume_tasks", "retry_node", "resolve_controller_decision"]).optional().describe("V5 explicit action."),
       start_action: tool.schema.enum(["start_prepared_task", "resume_user_input", "resume_tasks", "retry_node", "resolve_controller_decision"]).optional().describe("Alias for action."),
-      start_config: tool.schema.object({}).passthrough().optional().describe("Required for start_prepared_task."),
+      start_config: tool.schema.object({}).passthrough().optional().describe('Optional for start_prepared_task. Omit to use prepared run workflow as built_in_workflow. Example: { "kind": "built_in_workflow", "workflow_id": "feature" }. kind may also be a built-in id like "feature".'),
       confirmation: tool.schema.object({
         user_confirmed: tool.schema.boolean().optional(),
         user_message: tool.schema.string().optional(),
@@ -80,7 +80,7 @@ export function createStartTool(
         })
       }
       if (!runID && hasLegacyDirectStartPayload(args)) {
-        throw new Error("sp_start no longer accepts direct request/workflow/entrypoint/proposal payloads. Call sp_prepare first, ask the user to confirm, then call sp_start(action=\"start_prepared_task\") with prepared_task_id, confirmation, and start_config.")
+        throw new Error("sp_start no longer accepts direct request/workflow/entrypoint/proposal payloads. Call sp_prepare first, ask the user to confirm, then call sp_start(action=\"start_prepared_task\") with prepared_task_id and confirmation (start_config optional).")
       }
       const startAction = currentForVersion ? inferStartAction(currentForVersion, {
         start_action: requestedAction,
@@ -231,22 +231,20 @@ export function createStartTool(
           parentSessionID,
         })
       } else {
-        throw new Error("sp_start requires prepared_task_id, confirmation, and start_config. Call sp_prepare first, ask the user to confirm, then call sp_start(action=\"start_prepared_task\").")
+        throw new Error("sp_start requires prepared_task_id and confirmation. Call sp_prepare first, ask the user to confirm, then call sp_start(action=\"start_prepared_task\"). start_config is optional and defaults to the prepared run workflow.")
       }
       const workflowSpec = buildWorkflowSpecFromStartConfig({
         runID: state.id,
         startConfig: args.start_config,
         fallbackWorkflow: state.workflow,
       })
-      if (workflowSpec) {
-        state = store.setWorkflowSpec({
-          runID: state.id,
-          parentSessionID,
-          workflowSpec,
-          workflow: workflowSpec.template_id ?? state.workflow,
-          entrypoint: entrypointForWorkflowSpec(workflowSpec, state.entrypoint),
-        })
-      }
+      state = store.setWorkflowSpec({
+        runID: state.id,
+        parentSessionID,
+        workflowSpec,
+        workflow: workflowSpec.template_id ?? state.workflow,
+        entrypoint: entrypointForWorkflowSpec(workflowSpec, state.entrypoint),
+      })
       if (dispatches.length === 0) {
         dispatches = await dispatchStart({
           store,
@@ -556,7 +554,7 @@ function normalizeStartAction(action: unknown): StartAction | undefined {
   if (action === undefined) return undefined
   if (action === "approve_design" || action === "approve_plan" || action === "start_entrypoint") {
     throw new Error(
-      `sp_start action "${action}" is a legacy public path and is no longer supported. Use v5: sp_prepare -> user confirmation -> sp_start(action="start_prepared_task", prepared_task_id, confirmation, start_config), or sp_start(action="resolve_controller_decision") with an allowed controller_decision.`,
+      `sp_start action "${action}" is a legacy public path and is no longer supported. Use v5: sp_prepare -> user confirmation -> sp_start(action="start_prepared_task", prepared_task_id, confirmation, optional start_config), or sp_start(action="resolve_controller_decision") with an allowed controller_decision.`,
     )
   }
   return action as StartAction
@@ -584,9 +582,8 @@ function validateStartPreparedTaskArgs(args: {
   if (!confirmation.user_confirmed) {
     throw new Error("sp_start start_prepared_task requires confirmation.user_confirmed true.")
   }
-  if (!normalizeStartConfig(args.startConfig)) {
-    throw new Error("sp_start start_prepared_task requires start_config.")
-  }
+  // start_config is optional; invalid shapes are rejected when building the workflow spec.
+  void args.startConfig
 }
 
 function normalizeStartConfirmation(value: unknown): NormalizedStartConfirmation {
@@ -600,7 +597,7 @@ function normalizeStartConfirmation(value: unknown): NormalizedStartConfirmation
 }
 
 type StartConfigInput = {
-  kind?: "built_in_workflow" | "orchestration"
+  kind: "built_in_workflow" | "orchestration"
   workflow_id?: string
   auto_expansion?: {
     allow?: boolean
@@ -611,18 +608,93 @@ type StartConfigInput = {
   quality_commands?: Partial<Record<"build" | "test" | "lint", string>>
 }
 
+function resolveStartConfig(args: {
+  startConfig: unknown
+  fallbackWorkflow: WorkflowKind
+}): StartConfigInput {
+  if (!args.startConfig || typeof args.startConfig !== "object") {
+    return {
+      kind: "built_in_workflow",
+      workflow_id: args.fallbackWorkflow,
+    }
+  }
+  const input = args.startConfig as Record<string, unknown>
+  const kind = typeof input.kind === "string" ? input.kind.trim() : ""
+  const autoExpansion = normalizeAutoExpansion(input.auto_expansion)
+  const requiredChecks = input.required_checks as StartConfigInput["required_checks"] | undefined
+  const qualityCommands = input.quality_commands as StartConfigInput["quality_commands"] | undefined
+  const workflowID = typeof input.workflow_id === "string" && input.workflow_id.trim()
+    ? input.workflow_id.trim()
+    : args.fallbackWorkflow
+
+  if (!kind) {
+    return {
+      kind: "built_in_workflow",
+      workflow_id: workflowID,
+      auto_expansion: autoExpansion,
+      required_checks: requiredChecks,
+      quality_commands: qualityCommands,
+    }
+  }
+
+  if (kind === "built_in_workflow") {
+    return {
+      kind: "built_in_workflow",
+      workflow_id: workflowID,
+      auto_expansion: autoExpansion,
+      required_checks: requiredChecks,
+      quality_commands: qualityCommands,
+    }
+  }
+
+  if (kind === "orchestration") {
+    return {
+      kind: "orchestration",
+      orchestration: input.orchestration as WorkflowOrchestration | undefined,
+      auto_expansion: autoExpansion,
+      required_checks: requiredChecks,
+      quality_commands: qualityCommands,
+    }
+  }
+
+  // Compat: controllers often pass kind:"feature" instead of built_in_workflow + workflow_id.
+  if (findBuiltInWorkflowTemplate(kind)) {
+    return {
+      kind: "built_in_workflow",
+      workflow_id: kind,
+      auto_expansion: autoExpansion,
+      required_checks: requiredChecks,
+      quality_commands: qualityCommands,
+    }
+  }
+
+  throw new Error(
+    `sp_start start_config.kind must be "built_in_workflow", "orchestration", or a built-in workflow id (feature, bugfix, debug, design-only, plan-only, review, review-only, verify-finish, parallel-investigate, single-agent). Received: "${kind}". Example: { "kind": "built_in_workflow", "workflow_id": "feature" }. Or omit start_config to use the prepared run workflow.`,
+  )
+}
+
+function normalizeAutoExpansion(value: unknown): StartConfigInput["auto_expansion"] | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const input = value as Record<string, unknown>
+  return {
+    allow: typeof input.allow === "boolean" ? input.allow : undefined,
+    reason: typeof input.reason === "string" ? input.reason : undefined,
+  }
+}
+
 function buildWorkflowSpecFromStartConfig(args: {
   runID: string
   startConfig: unknown
   fallbackWorkflow: WorkflowKind
-}): WorkflowSpec | undefined {
-  const config = normalizeStartConfig(args.startConfig)
-  if (!config) {
-    return undefined
-  }
+}): WorkflowSpec {
+  const config = resolveStartConfig(args)
   if (config.kind === "built_in_workflow") {
     const template = findBuiltInWorkflowTemplate(config.workflow_id)
-    if (!template) throw new Error(`Unknown built-in workflow template: ${config.workflow_id ?? "(missing workflow_id)"}.`)
+    if (!template) {
+      throw new Error(
+        `Unknown built-in workflow template: ${config.workflow_id ?? "(missing workflow_id)"}. Use a known workflow_id or omit start_config to use the prepared run workflow (${args.fallbackWorkflow}).`,
+      )
+    }
     return createWorkflowSpec({
       id: `${args.runID}-workflow-spec`,
       kind: "built_in_workflow",
@@ -633,7 +705,9 @@ function buildWorkflowSpecFromStartConfig(args: {
     })
   }
   if (!config.orchestration?.nodes?.length) {
-    throw new Error("sp_start start_config.kind=orchestration requires orchestration.nodes.")
+    throw new Error(
+      'sp_start start_config.kind="orchestration" requires orchestration.nodes. For a built-in template use { "kind": "built_in_workflow", "workflow_id": "feature" }, or omit start_config.',
+    )
   }
   return createWorkflowSpec({
     id: `${args.runID}-workflow-spec`,
@@ -651,13 +725,6 @@ function withQualityPolicy(orchestration: WorkflowOrchestration, config: StartCo
     required_checks: config.required_checks ?? orchestration.required_checks,
     quality_commands: config.quality_commands ?? orchestration.quality_commands,
   }
-}
-
-function normalizeStartConfig(value: unknown): StartConfigInput | undefined {
-  if (!value || typeof value !== "object") return undefined
-  const input = value as StartConfigInput
-  if (!input.kind) return undefined
-  return input
 }
 
 function entrypointForWorkflowSpec(spec: WorkflowSpec, fallback: WorkflowEntrypoint): WorkflowEntrypoint {

@@ -241,11 +241,11 @@ function buildPrepareStageWorkflowSpec(args: {
 function nextMessageForPrepareMode(mode: PrepareMode): string {
   switch (mode) {
     case "managed_design":
-      return "Wait for the designer candidate output. After user confirmation, continue through the v5 path: sp_prepare for the confirmed task, then sp_start(action=\"start_prepared_task\") with confirmation and start_config; otherwise request a revision."
+      return "Wait for the designer candidate output. After user confirmation, continue through the v5 path: sp_prepare for the confirmed task, then sp_start(action=\"start_prepared_task\") with confirmation (start_config optional); otherwise request a revision."
     case "managed_planning":
-      return "Wait for the planner candidate output. After user confirmation, continue through the v5 path: sp_prepare for the confirmed task, then sp_start(action=\"start_prepared_task\") with confirmation and start_config; otherwise request a revision."
+      return "Wait for the planner candidate output. After user confirmation, continue through the v5 path: sp_prepare for the confirmed task, then sp_start(action=\"start_prepared_task\") with confirmation (start_config optional); otherwise request a revision."
     default:
-      return "Ask the user to approve, revise, or cancel the proposal. After approval, call sp_start(action=\"start_prepared_task\", prepared_task_id, confirmation, start_config)."
+      return "Ask the user to approve, revise, or cancel the proposal. After approval, call sp_start(action=\"start_prepared_task\", prepared_task_id, confirmation). start_config is optional and defaults to the prepared workflow."
   }
 }
 

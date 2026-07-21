@@ -321,7 +321,7 @@ describe("sp_prepare and sp_start tools", () => {
     }
   })
 
-  test("sp_start start_prepared_task requires prepared_task_id confirmation and start_config", async () => {
+  test("sp_start start_prepared_task requires prepared_task_id and confirmation; start_config optional", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-v5-start-required-"))
     try {
       const store = createProjectStore(project)
@@ -334,7 +334,17 @@ describe("sp_prepare and sp_start tools", () => {
         parentSessionID: "session-main",
         prepareMode: "proposal_only",
       })
-      const start = createStartTool(store)
+      const dispatched: Array<{ agent: string; phase: string }> = []
+      const start = createStartTool(store, {
+        async dispatch(args) {
+          dispatched.push({ agent: args.decision.agent, phase: args.decision.phase })
+          return {
+            action: "create_session",
+            session_id: `session-${args.decision.agent}`,
+            task_markdown: "# Task",
+          }
+        },
+      })
 
       await expect(start.execute({
         action: "start_prepared_task",
@@ -348,11 +358,77 @@ describe("sp_prepare and sp_start tools", () => {
         start_config: { kind: "built_in_workflow", workflow_id: "single-agent" },
       }, toolContext)).rejects.toThrow("sp_start start_prepared_task requires confirmation.user_confirmed true.")
 
+      const startedOutput = await start.execute({
+        action: "start_prepared_task",
+        prepared_task_id: prepared.id,
+        confirmation: { user_confirmed: true, user_message: "go" },
+      }, toolContext)
+      const started = JSON.parse(toolOutput(startedOutput))
+      expect(started.state.workflow_spec?.template_id ?? started.state.workflow_spec?.kind).toBeTruthy()
+      expect(started.state.workflow_spec?.template_id ?? started.state.workflow).toBe("feature")
+      expect(existsSync(join(store.root, "runs", prepared.id, "workflow-spec.json"))).toBe(true)
+      expect(dispatched.length).toBeGreaterThan(0)
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start accepts kind equal to a built-in workflow id as alias", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-v5-start-kind-alias-"))
+    try {
+      const store = createProjectStore(project)
+      const prepared = store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Alias kind feature",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+        prepareMode: "proposal_only",
+      })
+      const start = createStartTool(store, {
+        async dispatch(args) {
+          return {
+            action: "create_session",
+            session_id: `session-${args.decision.agent}`,
+            task_markdown: "# Task",
+          }
+        },
+      })
+      const startedOutput = await start.execute({
+        action: "start_prepared_task",
+        prepared_task_id: prepared.id,
+        confirmation: { user_confirmed: true, user_message: "go" },
+        start_config: { kind: "feature" },
+      }, toolContext)
+      const started = JSON.parse(toolOutput(startedOutput))
+      expect(started.state.workflow_spec?.template_id).toBe("feature")
+      expect(started.state.workflow_spec?.kind).toBe("built_in_workflow")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("sp_start rejects unknown start_config.kind with a clear message", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-v5-start-bad-kind-"))
+    try {
+      const store = createProjectStore(project)
+      const prepared = store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Bad kind",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+        prepareMode: "proposal_only",
+      })
+      const start = createStartTool(store)
       await expect(start.execute({
         action: "start_prepared_task",
         prepared_task_id: prepared.id,
         confirmation: { user_confirmed: true },
-      }, toolContext)).rejects.toThrow("sp_start start_prepared_task requires start_config.")
+        start_config: { kind: "not-a-real-workflow" },
+      }, toolContext)).rejects.toThrow(/start_config\.kind must be/)
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
@@ -372,7 +448,7 @@ describe("sp_prepare and sp_start tools", () => {
           proposal: "# Proposal\n\nRun feature workflow.",
         },
         toolContext,
-      )).rejects.toThrow("sp_start no longer accepts direct request/workflow/entrypoint/proposal payloads. Call sp_prepare first, ask the user to confirm, then call sp_start(action=\"start_prepared_task\") with prepared_task_id, confirmation, and start_config.")
+      )).rejects.toThrow("sp_start no longer accepts direct request/workflow/entrypoint/proposal payloads. Call sp_prepare first, ask the user to confirm, then call sp_start(action=\"start_prepared_task\") with prepared_task_id and confirmation (start_config optional).")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
