@@ -462,15 +462,15 @@ function createForegroundChildPromptSlot(api: TuiApi): (_context?: unknown, prop
   return (context, props) => {
     const currentSessionID = slotContextFromArgs(api, context, props).sessionID
     if (typeof currentSessionID !== "string") return null
-    const workflow = currentWorkflowContext(api, currentSessionID).state
-    const foreground = workflow ? foregroundChildNode(workflow) : undefined
-    if (!workflow || !foreground) return null
-    // Native-only: bind input to a child only when the user is viewing that child session.
-    // Parent route keeps the host default prompt so answers go to the controller.
-    if (currentSessionID !== foreground.session_id) return null
     if (!api.ui?.Prompt) return null
+    const workflow = currentWorkflowContext(api, currentSessionID).state
+    if (!workflow) return null
+    // Parent route keeps the host default prompt. Any workflow child route gets an explicit
+    // Prompt so native parentID subagent pages (and design foreground) stay interactive.
+    const node = workflow.node_runs.find((run) => run.session_id === currentSessionID)
+    if (!node) return null
     const input = isRecord(props) ? props : isRecord(context) ? context : {}
-    const childLabel = `${foreground.agent}${foreground.task_id ? ` ${foreground.task_id}` : ""}`
+    const childLabel = `${node.agent}${node.task_id ? ` ${node.task_id}` : ""}`
     // Do not pass string `hint`: OpenCode inserts `U.hint` as raw children under a box,
     // and orphan text-nodes fatal the TUI ("must have a <text> as a parent").
     return api.ui.Prompt({
@@ -971,24 +971,6 @@ function progressModel(
 
 function isWorkflowSession(state: WorkflowState, sessionID: string): boolean {
   return sessionID === state.parent_session_id || state.node_runs.some((node) => node.session_id === sessionID)
-}
-
-function foregroundChildNode(state: WorkflowState): WorkflowState["node_runs"][number] | undefined {
-  if (state.pending_question?.source_node_id) {
-    const questionNode = state.node_runs.find((node) => node.id === state.pending_question?.source_node_id)
-    if (questionNode && isForegroundSerialPhase(questionNode.phase)) return questionNode
-  }
-  if (state.status === "awaiting_design_approval") {
-    return [...state.node_runs].reverse().find((node) => node.phase === "design")
-  }
-  if (state.status === "awaiting_plan_approval") {
-    return [...state.node_runs].reverse().find((node) => node.phase === "plan")
-  }
-  return [...state.node_runs].reverse().find((node) => node.status === "running")
-}
-
-function isForegroundSerialPhase(phase: string): boolean {
-  return phase === "design" || phase === "plan"
 }
 
 function liveStatusBySession(api: TuiApi, state: WorkflowState | null): Record<string, string> {

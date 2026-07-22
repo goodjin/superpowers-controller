@@ -63,12 +63,18 @@ export function createOpenCodeSessionAdapter(ctx: OpenCodePluginContext): Sessio
       if (process.env.OPENCODE_SUPERPOWERS_DISABLE_CHILD_PROMPT === "1") {
         return `session-suppressed-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
       }
+      // Design sessions are auto-focused for direct Q&A. Native parentID child routes hide the
+      // normal bottom prompt (SubagentFooter-only), so omit parentID for sp-designer and keep a
+      // regular interactive session shell. Logical parentage still lives in workflow state.
+      const body: Record<string, string> = {
+        title: input.title,
+        agent: input.agent,
+      }
+      if (input.agent !== "sp-designer") {
+        body.parentID = input.parentSessionID
+      }
       const created = await callMethod(ctx.client.session, "create", {
-        body: {
-          title: input.title,
-          agent: input.agent,
-          parentID: input.parentSessionID,
-        },
+        body,
       })
       const sessionID = extractSessionID(created)
       if (!sessionID) throw new Error("OpenCode session.create did not return a session id")

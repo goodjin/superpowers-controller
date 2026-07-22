@@ -11,7 +11,8 @@ design 阶段减少「主控转述」成本：TUI 自动进入 `sp-designer` 子
 ## 行为
 
 1. **进入 design**  
-   `dispatch` 创建/复用 `phase=design` 子会话后：`selectSession(child)` + toast「已进入 design 子会话，可直接对话」。
+   `dispatch` 创建/复用 `phase=design` 子会话后：`selectSession(child)` + toast「已进入 design 子会话，可直接对话」。  
+   `sp-designer` 创建时**不传** OpenCode `parentID`，使用普通可交互 session 壳（保留底部输入框）。逻辑父子仍写在 workflow state。
 
 2. **澄清提问（`needs_user`，source 为 design）**  
    通知投到 design 子会话（`sp-designer` + foreground 文案），`selectSession(child)`。  
