@@ -38,10 +38,10 @@ export const WorkflowConfigSchema = z.object({
   liveness: z
     .object({
       enabled: z.boolean().default(true),
-      timeout_ms: z.number().int().positive().default(60_000),
+      timeout_ms: z.number().int().positive().default(300_000),
       check_interval_ms: z.number().int().positive().default(15_000),
     })
-    .default({ enabled: true, timeout_ms: 60_000, check_interval_ms: 15_000 }),
+    .default({ enabled: true, timeout_ms: 300_000, check_interval_ms: 15_000 }),
   interaction: z
     .object({
       mode: InteractionModeSchema.default("native"),

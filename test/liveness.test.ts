@@ -43,7 +43,7 @@ function baseState(): WorkflowState {
 describe("liveness monitor", () => {
   test("findExpiredRunningNodes flags stale progress beyond timeout", () => {
     const state = baseState()
-    const now = new Date("2026-01-01T00:02:00.000Z")
+    const now = new Date("2026-01-01T00:06:00.000Z")
     const expired = findExpiredRunningNodes({
       state,
       progressByNode: {
@@ -63,7 +63,7 @@ describe("liveness monitor", () => {
     })
 
     expect(expired).toHaveLength(1)
-    expect(expired[0]?.idle_ms).toBe(120_000)
+    expect(expired[0]?.idle_ms).toBe(360_000)
   })
 
   test("findExpiredRunningNodes ignores fresh progress", () => {
@@ -125,7 +125,7 @@ describe("liveness monitor", () => {
       const expired = findExpiredRunningNodes({
         state,
         progressByNode: progress.readRun(state),
-        now: new Date("2026-01-01T00:02:00.000Z"),
+        now: new Date("2026-01-01T00:06:00.000Z"),
         timeoutMs: DEFAULT_LIVENESS_TIMEOUT_MS,
       })
       expect(expired).toHaveLength(1)

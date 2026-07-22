@@ -72,7 +72,7 @@ server plugin 的 `event` hook 会读取当前 workflow state，只处理 `node_
 - `session.status`：记录 busy、retry、idle 等状态。
 - `session.idle`：记录当前 child turn 已空闲。
 - `session.error`：记录 provider 或 runtime 错误摘要；plugin event hook 同时调用 `markSessionError` 闭合假 `running` node。
-- **liveness monitor**：默认每 15s 检查一次，若 `running` node 的 progress（或 `started_at`）超过 60s 无更新，则标 `interrupted` 并写入 `liveness_timeout` 事件。TUI `stalled` 阈值仍为 30s，只负责早提示，不负责 state 降级。
+- **liveness monitor**：默认每 15s 检查一次，若 `running` node 的 progress（或 `started_at`）超过 5 分钟无更新，则标 `interrupted` 并写入 `liveness_timeout` 事件。TUI `stalled` 阈值仍为 30s，只负责早提示，不负责 state 降级。
 
 进展以 JSONL 追加到：
 

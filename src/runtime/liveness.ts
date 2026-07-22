@@ -1,7 +1,7 @@
 import type { NodeProgressEntry } from "../progress/node-progress"
 import type { NodeRun, WorkflowState } from "../state/types"
 
-export const DEFAULT_LIVENESS_TIMEOUT_MS = 60_000
+export const DEFAULT_LIVENESS_TIMEOUT_MS = 300_000
 export const DEFAULT_LIVENESS_CHECK_INTERVAL_MS = 15_000
 
 export type LivenessExpiredNode = {

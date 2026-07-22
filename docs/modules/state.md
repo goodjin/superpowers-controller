@@ -10,7 +10,7 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 - `src/state/paths.ts`：项目本地数据根目录 `.superpowers/`（与 `.opencode/superpowers.jsonc` 配置分离）。
 - `src/state/store.ts`：读写 current pointer、run directory、state、artifacts、nodes 和 changelog；含 `markPromptDeliveryFailed`、`markSessionError`、`markNotificationFailed`、`markUnreportedExit`（无 `sp_report` 闭合 + silent-exit 证据）。
 - `src/runtime/workflow-attention.ts`：并行混合态、技术异常后的 workflow status 和 `parallel_context` 辅助逻辑。
-- `src/runtime/liveness.ts`：基于 progress 陈旧度把挂死 `running` node 标为 `interrupted`（默认 60s，可配置）。
+- `src/runtime/liveness.ts`：基于 progress 陈旧度把挂死 `running` node 标为 `interrupted`（默认 5 分钟，可配置）。
 - `src/runtime/silent-exit.ts`：子会话无 `sp_report` 结束时采集最后助手文字与产出路径。
 - `src/runtime/unreported-exit-handler.ts`：`session.idle` / liveness / `session.error` 的无汇报闭合与主控通知。
 - `src/runtime/notify-controller.ts`：`waiting_controller_decision` 时调度 parent 决策 prompt。
