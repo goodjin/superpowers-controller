@@ -801,6 +801,64 @@ describe("Superpowers TUI plugin", () => {
     expect(sidebar.value).toBe("Session\n↳ Grep sidebar\nInvestigate vpn routing")
   })
 
+  test("sidebar hides terminal empty workflow and shows controller session focus", () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-tui-canceled-empty-"))
+    try {
+      const store = createProjectStore(project)
+      const prepared = store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Take over after cancel",
+        request: "# Request\n\nTake over after cancel.",
+        proposal: "# Proposal\n\nPrepared then canceled.",
+        parentSessionID: "session-main",
+      })
+      store.cancel({ runID: prepared.id, reason: "controller takeover" })
+      expect(store.readCurrent()?.status).toBe("canceled")
+      expect(store.readCurrent()?.node_runs).toEqual([])
+
+      const api = {
+        state: {
+          path: { directory: project },
+          session: {
+            get(sessionID: string) {
+              return {
+                id: sessionID,
+                title: "Controller takeover",
+                agent: "superpowers-agent",
+                directory: project,
+              }
+            },
+            status() {
+              return { type: "busy" }
+            },
+            messages(sessionID: string) {
+              expect(sessionID).toBe("session-main")
+              return [{
+                info: { id: "msg-1", role: "assistant" },
+                parts: [{ type: "tool", tool: "bash", state: { status: "running", title: "sprint" } }],
+              }]
+            },
+          },
+        },
+      } as never
+      const sidebarSlot = createProgressSlot(
+        api,
+        (value) => ({ type: "text", value: typeof value === "function" ? value() : value }),
+        { refreshMs: 0, renderer: "sidebar", allowGlobal: true },
+      )
+      const sidebar = sidebarSlot(undefined, { session_id: "session-main" }) as { type: string; value: string }
+      expect(sidebar.value).not.toContain("canceled")
+      expect(sidebar.value).not.toContain("waiting for node dispatch")
+      expect(sidebar.value).not.toContain("SP feature")
+      expect(sidebar.value).toContain("Session")
+      expect(sidebar.value).toContain("Controller takeover")
+      expect(sidebar.value).toContain("sprint")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("sidebar content shows running and planned child-session work", () => {
     const project = mkdtempSync(join(tmpdir(), "sp-tui-planned-sessions-"))
     try {
@@ -1136,7 +1194,7 @@ function createWorkflowWithProgress(args: {
 
 function writeWorkflowState(project: string, state: WorkflowState): void {
   writeFileSync(
-    join(project, ".opencode", "superpowers", "runs", state.id, "state.json"),
+    join(project, ".superpowers", "runs", state.id, "state.json"),
     `${JSON.stringify(state, null, 2)}\n`,
   )
 }

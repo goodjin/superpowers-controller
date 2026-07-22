@@ -8,6 +8,7 @@ import { createWorkflowSpec, findBuiltInWorkflowTemplate } from "../capabilities
 import { resolveWorkflowStatusAfterNodeReport, sessionErrorNodeStatus, workflowStatusAfterNodeFailure } from "../runtime/workflow-attention"
 import { mergeQualityChecksFromRecord } from "../runtime/quality-checks"
 import { formatSilentExitMarkdown } from "../runtime/silent-exit"
+import { projectStateRoot } from "./paths"
 import type {
   ControllerDecision,
   NodeRun,
@@ -160,7 +161,7 @@ export type ProjectStoreOptions = {
 
 /** Read only current.json + the active run state, without scanning every historical run directory. */
 export function readCurrentWorkflowState(project: string): WorkflowState | null {
-  const root = join(project, ".opencode", "superpowers")
+  const root = projectStateRoot(project)
   const currentPath = join(root, "current.json")
   if (!existsSync(currentPath)) return null
   try {
@@ -173,7 +174,7 @@ export function readCurrentWorkflowState(project: string): WorkflowState | null 
 }
 
 export function createProjectStore(project: string, options: ProjectStoreOptions = {}): ProjectStore {
-  const root = join(project, ".opencode", "superpowers")
+  const root = projectStateRoot(project)
   let loaded = false
   let currentRunID: string | undefined
   const runtimeRuns = new Map<string, WorkflowState>()

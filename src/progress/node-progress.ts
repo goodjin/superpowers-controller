@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import type { Event } from "@opencode-ai/sdk"
 import type { NodeRun, WorkflowState } from "../state/types"
+import { projectStateRoot } from "../state/paths"
 
 export type NodeProgressKind =
   | "session_status"
@@ -32,7 +33,7 @@ export type NodeProgressEntry = {
 export type NodeProgressStore = ReturnType<typeof createNodeProgressStore>
 
 export function createNodeProgressStore(project: string) {
-  const root = join(project, ".opencode", "superpowers")
+  const root = projectStateRoot(project)
   return {
     append(runID: string, entry: NodeProgressEntry): void {
       const path = progressPath(root, runID, entry.node_id)

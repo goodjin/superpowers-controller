@@ -7,6 +7,7 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 ## Files
 
 - `src/state/types.ts`：workflow、record、task graph、gate、artifact 和 `NodeRun` 类型。
+- `src/state/paths.ts`：项目本地数据根目录 `.superpowers/`（与 `.opencode/superpowers.jsonc` 配置分离）。
 - `src/state/store.ts`：读写 current pointer、run directory、state、artifacts、nodes 和 changelog；含 `markPromptDeliveryFailed`、`markSessionError`、`markNotificationFailed`、`markUnreportedExit`（无 `sp_report` 闭合 + silent-exit 证据）。
 - `src/runtime/workflow-attention.ts`：并行混合态、技术异常后的 workflow status 和 `parallel_context` 辅助逻辑。
 - `src/runtime/liveness.ts`：基于 progress 陈旧度把挂死 `running` node 标为 `interrupted`（默认 60s，可配置）。
@@ -22,7 +23,7 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 ## Run Layout
 
 ```text
-.opencode/superpowers/
+.superpowers/
   current.json
   runs/<run-id>/
     state.json
@@ -239,7 +240,7 @@ Transition 在 `code-review` passed 后回到 workflow-spec 计算 runnable node
 
 ## Runtime Memory vs Durable Snapshot
 
-runtime memory 是当前 workflow 状态的权威来源。`.opencode/superpowers/current.json` 和 `runs/<run-id>/state.json` 是 durable snapshot：它们记录插件已确认的 workflow 状态、node run、artifact path 和 task graph，用于重启恢复、审计和 TUI 跨进程降级读取，但不能直接证明 child session 此刻仍在运行。
+runtime memory 是当前 workflow 状态的权威来源。`.superpowers/current.json` 和 `runs/<run-id>/state.json` 是 durable snapshot：它们记录插件已确认的 workflow 状态、node run、artifact path 和 task graph，用于重启恢复、审计和 TUI 跨进程降级读取，但不能直接证明 child session 此刻仍在运行。插件配置仍在 `.opencode/superpowers.jsonc`，与数据目录分离。
 
 插件进程启动时从 durable snapshot 加载 state，然后先执行 reconciliation，再初始化 runtime memory。任何从 durable 恢复出的 `node_runs[].status === "running"` 或 active workflow 顶层 `status === "running"` 都不能原样进入当前事实；node running 必须被转成 `interrupted`，workflow 顶层进入 `recovered_unknown`，等待用户决定恢复、取消或检查。draft prepared workflow 仍等待用户显式 `sp_start`，不能被当作中断。
 

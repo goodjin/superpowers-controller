@@ -118,35 +118,35 @@ export async function createOpencodeE2EHarness(options: HarnessOptions = {}): Pr
     readArtifact(name) {
       const state = readWorkflowState(projectDir)
       if (!state) return null
-      const artifactPath = join(projectDir, ".opencode", "superpowers", "runs", state.id, "artifacts", `${name}.md`)
+      const artifactPath = join(projectDir, ".superpowers", "runs", state.id, "artifacts", `${name}.md`)
       if (!existsSync(artifactPath)) return null
       return readFileSync(artifactPath, "utf8")
     },
     readLastArtifact(name) {
       const state = readLastWorkflowState(projectDir)
       if (!state) return null
-      const artifactPath = join(projectDir, ".opencode", "superpowers", "runs", state.id, "artifacts", `${name}.md`)
+      const artifactPath = join(projectDir, ".superpowers", "runs", state.id, "artifacts", `${name}.md`)
       if (!existsSync(artifactPath)) return null
       return readFileSync(artifactPath, "utf8")
     },
     listNodeIDs(runID) {
       const state = readHarnessRun(projectDir, runID)
       if (!state) return []
-      const nodesRoot = join(projectDir, ".opencode", "superpowers", "runs", state.id, "nodes")
+      const nodesRoot = join(projectDir, ".superpowers", "runs", state.id, "nodes")
       if (!existsSync(nodesRoot)) return []
       return readdirSync(nodesRoot).sort()
     },
     readNodeTask(nodeID, runID) {
       const state = readHarnessRun(projectDir, runID)
       if (!state) return null
-      const taskPath = join(projectDir, ".opencode", "superpowers", "runs", state.id, "nodes", nodeID, "task.md")
+      const taskPath = join(projectDir, ".superpowers", "runs", state.id, "nodes", nodeID, "task.md")
       if (!existsSync(taskPath)) return null
       return readFileSync(taskPath, "utf8")
     },
     readNodeRecord(nodeID, runID) {
       const state = readHarnessRun(projectDir, runID)
       if (!state) return null
-      const recordPath = join(projectDir, ".opencode", "superpowers", "runs", state.id, "nodes", nodeID, "record.json")
+      const recordPath = join(projectDir, ".superpowers", "runs", state.id, "nodes", nodeID, "record.json")
       if (!existsSync(recordPath)) return null
       return JSON.parse(readFileSync(recordPath, "utf8")) as Record<string, unknown>
     },
@@ -159,7 +159,7 @@ export async function createOpencodeE2EHarness(options: HarnessOptions = {}): Pr
 }
 
 function readLastWorkflowState(projectDir: string): WorkflowState | null {
-  const runsRoot = join(projectDir, ".opencode", "superpowers", "runs")
+  const runsRoot = join(projectDir, ".superpowers", "runs")
   if (!existsSync(runsRoot)) return null
   const runIDs = readdirSync(runsRoot)
     .map((run) => ({ run, mtime: statSync(join(runsRoot, run)).mtimeMs }))
@@ -172,7 +172,7 @@ function readLastWorkflowState(projectDir: string): WorkflowState | null {
 }
 
 function readWorkflowState(projectDir: string): WorkflowState | null {
-  const currentPath = join(projectDir, ".opencode", "superpowers", "current.json")
+  const currentPath = join(projectDir, ".superpowers", "current.json")
   if (!existsSync(currentPath)) return null
   const pointer = JSON.parse(readFileSync(currentPath, "utf8")) as { run: string }
   return readRun(projectDir, pointer.run)
@@ -229,7 +229,7 @@ function readHarnessRun(projectDir: string, runID?: string): WorkflowState | nul
 }
 
 function readRun(projectDir: string, runID: string): WorkflowState | null {
-  const statePath = join(projectDir, ".opencode", "superpowers", "runs", runID, "state.json")
+  const statePath = join(projectDir, ".superpowers", "runs", runID, "state.json")
   if (!existsSync(statePath)) return null
   return JSON.parse(readFileSync(statePath, "utf8")) as WorkflowState
 }

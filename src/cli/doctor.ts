@@ -4,6 +4,7 @@ import { dirname, join } from "node:path"
 import { spawnSync } from "node:child_process"
 import { parse } from "jsonc-parser"
 import { CONFIG_FILE_NAME, LEGACY_CONFIG_FILE_NAME, PACKAGE_NAME, TUI_PACKAGE_ENTRY } from "./install"
+import { projectStateRoot } from "../state/paths"
 
 export const MIN_OPENCODE_VERSION = "1.16.0"
 
@@ -28,7 +29,7 @@ export function doctor(
   const tuiConfigContent = existsSync(tuiConfigPath) ? readFileSync(tuiConfigPath, "utf8") : ""
   const parsedTuiConfig = parse(tuiConfigContent || "{}")
   const skillsDir = join(configDir, "skills")
-  const stateDir = join(projectDir, ".opencode", "superpowers")
+  const stateDir = projectStateRoot(projectDir)
   const pluginConfigPath = join(configDir, CONFIG_FILE_NAME)
   const legacyPluginConfigPath = join(configDir, LEGACY_CONFIG_FILE_NAME)
   const hasPluginConfig = existsSync(pluginConfigPath)

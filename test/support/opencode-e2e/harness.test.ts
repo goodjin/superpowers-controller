@@ -75,11 +75,11 @@ describe("createOpencodeE2EHarness", () => {
         log.step("创建隔离 harness", "准备临时目录并直接写入 workflow state 与节点文件")
         harness = await createOpencodeE2EHarness()
         const runID = "run-node-files"
-        const runRoot = join(harness.projectDir, ".opencode", "superpowers", "runs", runID)
+        const runRoot = join(harness.projectDir, ".superpowers", "runs", runID)
         const nodeRoot = join(runRoot, "nodes", "001-plan")
         mkdirSync(nodeRoot, { recursive: true })
         writeFileSync(
-          join(harness.projectDir, ".opencode", "superpowers", "current.json"),
+          join(harness.projectDir, ".superpowers", "current.json"),
           `${JSON.stringify({ run: runID }, null, 2)}\n`,
         )
         writeFileSync(

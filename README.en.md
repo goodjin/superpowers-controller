@@ -94,9 +94,9 @@ Built-in workflows:
 Project-local state:
 
 ```text
-.opencode/superpowers/current.json
-.opencode/superpowers/runs/<run-id>/state.json
-.opencode/superpowers/runs/<run-id>/artifacts/*.md
+.superpowers/current.json
+.superpowers/runs/<run-id>/state.json
+.superpowers/runs/<run-id>/artifacts/*.md
 ```
 
 ## Configuration

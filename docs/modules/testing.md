@@ -134,7 +134,7 @@ mock e2e 写入临时 `opencode.jsonc`，使用 custom OpenAI-compatible provide
 - `mock.requests()` 读取 OpenCode 发给 provider 的真实请求体。
 - `mock.pending()` 检查未消费 expectation。
 - `runOpencode(...)` 用异步 child process 执行 `opencode run`。
-- `readWorkflowState()` 读取临时项目下的 `.opencode/superpowers/current.json` 和对应 run state。
+- `readWorkflowState()` 读取临时项目下的 `.superpowers/current.json` 和对应 run state。
 - `readLastWorkflowState()` 在 reset 清除 active pointer 后读取最近的历史 run。
 - `readArtifact(name)` 读取 run artifact。
 - `readLastArtifact(name)` 在 reset 后读取最近历史 run 的 artifact。

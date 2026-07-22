@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { projectStateRoot } from "../state/paths"
 import type { SessionMessageReader } from "./live-activity"
 
 type CachedSessionMessages = {
@@ -101,9 +102,9 @@ export async function refreshSessionMessageCache(
 
 export function sidebarDebugLogPath(projectDirectory?: string): string {
   if (projectDirectory) {
-    return join(projectDirectory, ".opencode", "superpowers", "sidebar-debug.log")
+    return join(projectStateRoot(projectDirectory), "sidebar-debug.log")
   }
-  return join(process.env.HOME ?? "/tmp", ".local", "share", "opencode", "superpowers-sidebar.log")
+  return join(process.env.HOME ?? "/tmp", ".local", "share", "superpowers", "sidebar.log")
 }
 
 export function appendSidebarDebugLog(projectDirectory: string | undefined, line: string): void {

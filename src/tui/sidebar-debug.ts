@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
+import { projectStateRoot } from "../state/paths"
 import type { SidebarViewModel } from "./sidebar-model"
 import { renderSidebarViewModelText } from "./sidebar-model"
 import { appendSidebarDebugLog } from "./session-message-cache"
@@ -15,7 +16,7 @@ function envDebugEnabled(): boolean {
 
 function fileDebugEnabled(projectDirectory?: string): boolean {
   if (!projectDirectory) return false
-  return existsSync(join(projectDirectory, ".opencode", "superpowers", "sidebar-debug.enable"))
+  return existsSync(join(projectStateRoot(projectDirectory), "sidebar-debug.enable"))
 }
 
 export function isSidebarDebugEnabled(projectDirectory?: string): boolean {

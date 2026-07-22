@@ -75,7 +75,7 @@ describe("createSessionOrchestrator", () => {
   test("inlines required artifact bodies into dispatched node prompts", async () => {
     const project = join(tmpdir(), `sp-inline-artifacts-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     const runID = "run-inline"
-    const runRoot = join(project, ".opencode", "superpowers", "runs", runID)
+    const runRoot = join(project, ".superpowers", "runs", runID)
     mkdirSync(join(runRoot, "artifacts"), { recursive: true })
     writeFileSync(join(runRoot, "request.md"), "# Request\n\nBuild a computer-use agent.\n")
     writeFileSync(join(runRoot, "artifacts", "plan.md"), "# Plan\n\nImplement T01 first.\n")

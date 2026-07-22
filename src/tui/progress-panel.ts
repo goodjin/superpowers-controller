@@ -86,7 +86,8 @@ export function buildProgressPanelViewModel(
     }
   }
 
-  const unsortedRows = state.node_runs.map((node) => {
+  const visibleNodes = visibleNodeRunsForDisplay(state.node_runs)
+  const unsortedRows = visibleNodes.map((node) => {
     const progress = progressByNode[node.id] ?? []
     const latest = progress.at(-1)
     const display = latestDisplayProgress(progress)
@@ -137,6 +138,26 @@ export function buildProgressPanelViewModel(
     rows,
     tasks: progressTaskRows(state),
   }
+}
+
+/** Group key for sidebar display: one visible row per task+phase (or phase alone). */
+export function nodeRunDisplayGroupKey(node: Pick<WorkflowState["node_runs"][number], "task_id" | "phase">): string {
+  return node.task_id ? `${node.task_id}:${node.phase}` : node.phase
+}
+
+/**
+ * Keep only the latest node run per display group so superseded interrupted/canceled
+ * attempts do not clutter the sidebar. Durable `node_runs` history is unchanged.
+ */
+export function visibleNodeRunsForDisplay(
+  nodeRuns: WorkflowState["node_runs"],
+): WorkflowState["node_runs"] {
+  const latestIndexByGroup = new Map<string, number>()
+  nodeRuns.forEach((node, index) => {
+    latestIndexByGroup.set(nodeRunDisplayGroupKey(node), index)
+  })
+  const keepIndexes = new Set(latestIndexByGroup.values())
+  return nodeRuns.filter((_, index) => keepIndexes.has(index))
 }
 
 export function renderProgressPanelText(model: ProgressPanelViewModel): string {
@@ -200,7 +221,7 @@ export function renderAppBottomChildPanelText(model: ProgressPanelViewModel, max
     lines.push(...model.rows.slice(0, maxRows).map(renderAppBottomRow))
     if (model.rows.length > maxRows) lines.push(`+${model.rows.length - maxRows} more`)
   } else {
-    lines.push("waiting for node dispatch")
+    lines.push(emptyNodeDispatchHint(model))
   }
   const planned = plannedTaskRows(model)
   if (planned.length > 0) {
@@ -273,8 +294,23 @@ export function renderSidebarProgressText(model: ProgressPanelViewModel, maxRows
     return lines.join("\n")
   }
 
-  lines.push("waiting for node dispatch")
+  lines.push(emptyNodeDispatchHint(model))
   return lines.join("\n")
+}
+
+/** Terminal workflows with no child nodes should not pin the sidebar progress block. */
+export function shouldShowSidebarWorkflowProgress(state: WorkflowState | null | undefined): boolean {
+  if (!state) return false
+  if ((state.status === "passed" || state.status === "canceled") && state.node_runs.length === 0) {
+    return false
+  }
+  return true
+}
+
+function emptyNodeDispatchHint(model: ProgressPanelViewModel): string {
+  if (model.status === "canceled") return "workflow canceled · no child sessions"
+  if (model.status === "passed") return "workflow finished · no child sessions"
+  return "waiting for node dispatch"
 }
 
 function renderSidebarWorkflowHeader(model: ProgressPanelViewModel): string {

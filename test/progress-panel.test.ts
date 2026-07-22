@@ -7,6 +7,8 @@ import {
   renderRunningSessionsText,
   renderSidebarProgressText,
   renderWorkflowStatusText,
+  shouldShowSidebarWorkflowProgress,
+  visibleNodeRunsForDisplay,
 } from "../src/tui/progress-panel"
 import type { NodeProgressEntry } from "../src/progress/node-progress"
 import type { WorkflowState } from "../src/state/types"
@@ -452,6 +454,43 @@ describe("progress panel view model", () => {
     ].join("\n"))
   })
 
+  test("sidebar progress uses terminal empty copy instead of waiting for dispatch", () => {
+    const canceled: WorkflowState = {
+      id: "run-canceled",
+      project: "/repo",
+      session: "session-main",
+      parent_session_id: "session-main",
+      activation: "active",
+      workflow: "feature",
+      entrypoint: "feature",
+      limited_context: false,
+      mode: "design",
+      phase: "plan",
+      current_phase: "plan",
+      status: "canceled",
+      goal: "Implement feature",
+      created_at: "2026-06-19T00:00:00.000Z",
+      updated_at: "2026-06-19T00:00:00.000Z",
+      gates: {},
+      artifacts: {},
+      node_runs: [],
+      history: [{ at: "2026-06-19T00:00:00.000Z", event: "created", to: "feature" }],
+    }
+
+    expect(shouldShowSidebarWorkflowProgress(canceled)).toBe(false)
+    expect(renderSidebarProgressText(buildProgressPanelViewModel(canceled, {}, {}))).toBe([
+      "SP feature · plan (canceled)",
+      "workflow canceled · no child sessions",
+    ].join("\n"))
+
+    const finished = { ...canceled, id: "run-passed", status: "passed" as const, current_phase: "finished", phase: "finished" }
+    expect(shouldShowSidebarWorkflowProgress(finished)).toBe(false)
+    expect(renderSidebarProgressText(buildProgressPanelViewModel(finished, {}, {}))).toBe([
+      "SP feature · finished (passed)",
+      "workflow finished · no child sessions",
+    ].join("\n"))
+  })
+
   test("sidebar progress renders a TodoWrite-style planned and running task list", () => {
     const state: WorkflowState = {
       id: "run-1",
@@ -770,11 +809,91 @@ describe("progress panel view model", () => {
       new Date("2026-06-19T00:02:10.000Z"),
     )
 
+    expect(model.rows).toHaveLength(1)
+    expect(model.rows[0]?.node_id).toBe("012-implement-T3-retry-2")
     expect(renderCompactProgressText(model)).toBe("SP: sp-implementer T3 running - bash running")
     expect(renderSidebarProgressText(model)).toContain("● [⌘1] sp-implementer T3  running")
     expect(renderSidebarProgressText(model)).toContain("  bash running")
-    expect(renderSidebarProgressText(model)).toContain("sp-implementer T3  interrupted")
-    expect(renderSidebarProgressText(model)).toContain("  session error: Aborted")
+    expect(renderSidebarProgressText(model)).not.toContain("interrupted")
+    expect(renderSidebarProgressText(model)).not.toContain("session error: Aborted")
     expect(model.tasks[0]?.status).toBe("running")
+  })
+
+  test("visibleNodeRunsForDisplay keeps latest per phase and per task+phase", () => {
+    const nodes: WorkflowState["node_runs"] = [
+      {
+        id: "001-plan",
+        phase: "plan",
+        agent: "sp-planner",
+        session_id: "s1",
+        status: "interrupted",
+        attempts: 1,
+        started_at: "2026-06-19T00:00:00.000Z",
+      },
+      {
+        id: "002-plan",
+        phase: "plan",
+        agent: "sp-planner",
+        session_id: "s2",
+        status: "passed",
+        attempts: 2,
+        started_at: "2026-06-19T00:01:00.000Z",
+      },
+      {
+        id: "003-design",
+        phase: "design",
+        agent: "sp-designer",
+        session_id: "s3",
+        status: "interrupted",
+        attempts: 1,
+        started_at: "2026-06-19T00:02:00.000Z",
+      },
+      {
+        id: "004-design",
+        phase: "design",
+        agent: "sp-designer",
+        session_id: "s4",
+        status: "running",
+        attempts: 2,
+        started_at: "2026-06-19T00:03:00.000Z",
+      },
+      {
+        id: "005-implement-T1",
+        task_id: "T1",
+        phase: "implement",
+        agent: "sp-implementer",
+        session_id: "s5",
+        status: "passed",
+        attempts: 1,
+        started_at: "2026-06-19T00:04:00.000Z",
+      },
+      {
+        id: "006-implement-T2",
+        task_id: "T2",
+        phase: "implement",
+        agent: "sp-implementer",
+        session_id: "s6",
+        status: "interrupted",
+        attempts: 1,
+        started_at: "2026-06-19T00:05:00.000Z",
+      },
+      {
+        id: "007-implement-T2",
+        task_id: "T2",
+        phase: "implement",
+        agent: "sp-implementer",
+        session_id: "s7",
+        status: "running",
+        attempts: 2,
+        started_at: "2026-06-19T00:06:00.000Z",
+      },
+    ]
+
+    expect(visibleNodeRunsForDisplay(nodes).map((node) => node.id)).toEqual([
+      "002-plan",
+      "004-design",
+      "005-implement-T1",
+      "007-implement-T2",
+    ])
   })
 })

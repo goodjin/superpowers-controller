@@ -5,6 +5,7 @@ import type { SessionAdapter } from "./adapter"
 import { buildNodeTaskPrompt } from "./templates"
 import type { NodeTaskPacket } from "./task-packet"
 import type { WorkflowState } from "../state/types"
+import { projectRunRoot } from "../state/paths"
 
 export type SessionDispatchResult = {
   action: "create_session" | "reuse_session"
@@ -183,7 +184,7 @@ function inlineRequiredArtifacts(args: {
   packet: NodeTaskPacket
 }): NodeTaskPacket {
   if (args.packet.required_artifacts.length === 0) return args.packet
-  const runRoot = join(args.project, ".opencode", "superpowers", "runs", args.runID)
+  const runRoot = projectRunRoot(args.project, args.runID)
   return {
     ...args.packet,
     source_artifacts: args.packet.required_artifacts.map((artifact) => {

@@ -7,6 +7,7 @@ import type { PrepareMode, WorkflowEntrypoint, WorkflowKind } from "../state/typ
 import { AGENT_SKILL_MAP } from "../router/modes"
 import { buildControllerFeedback } from "../controller/feedback"
 import { createWorkflowSpec } from "../capabilities/workflows"
+import { relativeRunPath } from "../state/paths"
 import { dispatchWorkflowDecisions } from "./sp-start"
 
 export function createPrepareTool(
@@ -138,13 +139,13 @@ export function createPrepareTool(
           }),
           required_user_confirmations: requiredConfirmations(args.confirmation),
           artifact_paths: {
-            request: `.opencode/superpowers/runs/${fresh.id}/request.md`,
-            task: `.opencode/superpowers/runs/${fresh.id}/task.md`,
-            proposal: `.opencode/superpowers/runs/${fresh.id}/proposal.md`,
-            documents: `.opencode/superpowers/runs/${fresh.id}/documents.json`,
+            request: relativeRunPath(fresh.id, "request.md"),
+            task: relativeRunPath(fresh.id, "task.md"),
+            proposal: relativeRunPath(fresh.id, "proposal.md"),
+            documents: relativeRunPath(fresh.id, "documents.json"),
           },
           warnings: prepareWarnings({ prepareMode, designParticipation }),
-          documents: `.opencode/superpowers/runs/${fresh.id}/documents.json`,
+          documents: relativeRunPath(fresh.id, "documents.json"),
           next: nextMessageForPrepareMode(prepareMode),
           controller_feedback: buildControllerFeedback(fresh),
         },

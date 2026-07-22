@@ -6,6 +6,7 @@ import { createSignal, onCleanup, type Accessor } from "solid-js"
 import { createNodeProgressStore } from "./progress/node-progress"
 import type { NodeProgressEntry } from "./progress/node-progress"
 import { createProjectStore, readCurrentWorkflowState } from "./state/store"
+import { projectStateRoot } from "./state/paths"
 import {
   buildProgressPanelViewModel,
   renderAppBottomChildPanelText,
@@ -14,6 +15,7 @@ import {
   renderRunningSessionsText,
   renderSidebarProgressText,
   renderWorkflowStatusText,
+  shouldShowSidebarWorkflowProgress,
 } from "./tui/progress-panel"
 import { liveActivityBySession, isActiveHostSessionStatus, normalizeSessionLiveStatus } from "./tui/live-activity"
 import {
@@ -516,7 +518,7 @@ function createSidebarProgressSlot(
     const loadModel = async () => {
       try {
         const context = currentWorkflowContext(api, sessionID)
-        if (context.state) {
+        if (shouldShowSidebarWorkflowProgress(context.state)) {
           const hostSessions = sidebarHostSessions(api, context, sessionID)
           return assembleSidebarViewModel(api, sessionID, options.allowGlobal, context, hostSessions)
         }
@@ -599,7 +601,7 @@ async function loadSidebarViewModel(
   allowGlobal = false,
 ): Promise<SidebarViewModel> {
   const context = currentWorkflowContext(api, sessionID)
-  if (context.state) {
+  if (shouldShowSidebarWorkflowProgress(context.state)) {
     const hostSessions = sidebarHostSessions(api, context, sessionID)
     return assembleSidebarViewModel(api, sessionID, allowGlobal, context, hostSessions)
   }
@@ -618,7 +620,8 @@ function sidebarHostSessions(
 ): ReturnType<typeof readHostSessionsSync> {
   const seedIDs = collectWorkflowSessionIDs(context.state, sessionID)
   let rows = readHostSessionsSync(api, seedIDs)
-  if (!context.state && sessionID && rows.length === 0) {
+  const treatAsNoWorkflow = !shouldShowSidebarWorkflowProgress(context.state)
+  if ((!context.state || treatAsNoWorkflow) && sessionID && rows.length === 0) {
     rows = readHostSessionsSync(api, [sessionID])
   }
   return rows
@@ -643,7 +646,8 @@ function assembleSidebarViewModel(
   context = currentWorkflowContext(api, sessionID),
   hostSessions = sidebarHostSessions(api, context, sessionID),
 ): SidebarViewModel {
-  const hasWorkflow = Boolean(context.state)
+  const displayWorkflow = shouldShowSidebarWorkflowProgress(context.state)
+  const hasWorkflow = displayWorkflow
   const hostMode = resolveSidebarHostRenderMode(hasWorkflow, hostSessions)
   const host = buildSidebarHostModel(
     sidebarHostReader(api),
@@ -653,7 +657,7 @@ function assembleSidebarViewModel(
   )
   let workflowText = ""
   let workflowDiagnostic: string | undefined
-  if (context.state) {
+  if (displayWorkflow && context.state) {
     const progress = createNodeProgressStore(context.project).readRun(context.state)
     const model = progressModel(api, context.state, progress, sessionID, allowGlobal)
     workflowText = sidebarWorkflowProgressText(api, context.state, model)
@@ -854,7 +858,7 @@ function resolveSessionProjectDirectory(api: TuiApi, sessionID?: unknown): strin
 }
 
 function workflowCandidatesForProject(project: string, includeHistory: boolean): WorkflowCandidate[] {
-  const superpowersRoot = join(project, ".opencode", "superpowers")
+  const superpowersRoot = projectStateRoot(project)
   if (!existsSync(superpowersRoot)) return []
   const candidates: WorkflowCandidate[] = []
   const current = readCurrentWorkflowState(project)

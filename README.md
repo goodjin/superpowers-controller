@@ -94,9 +94,9 @@ State / Router / Gate / Session Control
 插件状态保存在项目本地：
 
 ```text
-.opencode/superpowers/current.json
-.opencode/superpowers/runs/<run-id>/state.json
-.opencode/superpowers/runs/<run-id>/artifacts/*.md
+.superpowers/current.json
+.superpowers/runs/<run-id>/state.json
+.superpowers/runs/<run-id>/artifacts/*.md
 ```
 
 ## 配置

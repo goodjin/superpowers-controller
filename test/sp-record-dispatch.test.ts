@@ -175,7 +175,7 @@ describe("sp_report dispatch integration", () => {
         store,
         orchestrator: {
           async dispatch(args) {
-            const spec = JSON.parse(readFileSync(join(project, ".opencode", "superpowers", "runs", state.id, "workflow-spec.json"), "utf8"))
+            const spec = JSON.parse(readFileSync(join(project, ".superpowers", "runs", state.id, "workflow-spec.json"), "utf8"))
             expect(spec.orchestration.nodes.some((node: { task_id?: string }) => node.task_id === args.decision.task_id)).toBe(true)
             dispatched.push(args.decision.task_id ?? args.decision.phase)
             return {
@@ -200,7 +200,7 @@ describe("sp_report dispatch integration", () => {
       })
 
       expect(store.readCurrent()?.task_graph?.tasks.map((task) => task.id)).toEqual(["T1"])
-      const workflowSpec = JSON.parse(readFileSync(join(project, ".opencode", "superpowers", "runs", state.id, "workflow-spec.json"), "utf8"))
+      const workflowSpec = JSON.parse(readFileSync(join(project, ".superpowers", "runs", state.id, "workflow-spec.json"), "utf8"))
       expect(workflowSpec.orchestration.nodes.filter((node: { agent: string }) => node.agent === "sp-implementer").map((node: { task_id?: string }) => node.task_id).filter(Boolean)).toEqual(["T1"])
       expect(dispatched).toEqual(["T1"])
       expect(store.readCurrent()?.node_runs.at(-1)?.agent).toBe("sp-implementer")
@@ -241,7 +241,7 @@ describe("sp_report dispatch integration", () => {
         store,
         orchestrator: {
           async dispatch(args) {
-            const spec = JSON.parse(readFileSync(join(project, ".opencode", "superpowers", "runs", started.id, "workflow-spec.json"), "utf8"))
+            const spec = JSON.parse(readFileSync(join(project, ".superpowers", "runs", started.id, "workflow-spec.json"), "utf8"))
             expect(spec.orchestration.nodes.some((node: { task_id?: string }) => node.task_id === args.decision.task_id)).toBe(true)
             dispatched.push(args.packet.agent)
             return {
@@ -280,7 +280,7 @@ describe("sp_report dispatch integration", () => {
       expect(dispatched).toEqual(["sp-implementer", "sp-implementer"])
       expect(result.dispatches).toHaveLength(2)
       expect(state?.node_runs.map((node) => node.task_id)).toEqual(["T1", "T2"])
-      const workflowSpec = JSON.parse(readFileSync(join(project, ".opencode", "superpowers", "runs", started.id, "workflow-spec.json"), "utf8"))
+      const workflowSpec = JSON.parse(readFileSync(join(project, ".superpowers", "runs", started.id, "workflow-spec.json"), "utf8"))
       expect(workflowSpec.orchestration.nodes.filter((node: { agent: string }) => node.agent === "sp-implementer").map((node: { task_id?: string }) => node.task_id).filter(Boolean)).toEqual(["T1", "T2"])
       expect(state?.node_runs.every((node) => node.status === "running")).toBe(true)
       expect(progress).toEqual([
@@ -359,7 +359,7 @@ describe("sp_report dispatch integration", () => {
         task_id: "T1",
         status: "running",
       })
-      const workflowSpec = JSON.parse(readFileSync(join(project, ".opencode", "superpowers", "runs", state?.id ?? "", "workflow-spec.json"), "utf8"))
+      const workflowSpec = JSON.parse(readFileSync(join(project, ".superpowers", "runs", state?.id ?? "", "workflow-spec.json"), "utf8"))
       expect(workflowSpec.orchestration.nodes.filter((node: { agent: string }) => node.agent === "sp-implementer").map((node: { task_id?: string }) => node.task_id).filter(Boolean)).toEqual(["T1"])
       expect(prompts).toEqual(["session-impl-1"])
     } finally {
