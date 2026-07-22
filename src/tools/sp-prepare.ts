@@ -8,15 +8,16 @@ import { AGENT_SKILL_MAP } from "../router/modes"
 import { buildControllerFeedback } from "../controller/feedback"
 import { createWorkflowSpec } from "../capabilities/workflows"
 import { relativeRunPath } from "../state/paths"
+import { buildCleanHandoffPrompt } from "../session/templates"
 import { dispatchWorkflowDecisions } from "./sp-start"
 
 export function createPrepareTool(
   store: ProjectStore,
-  orchestrator: Pick<SessionOrchestrator, "dispatch">,
+  orchestrator: Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "handoffController">>,
   progress: ProgressReporter = noopProgressReporter,
 ): ToolDefinition {
   return tool({
-    description: "Prepare a Superpowers workflow from a confirmed task. V4 may dispatch managed design or planning draft nodes.",
+    description: "Prepare a Superpowers workflow from a confirmed task. V4 may dispatch managed design or planning draft nodes. Set clean_handoff=true after noisy intake to open a fresh controller session with the prepared brief.",
     args: {
       task_brief: tool.schema
         .object({
@@ -46,6 +47,10 @@ export function createPrepareTool(
         })
         .optional()
         .describe("V5 confirmation policy for the prepared task."),
+      clean_handoff: tool.schema
+        .boolean()
+        .optional()
+        .describe("When true, after a successful prepare open a fresh superpowers-agent session with the prepared brief and rebind parent_session_id. Use after noisy intake; not required on every prepare."),
       task: tool.schema.string().optional().describe("Confirmed task markdown or plain text"),
       request: tool.schema.string().optional().describe("Backward-compatible confirmed task text"),
       workflow_id: tool.schema.string().optional().describe("Existing workflow id to load for continuation"),
@@ -78,6 +83,7 @@ export function createPrepareTool(
         hasV5TaskBrief: Boolean(taskBrief),
         designMode: designParticipation?.mode,
       })
+      const sourceSessionID = args.session ?? context.sessionID
       const start = prepareExplicitStartRun({
         request,
         workflow,
@@ -89,7 +95,7 @@ export function createPrepareTool(
           taskBrief,
           designParticipation,
         }),
-        parentSessionID: args.session ?? context.sessionID,
+        parentSessionID: sourceSessionID,
       })
       const state = store.prepareRun({
         ...start,
@@ -99,7 +105,7 @@ export function createPrepareTool(
       const preparedState = shouldWritePrepareStageSpec(designParticipation)
         ? store.setWorkflowSpec({
             runID: state.id,
-            parentSessionID: args.session ?? context.sessionID,
+            parentSessionID: sourceSessionID,
             workflowSpec: buildPrepareStageWorkflowSpec({
               runID: state.id,
               workflow,
@@ -121,6 +127,36 @@ export function createPrepareTool(
         variant: "success",
       })
 
+      const confirmationSummary = buildConfirmationSummary({
+        request,
+        workflow,
+        entrypoint,
+        prepareMode,
+        taskBrief,
+        designParticipation,
+        confirmation: normalizeConfirmation(args.confirmation),
+      })
+      const artifactPaths = {
+        request: relativeRunPath(preparedState.id, "request.md"),
+        task: relativeRunPath(preparedState.id, "task.md"),
+        proposal: relativeRunPath(preparedState.id, "proposal.md"),
+        documents: relativeRunPath(preparedState.id, "documents.json"),
+      }
+      const next = nextMessageForPrepareMode(prepareMode)
+      const cleanHandoff = args.clean_handoff
+        ? await performCleanHandoff({
+            store,
+            orchestrator,
+            preparedTaskID: preparedState.id,
+            sourceSessionID,
+            confirmationSummary,
+            taskBrief,
+            request,
+            artifactPaths,
+            next,
+          })
+        : undefined
+
       const fresh = store.readCurrent() ?? preparedState
       return JSON.stringify(
         {
@@ -128,25 +164,15 @@ export function createPrepareTool(
           prepared_task_id: fresh.id,
           prepare_mode: prepareMode,
           dispatches,
-          confirmation_summary: buildConfirmationSummary({
-            request,
-            workflow,
-            entrypoint,
-            prepareMode,
-            taskBrief,
-            designParticipation,
-            confirmation: normalizeConfirmation(args.confirmation),
-          }),
+          confirmation_summary: confirmationSummary,
           required_user_confirmations: requiredConfirmations(args.confirmation),
-          artifact_paths: {
-            request: relativeRunPath(fresh.id, "request.md"),
-            task: relativeRunPath(fresh.id, "task.md"),
-            proposal: relativeRunPath(fresh.id, "proposal.md"),
-            documents: relativeRunPath(fresh.id, "documents.json"),
-          },
+          artifact_paths: artifactPaths,
           warnings: prepareWarnings({ prepareMode, designParticipation }),
           documents: relativeRunPath(fresh.id, "documents.json"),
-          next: nextMessageForPrepareMode(prepareMode),
+          next: cleanHandoff
+            ? `Clean handoff completed to session ${cleanHandoff.session_id}. Stop acting as the controller in this session; continue in the new controller session.`
+            : next,
+          clean_handoff: cleanHandoff,
           controller_feedback: buildControllerFeedback(fresh),
         },
         null,
@@ -154,6 +180,61 @@ export function createPrepareTool(
       )
     },
   })
+}
+
+async function performCleanHandoff(args: {
+  store: ProjectStore
+  orchestrator: Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "handoffController">>
+  preparedTaskID: string
+  sourceSessionID: string
+  confirmationSummary: string
+  taskBrief?: NormalizedTaskBrief
+  request: string
+  artifactPaths: {
+    request: string
+    task: string
+    proposal: string
+    documents: string
+  }
+  next: string
+}): Promise<{
+  status: "scheduled"
+  session_id: string
+  source_session_id: string
+}> {
+  if (!args.orchestrator.handoffController) {
+    throw new Error("sp_prepare clean_handoff requires session orchestrator handoffController support.")
+  }
+  const goal = args.taskBrief?.goal ?? args.request.replace(/^# Request\s*/i, "").trim().split("\n")[0]
+  const title = `Superpowers: ${truncateTitle(goal || "prepared task")}`
+  const prompt = buildCleanHandoffPrompt({
+    preparedTaskID: args.preparedTaskID,
+    confirmationSummary: args.confirmationSummary,
+    taskBriefSummary: args.taskBrief ? renderTaskBrief(args.taskBrief) : args.request.trim(),
+    artifactPaths: args.artifactPaths,
+    next: args.next,
+    sourceSessionID: args.sourceSessionID,
+  })
+  const handoff = await args.orchestrator.handoffController({
+    title,
+    prompt,
+    selectSession: true,
+  })
+  args.store.rebindParentSession({
+    runID: args.preparedTaskID,
+    parentSessionID: handoff.session_id,
+  })
+  return {
+    status: "scheduled",
+    session_id: handoff.session_id,
+    source_session_id: args.sourceSessionID,
+  }
+}
+
+function truncateTitle(value: string, max = 72): string {
+  const trimmed = value.trim().replace(/\s+/g, " ")
+  if (trimmed.length <= max) return trimmed
+  return `${trimmed.slice(0, max - 1)}…`
 }
 
 function choosePrepareMode(args: {

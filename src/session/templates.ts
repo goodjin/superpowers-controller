@@ -71,6 +71,50 @@ function formatSourceArtifacts(sourceArtifacts: NodeTaskPacket["source_artifacts
   return ["## Source Artifacts", ...sections].join("\n\n")
 }
 
+export function buildCleanHandoffPrompt(args: {
+  preparedTaskID: string
+  confirmationSummary: string
+  taskBriefSummary: string
+  artifactPaths: {
+    request: string
+    task: string
+    proposal: string
+    documents: string
+  }
+  next: string
+  sourceSessionID: string
+}): string {
+  return [
+    "# Superpowers clean controller handoff",
+    "",
+    "This is a fresh controller session opened after intake was clarified in another session.",
+    "Do not redo full intake unless the user revises the task. Durable facts are already prepared.",
+    "",
+    `Prepared task id: ${args.preparedTaskID}`,
+    `Source intake session (archive only): ${args.sourceSessionID}`,
+    "",
+    "## Confirmation Summary",
+    args.confirmationSummary.trim(),
+    "",
+    "## Task Brief",
+    args.taskBriefSummary.trim() || "(see request.md / task.md)",
+    "",
+    "## Artifact Paths",
+    `- request: ${args.artifactPaths.request}`,
+    `- task: ${args.artifactPaths.task}`,
+    `- proposal: ${args.artifactPaths.proposal}`,
+    `- documents: ${args.artifactPaths.documents}`,
+    "",
+    "## Next Steps",
+    "1. Call sp_status for this prepared task if you need runtime facts.",
+    "2. Show the confirmation summary to the user in this session.",
+    "3. After the user confirms, call sp_start(action=\"start_prepared_task\", prepared_task_id, confirmation). start_config is optional.",
+    "4. If the user wants changes, revise the brief and call sp_prepare again (optionally with clean_handoff=true).",
+    "",
+    `Prepare next hint: ${args.next}`,
+  ].join("\n")
+}
+
 export function buildControllerDecisionPrompt(
   state: WorkflowState,
   allowedControllerDecisions: Array<{ kind: string; reason: string; payload?: unknown }>,

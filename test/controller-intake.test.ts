@@ -485,6 +485,65 @@ describe("sp_prepare and sp_start tools", () => {
     }
   })
 
+  test("sp_prepare clean_handoff opens a fresh controller session and rebinds parent", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-clean-handoff-"))
+    try {
+      const store = createProjectStore(project)
+      const handoffs: Array<{ title: string; prompt: string }> = []
+      const prepare = createPrepareTool(
+        store,
+        {
+          async dispatch() {
+            return {
+              action: "create_session",
+              session_id: "session-unused",
+              task_markdown: "# Unused",
+            }
+          },
+          async handoffController(args) {
+            handoffs.push({ title: args.title, prompt: args.prompt })
+            return {
+              action: "clean_handoff",
+              session_id: "session-clean-controller",
+            }
+          },
+        },
+      )
+
+      const output = await prepare.execute(
+        {
+          task_brief: {
+            goal: "Add clean handoff after intake",
+            scope: "Controller prepare path only",
+            constraints: "Keep five public tools.",
+          },
+          design_participation: { mode: "none" },
+          clean_handoff: true,
+        },
+        toolContext,
+      )
+
+      const result = JSON.parse(toolOutput(output))
+      expect(result.clean_handoff).toEqual({
+        status: "scheduled",
+        session_id: "session-clean-controller",
+        source_session_id: "session-main",
+      })
+      expect(result.state.parent_session_id).toBe("session-clean-controller")
+      expect(result.state.session).toBe("session-clean-controller")
+      expect(result.next).toContain("session-clean-controller")
+      expect(result.next).toContain("Stop acting as the controller")
+      expect(handoffs).toHaveLength(1)
+      expect(handoffs[0]?.title).toContain("Add clean handoff after intake")
+      expect(handoffs[0]?.prompt).toContain(result.prepared_task_id)
+      expect(handoffs[0]?.prompt).toContain("clean controller handoff")
+      expect(handoffs[0]?.prompt).toContain("session-main")
+      expect(store.readCurrent()?.history.some((item) => item.event === "parent_session_rebound")).toBe(true)
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("sp_start activates a prepared run and preserves request, proposal, and changelog files", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-start-"))
     try {

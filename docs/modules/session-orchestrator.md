@@ -4,14 +4,14 @@
 
 session orchestrator 模块把 dispatch decision 变成 OpenCode node session。它生成插件控制的 task packet，调用 session adapter 创建或复用 session，并把 task markdown 返回给 store 写入 `nodes/*/task.md`。
 
-orchestrator 的 dispatch/resume/notify 是提交式操作：它可以等待 `session.create()` 拿到 session id，但不能等待 `session.prompt()` 驱动的目标会话回合完成。工具调用应在 prompt 被调度后返回，后续 workflow 进展由 child session 的 `sp_report` 推动。
+orchestrator 的 dispatch/resume/notify/handoff 是提交式操作：它可以等待 `session.create()` 拿到 session id，但不能等待 `session.prompt()` 驱动的目标会话回合完成。工具调用应在 prompt 被调度后返回，后续 workflow 进展由 child session 的 `sp_report` 推动。
 
 ## Files
 
 - `src/session/task-packet.ts`：node task packet 类型，包括 required artifact 路径和 runtime 读取后的 `source_artifacts` 正文。
-- `src/session/templates.ts`：把 packet 渲染成 node prompt，并声明 primary skill、内联 source artifacts、`sp_report` contract、parent waiting-user prompt 和 child resume prompt。
-- `src/session/adapter.ts`：封装 OpenCode SDK 的 `session.create`、`session.prompt`、`tui.selectSession` / `tui.session.select`、`tui.showToast` 和 `app.log` fallback。创建 child session 时始终传 `parentID`。逻辑 parent/child 关系始终由 `WorkflowState.parent_session_id` 和 `node_runs[]` 维护。
-- `src/session/orchestrator.ts`：根据 create/reuse dispatch 调用 adapter，封装 parent notification、child resume；**不**在 dispatch/resume 后自动切到 child。
+- `src/session/templates.ts`：把 packet 渲染成 node prompt，并声明 primary skill、内联 source artifacts、`sp_report` contract、parent waiting-user prompt、child resume prompt 和 clean controller handoff prompt。
+- `src/session/adapter.ts`：封装 OpenCode SDK 的 `session.create`、`session.prompt`、`tui.selectSession` / `tui.session.select`、`tui.showToast` 和 `app.log` fallback。创建 child session 时始终传 `parentID`；创建 clean controller session 时不传 `parentID`。逻辑 parent/child 关系始终由 `WorkflowState.parent_session_id` 和 `node_runs[]` 维护。
+- `src/session/orchestrator.ts`：根据 create/reuse dispatch 调用 adapter，封装 parent notification、child resume、clean controller handoff；**不**在 dispatch/resume 后自动切到 child。
 - `src/config/interaction.ts` / `schema.ts`：交互为 **native-only**；旧配置里的 `legacy`/`hybrid` 会强制归一为 `native`。
 - `src/router/transition.ts`：生成 orchestrator 消费的 dispatch decision。
 - `src/progress/reporter.ts`：定义 dispatch progress 的稳定事件结构。
@@ -108,6 +108,17 @@ Acceptance 的 required artifacts 会指向 `spec.md`、`plan.md`、`tasks.json`
 用户默认留在 parent，通过 `sidebar_content` 观察 child 运行态；需要细节时用 `Ctrl+Down`、命令面板或 `⌘1-9` 主动进入 child。
 
 workflow 正确性以 durable state 为准；TUI 选择只是可见性优化。adapter 优先调用 `tui.selectSession({ sessionID })`；如果 host 只支持事件发布，则 fallback 到 `tui.publish({ type: "tui.session.select", ... })`；两者都不可用时只发 warning progress，不阻塞 dispatch（例如 notify parent 时聚焦主控）。
+
+## Clean Controller Handoff
+
+`sp_prepare(clean_handoff=true)` 成功后，orchestrator 的 `handoffController()` 会：
+
+1. 通过 adapter `createControllerSession()` 创建顶层 `superpowers-agent` 会话（不传 `parentID`）。
+2. 向新会话调度精简 handoff prompt（prepared_task_id、confirmation summary、task brief、产物路径、下一步）。
+3. 默认 `selectSession` 到新会话。
+4. store `rebindParentSession()` 把 prepared run 的 `parent_session_id` 绑到新会话，并写入 `parent_session_rebound` 历史。
+
+旧 intake 会话保留可回看，但不应继续当主控。handoff 不代替用户确认；新会话仍需展示 confirmation summary，确认后再 `sp_start`。
 
 ## Progress Behavior
 

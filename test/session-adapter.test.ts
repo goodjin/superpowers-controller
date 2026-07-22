@@ -33,6 +33,35 @@ describe("createOpenCodeSessionAdapter", () => {
     ])
   })
 
+  test("creates controller sessions without parentID", async () => {
+    const createdInputs: unknown[] = []
+    const adapter = createOpenCodeSessionAdapter({
+      client: {
+        session: {
+          async create(input: unknown) {
+            createdInputs.push(input)
+            return { id: "session-clean-controller" }
+          },
+        },
+      },
+    } as never)
+
+    const sessionID = await adapter.createControllerSession({
+      title: "Superpowers: clean handoff",
+      agent: "superpowers-agent",
+    })
+
+    expect(sessionID).toBe("session-clean-controller")
+    expect(createdInputs).toEqual([
+      {
+        body: {
+          title: "Superpowers: clean handoff",
+          agent: "superpowers-agent",
+        },
+      },
+    ])
+  })
+
   test("selects a TUI session with the direct API when available", async () => {
     const selected: unknown[] = []
     const adapter = createOpenCodeSessionAdapter({

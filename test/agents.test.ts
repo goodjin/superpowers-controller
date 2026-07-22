@@ -70,6 +70,7 @@ describe("createAgentConfig", () => {
     expect(prompt).toContain("every new superpowers-agent session")
     expect(prompt).toContain("sp_status(include_capabilities=true)")
     expect(prompt).toContain("action=start_prepared_task")
+    expect(prompt).toContain("clean_handoff=true")
     expect(prompt).toContain("design-only/plan-only/review-only")
     expect(prompt).toContain("waiting_controller_decision")
   })

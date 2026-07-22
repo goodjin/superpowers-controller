@@ -11,7 +11,7 @@ import { createStartTool } from "./sp-start"
 
 export function createTools(
   store: ProjectStore,
-  orchestrator?: Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "resumeNode" | "notifyParent">>,
+  orchestrator?: Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "resumeNode" | "notifyParent" | "handoffController">>,
   progress: ProgressReporter = noopProgressReporter,
   config?: WorkflowConfig,
 ): Record<string, ToolDefinition> {

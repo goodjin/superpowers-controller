@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { isAbsolute, join, normalize } from "node:path"
 import type { DispatchDecision } from "../router/transition"
 import type { SessionAdapter } from "./adapter"
+import { isDesignForegroundPhase } from "./design-foreground"
 import { buildNodeTaskPrompt } from "./templates"
 import type { NodeTaskPacket } from "./task-packet"
 import type { WorkflowState } from "../state/types"
@@ -15,6 +16,11 @@ export type SessionDispatchResult = {
 
 export type SessionResumeResult = {
   action: "resume_session"
+  session_id: string
+}
+
+export type SessionHandoffResult = {
+  action: "clean_handoff"
   session_id: string
 }
 
@@ -71,6 +77,11 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
           message: `Scheduled ${args.decision.agent} for ${args.packet.node_id}.`,
           variant: "info",
         })
+        await maybeFocusDesignSession(adapter, {
+          phase: args.decision.phase,
+          sessionID: args.decision.session_id,
+          parentSessionID: args.parentSessionID,
+        })
         return {
           action: "reuse_session",
           session_id: args.decision.session_id,
@@ -108,6 +119,11 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
         title: "Superpowers dispatch",
         message: `Scheduled ${args.decision.agent} for ${args.packet.node_id}.`,
         variant: "success",
+      })
+      await maybeFocusDesignSession(adapter, {
+        phase: args.decision.phase,
+        sessionID,
+        parentSessionID: args.parentSessionID,
       })
       return {
         action: "create_session",
@@ -174,6 +190,46 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
         message: "Scheduled controller session notification about pending user input.",
         variant: "warning",
       })
+    },
+    async handoffController(args: {
+      title: string
+      agent?: string
+      prompt: string
+      selectSession?: boolean
+    }): Promise<SessionHandoffResult> {
+      const agent = args.agent ?? "superpowers-agent"
+      const sessionID = await adapter.createControllerSession({
+        title: args.title,
+        agent,
+      })
+      const scheduled = scheduleNodePrompt(adapter, {
+        sessionID,
+        agent,
+        prompt: args.prompt,
+        failure: {
+          stage: "dispatch_failed",
+          title: "Superpowers workflow",
+          message: "Failed to prompt clean controller handoff session.",
+          variant: "error",
+        },
+      })
+      if (shouldAwaitScheduledPrompt()) await scheduled
+      if (args.selectSession !== false && adapter.selectSession) {
+        await adapter.selectSession({
+          sessionID,
+          reason: "clean controller handoff",
+        })
+      }
+      await adapter.showProgress({
+        stage: "parent_notified",
+        title: "Superpowers workflow",
+        message: `Opened clean controller session ${sessionID}.`,
+        variant: "success",
+      })
+      return {
+        action: "clean_handoff",
+        session_id: sessionID,
+      }
     },
   }
 }
@@ -256,6 +312,28 @@ function scheduleNodePrompt(
   })()
   void scheduled.catch(() => {})
   return scheduled
+}
+
+async function maybeFocusDesignSession(
+  adapter: SessionAdapter,
+  args: {
+    phase: string
+    sessionID: string
+    parentSessionID: string
+  },
+): Promise<void> {
+  if (!adapter.selectSession) return
+  if (!isDesignForegroundPhase(args.phase)) return
+  await adapter.selectSession({
+    sessionID: args.sessionID,
+    reason: "design foreground",
+  })
+  await adapter.showProgress({
+    stage: "session_focused",
+    title: "Superpowers workflow",
+    message: "已进入 design 子会话，可直接对话。",
+    variant: "info",
+  })
 }
 
 function shouldAwaitScheduledPrompt(): boolean {

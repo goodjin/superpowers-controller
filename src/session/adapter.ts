@@ -7,6 +7,11 @@ export type SessionAdapter = {
     agent: string
   }): Promise<string>
 
+  createControllerSession(input: {
+    title: string
+    agent: string
+  }): Promise<string>
+
   continueNodeSession(input: {
     sessionID: string
     agent: string
@@ -63,6 +68,20 @@ export function createOpenCodeSessionAdapter(ctx: OpenCodePluginContext): Sessio
           title: input.title,
           agent: input.agent,
           parentID: input.parentSessionID,
+        },
+      })
+      const sessionID = extractSessionID(created)
+      if (!sessionID) throw new Error("OpenCode session.create did not return a session id")
+      return sessionID
+    },
+    async createControllerSession(input) {
+      if (process.env.OPENCODE_SUPERPOWERS_DISABLE_CHILD_PROMPT === "1") {
+        return `session-controller-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+      }
+      const created = await callMethod(ctx.client.session, "create", {
+        body: {
+          title: input.title,
+          agent: input.agent,
         },
       })
       const sessionID = extractSessionID(created)

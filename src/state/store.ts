@@ -166,6 +166,10 @@ export type ProjectStore = {
     workflow?: WorkflowKind
     entrypoint?: WorkflowEntrypoint
   }): WorkflowState
+  rebindParentSession(args: {
+    runID: string
+    parentSessionID: string
+  }): WorkflowState
   record(record: WorkflowRecord): WorkflowState
   recordNodeResult(args: { nodeID?: string; sessionID?: string; agent?: string; input: WorkflowRecord }): WorkflowState
   cancel(args: { runID?: string; taskID?: string; sessionID?: string; reason?: string }): WorkflowState
@@ -1040,6 +1044,33 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         auto_expansion: args.workflowSpec.auto_expansion,
       })
       appendChangelog(root, next.id, `set workflow spec ${args.workflowSpec.id}`)
+      return next
+    },
+    rebindParentSession(args) {
+      const current = this.readRun(args.runID)
+      if (!current) {
+        throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
+      }
+      const now = new Date().toISOString()
+      const parent = parentSessionFields(current, args.parentSessionID, now)
+      if (parent.parent_session_id === current.parent_session_id && parent.session === current.session) {
+        return current
+      }
+      const next: WorkflowState = {
+        ...current,
+        session: parent.session,
+        parent_session_id: parent.parent_session_id,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: parent.history,
+      }
+      persistCurrent(next)
+      appendEvent(root, next.id, {
+        type: "parent_session_rebound",
+        from: current.parent_session_id,
+        to: args.parentSessionID,
+      })
+      appendChangelog(root, next.id, `parent rebound from ${current.parent_session_id} to ${args.parentSessionID}`)
       return next
     },
     record(record) {

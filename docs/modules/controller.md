@@ -26,7 +26,7 @@ sp_status -> sp_prepare -> sp_start -> sp_report(terminal/control status) -> tra
 ```
 
 - `sp_status`：读取当前 active workflow、等待用户输入的 workflow、未完成历史 workflow 和 task/session 状态。它只读，不改变 runtime 状态。当前事实以 runtime memory 为准；durable 文件只作为恢复快照和审计材料出现在响应的 `durable` 区块。响应始终包含轻量 `node_summary`，用于快速判断最后节点、未完成节点、running/interrupted/blocked 节点和 task completion；需要完整 session/progress tail 时传 `detail="sessions"` 或 `detail="full"`，再配合 `include_progress=true`。遇到 `blocked`、`failed`、`waiting_user_decision`、`waiting_controller_decision`、`recovered_unknown` 或失败 node 时，返回 `allowed_controller_decisions` 供主控选择。
-- `sp_prepare`：创建或更新一个 `draft` prepared task，写入 request/task/proposal/state/documents，并在 prepare 阶段写入 `workflow-spec.json`。v5 主路径由 controller 传入 `task_brief`、可选 `design_participation` 和可确认的 summary；`task_brief` 的 `constraints`、`acceptance_criteria`、`known_context`、`risks` 是给后续模型读取的 prose string，不是结构化数组。prepare 阶段可以按 workflow spec 派发前置 designer/planner，但它们产出的是待用户确认的 candidate context，不是启动后的固定 workflow。
+- `sp_prepare`：创建或更新一个 `draft` prepared task，写入 request/task/proposal/state/documents，并在 prepare 阶段写入 `workflow-spec.json`。v5 主路径由 controller 传入 `task_brief`、可选 `design_participation` 和可确认的 summary；`task_brief` 的 `constraints`、`acceptance_criteria`、`known_context`、`risks` 是给后续模型读取的 prose string，不是结构化数组。prepare 阶段可以按 workflow spec 派发前置 designer/planner，但它们产出的是待用户确认的 candidate context，不是启动后的固定 workflow。可选 `clean_handoff=true`：prepare 成功后立刻新建顶层 `superpowers-agent` 会话、注入精简 handoff prompt、重绑 `parent_session_id`，并把 TUI 切到新会话；用于嘈杂 intake 后换干净主控上下文，不默认每次 prepare 都开启。
 - `sp_start`：只在用户确认 prepared task 后启动。v5 主路径是 `action="start_prepared_task"`、`prepared_task_id`、`confirmation: StartConfirmation`；`start_config` **可选**。省略时按 prepared run 的 `workflow` 生成 `built_in_workflow` 执行图并落盘；传入时用于覆盖模板、`auto_expansion` 或提供自定义 `orchestration`。`kind` 只能是 `built_in_workflow` / `orchestration`（兼容把内置 id 直接写在 `kind`，如 `"feature"`）。public schema 只保留 action 枚举与最小字段；完整 payload 模板以 `sp_status.allowed_controller_decisions` 为准。对异常态，`sp_start(start_action="resolve_controller_decision", controller_decision=...)` 消费 `allowed_controller_decisions` 中的裁决。`sp_start` 派发或恢复 child prompt 后返回，不等待 child session 完整跑完。
 - `sp_report`：节点 session 提交结构化结果、产物、gate、task graph、workflow expansion 或用户问题。runtime 根据 report status、workflow spec 和 auto expansion policy 决定是否派发后续节点；`progress` report 只更新记录，不进入 dispatch。允许的 expansion 必须先 patch `workflow-spec.json` / task graph，再按 patch 后的 spec 派发。
 - `sp_cancel`：取消 workflow、task 或 session。取消是显式状态变更，后续恢复必须读取取消后的 `node_runs` 和 workflow status。
@@ -55,9 +55,9 @@ sp_status -> sp_prepare -> sp_start -> sp_report(terminal/control status) -> tra
 ## Control Flow
 
 1. `superpowers-agent` 先调用 `sp_status` 判断是否有当前 workflow 或未完成历史 workflow。
-2. 新任务、需要改变任务/范围的恢复动作，或需要从 source workflow 派生新 run 时，`superpowers-agent` 调用 `sp_prepare`，传入确认后的 `task_brief`、可选 design participation 和可选 source workflow。
-3. `sp_prepare` 创建 `draft` prepared task，写入 request/task/proposal/state/documents 文件，并生成 prepare-stage `workflow-spec.json`。如果 controller 选择让 designer/planner 参与 prepare，它们的输出只补充 candidate context 和确认摘要。
-4. `superpowers-agent` 把 `sp_prepare` 返回的 confirmation summary、workflow spec 摘要和风险/边界展示给用户。没有用户确认，runtime 不进入正式执行。
+2. 新任务、需要改变任务/范围的恢复动作，或需要从 source workflow 派生新 run 时，`superpowers-agent` 调用 `sp_prepare`，传入确认后的 `task_brief`、可选 design participation 和可选 source workflow。若 intake 澄清很长/很杂，可额外传 `clean_handoff=true`。
+3. `sp_prepare` 创建 `draft` prepared task，写入 request/task/proposal/state/documents 文件，并生成 prepare-stage `workflow-spec.json`。如果 controller 选择让 designer/planner 参与 prepare，它们的输出只补充 candidate context 和确认摘要。若启用 `clean_handoff`，prepare 成功后立即打开干净主控会话并重绑 parent；旧会话应停止继续当主控。
+4. `superpowers-agent` 把 `sp_prepare` 返回的 confirmation summary、workflow spec 摘要和风险/边界展示给用户（clean handoff 后改在新会话展示）。没有用户确认，runtime 不进入正式执行。
 5. 用户确认后，`superpowers-agent` 调用 `sp_start(action="start_prepared_task", prepared_task_id, confirmation)`。`confirmation` 记录用户确认目标、时间和来源；可选 `start_config` 覆盖内置 template 或提供自定义 orchestration，省略则用 prepare 时选定的 `workflow`。
 6. `sp_start` 校验 prepared task、confirmation、state version 和 start config，必要时把 start config 合并进 `workflow-spec.json`，将 run 激活为 `active`。
 7. runtime 根据 `workflow-spec.json`、task graph、node_runs 和 current phase 计算 dispatch。它不把 workflow kind、entrypoint 或 event 名称当成固定派发捷径。
