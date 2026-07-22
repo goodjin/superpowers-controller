@@ -3,7 +3,12 @@ import { dirname, join } from "node:path"
 import { randomUUID } from "node:crypto"
 import { applyRecord, createInitialState } from "./transitions"
 import { normalizeTaskGraph } from "./task-graph"
-import { buildTaskGraphSpecEdges, buildTaskGraphSpecNodes } from "../router/workflow-spec-dispatch"
+import {
+  buildTaskGraphSpecEdges,
+  buildTaskGraphSpecNodes,
+  collectUnsatisfiedAncestorIDs,
+  resolveSpecNode,
+} from "../router/workflow-spec-dispatch"
 import { createWorkflowSpec, findBuiltInWorkflowTemplate } from "../capabilities/workflows"
 import { resolveWorkflowStatusAfterNodeReport, sessionErrorNodeStatus, workflowStatusAfterNodeFailure } from "../runtime/workflow-attention"
 import { mergeQualityChecksFromRecord } from "../runtime/quality-checks"
@@ -133,6 +138,26 @@ export type ProjectStore = {
     runID: string
     parentSessionID?: string
     decision: ControllerDecision
+  }): WorkflowState
+  /** Escalate empty/stuck dispatch to waiting_controller_decision. */
+  markNeedsControllerDecision(args: {
+    runID?: string
+    reason: string
+    detail?: string
+  }): WorkflowState
+  /** Mark orchestration node(s) skipped so dependents can proceed. */
+  skipSpecNodes(args: {
+    runID: string
+    nodeIDs: string[]
+    reason: string
+    parentSessionID?: string
+  }): WorkflowState
+  /** Cancel a node_run or create a canceled placeholder for a spec node. */
+  cancelNode(args: {
+    runID: string
+    nodeID: string
+    reason?: string
+    parentSessionID?: string
   }): WorkflowState
   setWorkflowSpec(args: {
     runID: string
@@ -628,6 +653,77 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
       if (!current) {
         throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
       }
+      if (args.decision.kind === "cancel_node") {
+        if (!args.decision.node_id) throw new Error("cancel_node requires node_id.")
+        return this.cancelNode({
+          runID: args.runID,
+          nodeID: args.decision.node_id,
+          reason: args.decision.reason,
+          parentSessionID: args.parentSessionID,
+        })
+      }
+      if (args.decision.kind === "skip_node") {
+        if (!args.decision.node_id) throw new Error("skip_node requires node_id.")
+        return this.skipSpecNodes({
+          runID: args.runID,
+          nodeIDs: [args.decision.node_id],
+          reason: args.decision.reason ?? `Controller skipped node ${args.decision.node_id}.`,
+          parentSessionID: args.parentSessionID,
+        })
+      }
+      if (args.decision.kind === "force_dispatch") {
+        if (!args.decision.node_id) throw new Error("force_dispatch requires node_id.")
+        const target = resolveSpecNode(current, args.decision.node_id)
+        if (!target) throw new Error(`force_dispatch target node not found: ${args.decision.node_id}`)
+        const ancestors = collectUnsatisfiedAncestorIDs(current, args.decision.node_id)
+        const skipped = ancestors.length > 0
+          ? this.skipSpecNodes({
+              runID: args.runID,
+              nodeIDs: ancestors,
+              reason: args.decision.reason
+                ?? `Skipped by force_dispatch to ${args.decision.node_id}.`,
+              parentSessionID: args.parentSessionID,
+            })
+          : current
+        const now = new Date().toISOString()
+        const parentSessionID = args.parentSessionID ?? skipped.parent_session_id
+        const parent = parentSessionFields(skipped, parentSessionID, now)
+        const next: WorkflowState = {
+          ...skipped,
+          session: parent.session,
+          parent_session_id: parent.parent_session_id,
+          status: "running",
+          phase: target.phase ?? target.agent,
+          current_phase: target.phase ?? target.agent,
+          pending_question: undefined,
+          updated_at: now,
+          state_version: nextStateVersion(),
+          history: [
+            ...parent.history,
+            {
+              at: now,
+              event: "controller_decision_force_dispatch",
+              from: skipped.phase,
+              to: target.phase ?? target.agent,
+              summary: args.decision.reason
+                ?? `Force dispatch ${args.decision.node_id}; skipped ${ancestors.length} ancestor(s).`,
+            },
+          ],
+        }
+        persistCurrent(next)
+        appendEvent(root, next.id, {
+          type: "controller_decision_force_dispatch",
+          decision: args.decision,
+          skipped_node_ids: ancestors,
+          state_version: next.state_version,
+        })
+        appendChangelog(
+          root,
+          next.id,
+          `controller force_dispatch ${args.decision.node_id}; skipped=[${ancestors.join(", ")}]`,
+        )
+        return next
+      }
       if (args.decision.kind === "apply_workflow_patch" && (args.decision.workflow_patch || current.pending_workflow_expansion)) {
         const now = new Date().toISOString()
         const parentSessionID = args.parentSessionID ?? current.parent_session_id
@@ -724,6 +820,201 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         state_version: next.state_version,
       })
       appendChangelog(root, next.id, `controller decision ${args.decision.kind}: ${summary}`)
+      return next
+    },
+    markNeedsControllerDecision(args) {
+      const current = args.runID ? this.readRun(args.runID) : this.readCurrent()
+      if (!current) {
+        throw new Error("No Superpowers workflow found to escalate.")
+      }
+      if (current.status === "waiting_controller_decision") return current
+      const now = new Date().toISOString()
+      const summary = args.detail ? `${args.reason}: ${args.detail}` : args.reason
+      const next: WorkflowState = {
+        ...current,
+        status: "waiting_controller_decision",
+        phase: "waiting-controller-decision",
+        current_phase: "waiting-controller-decision",
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...current.history,
+          {
+            at: now,
+            event: "empty_dispatch",
+            from: current.phase,
+            to: "waiting-controller-decision",
+            summary,
+          },
+        ],
+      }
+      persistCurrent(next)
+      appendEvent(root, next.id, {
+        type: "empty_dispatch",
+        reason: args.reason,
+        detail: args.detail,
+        state_version: next.state_version,
+      })
+      appendChangelog(root, next.id, `empty_dispatch → waiting_controller_decision: ${summary}`)
+      return next
+    },
+    skipSpecNodes(args) {
+      const current = this.readRun(args.runID)
+      if (!current) {
+        throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
+      }
+      const now = new Date().toISOString()
+      const parentSessionID = args.parentSessionID ?? current.parent_session_id
+      const parent = parentSessionFields(current, parentSessionID, now)
+      let nodeRuns = [...current.node_runs]
+      const skippedIDs: string[] = []
+      for (const nodeID of args.nodeIDs) {
+        const specNode = resolveSpecNode(current, nodeID)
+        if (!specNode) {
+          throw new Error(`skip_node target not found in workflow-spec: ${nodeID}`)
+        }
+        const existingIndex = [...nodeRuns].reverse().findIndex((run) =>
+          run.id === nodeID
+          || (specNode.task_id
+            ? run.task_id === specNode.task_id && run.phase === (specNode.phase ?? run.phase) && run.agent === specNode.agent
+            : !run.task_id && run.phase === (specNode.phase ?? run.phase) && run.agent === specNode.agent),
+        )
+        if (existingIndex >= 0) {
+          const realIndex = nodeRuns.length - 1 - existingIndex
+          const existing = nodeRuns[realIndex]!
+          if (existing.status === "passed" || existing.status === "skipped") continue
+          nodeRuns[realIndex] = {
+            ...existing,
+            status: "skipped",
+            closed_at: now,
+            ended_at: now,
+            reported_at: now,
+          }
+          skippedIDs.push(existing.id)
+          continue
+        }
+        nodeRuns.push({
+          id: specNode.id,
+          task_id: specNode.task_id,
+          phase: specNode.phase ?? "implement",
+          agent: specNode.agent,
+          session_id: `skipped:${specNode.id}`,
+          status: "skipped",
+          attempts: 1,
+          started_at: now,
+          reported_at: now,
+          closed_at: now,
+          ended_at: now,
+        })
+        skippedIDs.push(specNode.id)
+      }
+      const next: WorkflowState = {
+        ...current,
+        session: parent.session,
+        parent_session_id: parent.parent_session_id,
+        status: resumableStatus(current.status) === "running" || current.status === "waiting_controller_decision"
+          ? "running"
+          : resumableStatus(current.status),
+        node_runs: nodeRuns,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...parent.history,
+          {
+            at: now,
+            event: "controller_decision_skip_node",
+            from: current.phase,
+            to: current.phase,
+            summary: `${args.reason} skipped=[${skippedIDs.join(", ")}]`,
+          },
+        ],
+      }
+      // Keep waiting_controller_decision until an explicit continue/force/retry; skip alone unlocks deps.
+      if (current.status === "waiting_controller_decision") {
+        next.status = "waiting_controller_decision"
+      }
+      persistCurrent(next)
+      appendEvent(root, next.id, {
+        type: "controller_decision_skip_node",
+        node_ids: skippedIDs,
+        reason: args.reason,
+        state_version: next.state_version,
+      })
+      appendChangelog(root, next.id, `skip_node: ${args.reason} [${skippedIDs.join(", ")}]`)
+      return next
+    },
+    cancelNode(args) {
+      const current = this.readRun(args.runID)
+      if (!current) {
+        throw new Error(`No Superpowers workflow found for run ${args.runID}.`)
+      }
+      const now = new Date().toISOString()
+      const parentSessionID = args.parentSessionID ?? current.parent_session_id
+      const parent = parentSessionFields(current, parentSessionID, now)
+      const reason = args.reason ?? `Controller canceled node ${args.nodeID}.`
+      const existing = current.node_runs.find((run) => run.id === args.nodeID)
+      let nodeRuns: NodeRun[]
+      if (existing) {
+        nodeRuns = current.node_runs.map((run) =>
+          run.id === args.nodeID
+            ? {
+                ...run,
+                status: "canceled" as const,
+                closed_at: now,
+                ended_at: now,
+              }
+            : run,
+        )
+      } else {
+        const specNode = resolveSpecNode(current, args.nodeID)
+        if (!specNode) {
+          throw new Error(`cancel_node target not found: ${args.nodeID}`)
+        }
+        nodeRuns = [
+          ...current.node_runs,
+          {
+            id: specNode.id,
+            task_id: specNode.task_id,
+            phase: specNode.phase ?? "implement",
+            agent: specNode.agent,
+            session_id: `canceled:${specNode.id}`,
+            status: "canceled",
+            attempts: 1,
+            started_at: now,
+            closed_at: now,
+            ended_at: now,
+          },
+        ]
+      }
+      const next: WorkflowState = {
+        ...current,
+        session: parent.session,
+        parent_session_id: parent.parent_session_id,
+        status: "waiting_controller_decision",
+        phase: "waiting-controller-decision",
+        current_phase: "waiting-controller-decision",
+        node_runs: nodeRuns,
+        updated_at: now,
+        state_version: nextStateVersion(),
+        history: [
+          ...parent.history,
+          {
+            at: now,
+            event: "controller_decision_cancel_node",
+            from: current.phase,
+            to: "waiting-controller-decision",
+            summary: reason,
+          },
+        ],
+      }
+      persistCurrent(next)
+      appendEvent(root, next.id, {
+        type: "controller_decision_cancel_node",
+        node_id: args.nodeID,
+        reason,
+        state_version: next.state_version,
+      })
+      appendChangelog(root, next.id, `cancel_node ${args.nodeID}: ${reason}`)
       return next
     },
     setWorkflowSpec(args) {
@@ -1628,7 +1919,11 @@ function statusForControllerDecision(
     case "retry_node":
     case "apply_workflow_patch":
     case "replace_orchestration":
+    case "force_dispatch":
+    case "skip_node":
       return resumableStatus(current.status)
+    case "cancel_node":
+      return "waiting_controller_decision"
     case "accept_partial_result":
       return "passed"
     case "mark_blocked":
@@ -1647,6 +1942,12 @@ function phaseForControllerDecision(current: WorkflowState, decision: Controller
       return "workflow-patch-applied"
     case "replace_orchestration":
       return "workflow-orchestration-replaced"
+    case "force_dispatch":
+      return "force-dispatch"
+    case "skip_node":
+      return current.phase
+    case "cancel_node":
+      return "waiting-controller-decision"
     case "accept_partial_result":
       return "partial-result-accepted"
     case "mark_blocked":
@@ -1662,6 +1963,9 @@ function nextForControllerDecision(decision: ControllerDecision): string | undef
   if (decision.kind === "accept_partial_result") return "Report the accepted partial result to the user."
   if (decision.kind === "apply_workflow_patch") return "Continue with the patched workflow graph."
   if (decision.kind === "replace_orchestration") return "Continue with the replacement orchestration."
+  if (decision.kind === "force_dispatch") return `Forced dispatch of ${decision.node_id}; ancestors marked skipped.`
+  if (decision.kind === "skip_node") return `Node ${decision.node_id} skipped; dependents may proceed.`
+  if (decision.kind === "cancel_node") return `Node ${decision.node_id} canceled; choose continue, force_dispatch, or reprepare.`
   return undefined
 }
 

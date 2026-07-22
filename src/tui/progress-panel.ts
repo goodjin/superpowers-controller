@@ -63,6 +63,7 @@ export type ProgressPanelTaskRow = {
     | "dispatch_failed"
     | "notification_failed"
     | "canceled"
+    | "skipped"
   node_id?: string
 }
 

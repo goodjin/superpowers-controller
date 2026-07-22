@@ -80,6 +80,9 @@ export type ControllerDecisionKind =
   | "request_reprepare"
   | "apply_workflow_patch"
   | "replace_orchestration"
+  | "cancel_node"
+  | "skip_node"
+  | "force_dispatch"
 
 export type ControllerDecision = {
   kind: ControllerDecisionKind
@@ -219,6 +222,7 @@ export type NodeRunStatus =
   | "dispatch_failed"
   | "notification_failed"
   | "canceled"
+  | "skipped"
 
 export type NodeRun = {
   id: string

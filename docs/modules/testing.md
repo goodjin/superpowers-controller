@@ -12,6 +12,7 @@
 - `test/support/opencode-e2e/logging.ts`：e2e 场景日志 helper，统一输出 suite goal、scenario description、step、verification 和 summary。
 - `test/support/opencode-e2e/harness.test.ts`：harness smoke，以及 `node_runs` / `nodes/*` 读取能力验证。
 - `test/controller-intake.test.ts`：proposal 生成、resume proposal、`sp_prepare` 创建 prepared run、v5 `task_brief/design_participation/confirmation`、prepare-stage workflow spec、source workflow 导入、`sp_start(action=start_prepared_task, prepared_task_id, confirmation, start_config)` 校验并启动 confirmed workflow spec、`sp_start(run_id, resume_input)` 恢复 waiting-user child session 且不等待 child prompt 完成，以及 `entrypoint=execute` 的实现入口派发。
+- `test/controller-surgery.test.ts`：永不空转（empty_dispatch → `waiting_controller_decision` + notify）、`skip_node` / `cancel_node` / `force_dispatch`、非法 agent 归一、`gates=false` 忽略。
 - `test/dispatch-transition.test.ts`：intake、plan、task-scoped implementation acceptance、串行 review、code-review 后回到 task graph、retry 和 needs_user 的 dispatch decision。
 - `test/session-orchestrator.test.ts`：node task markdown 模板、session create/reuse adapter 调用。
 - `test/session-adapter.test.ts`：OpenCode adapter 行为，包括 TUI session selection fallback，以及 node session 创建时不向 OpenCode 传原生 `parentID`。

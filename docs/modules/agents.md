@@ -49,6 +49,7 @@ agent prompt 不能成为 workflow state machine。职责边界如下：
 - `superpowers-agent` 需要能力目录时调用 `sp_status(include_capabilities=true)`，读取 agent catalog、workflow schema、built-in workflow templates 和 examples。
 - 每个执行任务先 `sp_prepare`，再由用户确认后 `sp_start(action="start_prepared_task", prepared_task_id, start_config)`；`start_config` 可选内置 workflow id 或自定义 orchestration。
 - `superpowers-agent` 收到 `waiting_user` / `pending_question` controller prompt 后，只负责在主会话里问用户；用户回答后调用 `sp_start(run_id, resume_input)`，不能替用户决定答案。
+- 当 workflow `status` 为 `waiting_controller_decision` 时，主控先 `sp_status`，再从 `allowed_controller_decisions` 选择 `skip_node` / `force_dispatch` / `cancel_node` / `replace_orchestration` / `continue_existing_graph` / `retry_node` 等，用 `sp_start(resolve_controller_decision)` 执行。`force_dispatch` 会把未跑的前置标成 `skipped` 再派目标节点，便于审计。
 - 当 workflow `status` 为 `recovered_unknown`（插件重启后）时，主控 prompt 要求：先 `sp_status(detail="full", include_progress=true)` 检查 interrupted task；向用户说明旧 child session 已不可 live；用户确认后用 `sp_start(run_id, resume="all")` 或 `sp_start(run_id, resume=[task_id])` 恢复。禁止不带 `resume` 的 `sp_start(run_id)` 期望自动派发；禁止自造 `resolve_controller_decision` / `retry_node` payload。插件按 task graph 为每个 task 派下一未完成 phase，主控不能跳 phase。
 - 节点 agent 只读取 node task packet 中给出的 scope、artifacts 和 required outputs。
 - 节点 agent 结束当前节点时调用 `sp_report`。它不能在 report 里提交 `next_action`、`child_session_id`、`reuse_session_id` 或自造 workflow transition。

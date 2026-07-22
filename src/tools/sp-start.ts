@@ -2,6 +2,7 @@ import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import { noopProgressReporter, type ProgressReporter } from "../progress/reporter"
 import { AGENT_SKILL_MAP, type NodeAgentName } from "../router/modes"
 import { decideNextDispatches } from "../router/transition"
+import { dispatchDecisionForSpecNodeID } from "../router/workflow-spec-dispatch"
 import { buildChildResumePrompt, buildNodeTaskPacket } from "../session/templates"
 import type { SessionOrchestrator } from "../session/orchestrator"
 import type { ProjectStore } from "../state/store"
@@ -13,6 +14,7 @@ import {
   parseResumeTaskIDs,
   taskResumeContextForDecision,
 } from "../runtime/task-resume"
+import { emptyDispatchReason, shouldEscalateEmptyDispatch } from "../runtime/empty-dispatch"
 
 type StartOrchestrator = Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "resumeNode">>
 
@@ -285,6 +287,14 @@ export async function dispatchWorkflowDecisions(args: {
 }): Promise<Array<Record<string, string | undefined>>> {
   if (!args.orchestrator) return []
   const decisions = args.decisions ?? startDecisions(args.state, args.startMode, args.taskID)
+  if (shouldEscalateEmptyDispatch(args.state, decisions)) {
+    args.store.markNeedsControllerDecision({
+      runID: args.state.id,
+      reason: "empty_dispatch",
+      detail: emptyDispatchReason(args.state),
+    })
+    return []
+  }
   const filtered = args.taskID && args.state.status !== "recovered_unknown" && !args.resumeFromState
     ? decisions.filter((decision) => "task_id" in decision && decision.task_id === args.taskID)
     : decisions
@@ -405,6 +415,29 @@ async function resolveControllerDecision(args: {
       })
       return { state: args.store.readCurrent() ?? state, dispatches }
     }
+    case "force_dispatch": {
+      const state = args.store.resolveControllerDecision({
+        runID: args.state.id,
+        parentSessionID: args.parentSessionID,
+        decision: args.decision,
+      })
+      const targetID = args.decision.node_id
+      if (!targetID) throw new Error("force_dispatch requires node_id.")
+      const decision = dispatchDecisionForSpecNodeID(state, targetID)
+      if (!decision || (decision.action !== "create_session" && decision.action !== "reuse_session")) {
+        throw new Error(`force_dispatch cannot build a session decision for ${targetID}.`)
+      }
+      const dispatches = await dispatchStart({
+        store: args.store,
+        orchestrator: args.orchestrator,
+        state,
+        startMode: "resume",
+        decisions: [decision],
+      })
+      return { state: args.store.readCurrent() ?? state, dispatches }
+    }
+    case "skip_node":
+    case "cancel_node":
     case "accept_partial_result":
     case "mark_blocked":
     case "request_reprepare":

@@ -1,5 +1,5 @@
 import { findBuiltInWorkflowTemplate, createWorkflowSpec } from "../capabilities/workflows"
-import { AGENT_SKILL_MAP, type NodeAgentName } from "./modes"
+import { AGENT_SKILL_MAP, normalizeNodeAgent, type NodeAgentName } from "./modes"
 import { hasRunningNodeRuns, latestNodeRun } from "../state/task-status"
 import type { DispatchDecision, ReviewContext } from "./dispatch-types"
 import type { NodeRun, SpRecordInput, WorkflowNodeSpec, WorkflowOrchestration, WorkflowSpec, WorkflowState } from "../state/types"
@@ -373,7 +373,7 @@ function isDependencySatisfied(
       isDependencySatisfied(state, prerequisite, dependencyNode, emptyTransition),
     )
   }
-  return isSpecNodePassed(state, dependencyNode)
+  return isSpecNodeDependencySatisfied(state, dependencyNode)
 }
 
 function shouldSkipStaleTemplateEntryNode(state: WorkflowState, node: WorkflowNodeSpec): boolean {
@@ -396,7 +396,7 @@ function shouldSkipSupersededTemplateNode(state: WorkflowState, node: WorkflowNo
   const phase = node.phase ?? phaseForAgent(node.agent)
   if (!supersededPhases.has(phase)) return false
   return state.task_graph.tasks.some((task) => {
-    const taskAgent = task.agent ?? "sp-implementer"
+    const taskAgent = normalizeNodeAgent(task.agent)
     if (phase === "implement") return taskAgent === "sp-implementer"
     return taskAgent === "sp-implementer"
   })
@@ -404,12 +404,17 @@ function shouldSkipSupersededTemplateNode(state: WorkflowState, node: WorkflowNo
 
 function isSpecNodeTerminal(state: WorkflowState, node: WorkflowNodeSpec): boolean {
   const run = latestRunForSpecNode(state, node)
-  return run?.status === "passed"
+  return run?.status === "passed" || run?.status === "skipped" || run?.status === "canceled"
 }
 
 function isSpecNodePassed(state: WorkflowState, node: WorkflowNodeSpec): boolean {
   const run = latestRunForSpecNode(state, node)
   return run?.status === "passed"
+}
+
+function isSpecNodeDependencySatisfied(state: WorkflowState, node: WorkflowNodeSpec): boolean {
+  const run = latestRunForSpecNode(state, node)
+  return run?.status === "passed" || run?.status === "skipped"
 }
 
 function hasActiveRunForSpecNode(state: WorkflowState, node: WorkflowNodeSpec): boolean {
@@ -592,7 +597,7 @@ export function buildTaskGraphSpecNodes(
   const nodes: WorkflowNodeSpec[] = []
   for (const task of tasks) {
     const implementID = workflowNodeIDForTask(task.id)
-    const agent = task.agent ?? "sp-implementer"
+    const agent = normalizeNodeAgent(task.agent)
     const dependsOn = [
       ...task.depends_on.map((dependencyID) => {
         const dependency = tasksByID.get(dependencyID)
@@ -714,7 +719,7 @@ export function terminalWorkflowNodeIDForTask(task: {
   agent?: string
 }): string {
   const base = workflowNodeIDForTask(task.id)
-  const agent = task.agent ?? "sp-implementer"
+  const agent = normalizeNodeAgent(task.agent)
   if (agent === "sp-implementer") return `${base}-code-review`
   return base
 }
@@ -776,4 +781,49 @@ function reviewContextFromRecord(record: SpRecordInput): ReviewContext {
 
 function isNodeAgentName(agent: string): agent is NodeAgentName {
   return agent in AGENT_SKILL_MAP
+}
+
+/** Resolve a workflow-spec node (including merged task-graph nodes) by id. */
+export function resolveSpecNode(state: WorkflowState, nodeID: string): WorkflowNodeSpec | undefined {
+  return findNodeByID(state, nodeID)
+}
+
+/**
+ * Collect ancestor spec node ids that are not yet passed/skipped, in dependency order
+ * (roots first). Used by force_dispatch to mark them skipped before launching the target.
+ */
+export function collectUnsatisfiedAncestorIDs(state: WorkflowState, targetNodeID: string): string[] {
+  const spec = ensureWorkflowSpec(state)
+  const nodesByID = new Map(spec.orchestration.nodes.map((node) => [node.id, node]))
+  const target = nodesByID.get(targetNodeID)
+  if (!target) return []
+
+  const ordered: string[] = []
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+
+  const walk = (nodeID: string) => {
+    if (visited.has(nodeID) || nodeID === targetNodeID) return
+    if (visiting.has(nodeID)) return
+    visiting.add(nodeID)
+    const node = nodesByID.get(nodeID)
+    if (!node) {
+      visiting.delete(nodeID)
+      return
+    }
+    for (const dependency of node.depends_on ?? []) walk(dependency)
+    visiting.delete(nodeID)
+    visited.add(nodeID)
+    if (!isSpecNodeDependencySatisfied(state, node)) ordered.push(nodeID)
+  }
+
+  for (const dependency of target.depends_on ?? []) walk(dependency)
+  return ordered
+}
+
+/** Build a create_session decision for an orchestration node id. */
+export function dispatchDecisionForSpecNodeID(state: WorkflowState, nodeID: string): DispatchDecision | undefined {
+  const node = findNodeByID(state, nodeID)
+  if (!node) return undefined
+  return decisionForSpecNode(state, node, undefined, undefined)
 }

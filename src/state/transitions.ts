@@ -46,11 +46,12 @@ export function createInitialState(args: {
 }
 
 export function applyRecord(state: WorkflowState, record: WorkflowRecord): WorkflowState {
-  const gateUpdates = record.gates ?? {}
-  const enabledGateUpdates = Object.entries(gateUpdates).filter(([, value]) => value === true)
+  // Only `true` gates are applied. Explicit `false` must not clear an existing true gate.
+  const enabledGateUpdates = Object.entries(record.gates ?? {}).filter(([, value]) => value === true)
   if (enabledGateUpdates.length > 3) {
     throw new Error("sp_report rejected: too many gates updated in one report")
   }
+  const gateUpdates = Object.fromEntries(enabledGateUpdates) as Partial<Record<WorkflowGate, boolean>>
 
   if (
     record.event === "finish" &&

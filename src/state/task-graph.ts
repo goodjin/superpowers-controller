@@ -1,4 +1,5 @@
 import type { TaskGraph } from "./types"
+import { normalizeNodeAgent } from "../router/modes"
 
 export type NormalizedTaskGraph = TaskGraph & {
   implicit_depends_on?: Array<{
@@ -40,8 +41,10 @@ export function normalizeTaskGraph(graph: TaskGraph): NormalizedTaskGraph {
       }
       lastWriterByFile.set(file, task.id)
     }
+    const agent = task.agent === undefined ? undefined : normalizeNodeAgent(task.agent)
     return {
       ...task,
+      agent,
       depends_on: Array.from(dependsOn),
     }
   })

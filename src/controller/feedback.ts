@@ -222,6 +222,63 @@ export function buildAllowedControllerDecisions(state: WorkflowState): AllowedCo
     }))
   }
 
+  if (state.status === "waiting_controller_decision" || state.status === "waiting_user_decision") {
+    decisions.push(decisionOption(state, {
+      kind: "replace_orchestration",
+      reason: "Replace the workflow orchestration graph, then continue or force_dispatch.",
+    }, {
+      reason: "Allow the controller to rewrite nodes/edges when the current graph cannot progress.",
+      risk: "high",
+      tool: "sp_start",
+      requiresUserConfirmation: true,
+    }))
+
+    const cancelTarget = failedNode ?? [...state.node_runs].reverse().find((node) => node.status === "running")
+    if (cancelTarget) {
+      decisions.push(decisionOption(state, {
+        kind: "cancel_node",
+        node_id: cancelTarget.id,
+        task_id: cancelTarget.task_id,
+        reason: `Cancel node ${cancelTarget.id}.`,
+      }, {
+        reason: "Cancel a specific node_run and return control to the controller.",
+        risk: "medium",
+        tool: "sp_start",
+        requiresUserConfirmation: true,
+      }))
+    } else {
+      decisions.push(decisionOption(state, {
+        kind: "cancel_node",
+        reason: "Cancel a workflow-spec or node_run by node_id.",
+      }, {
+        reason: "Cancel a specific node; canceled nodes do not satisfy depends_on.",
+        risk: "medium",
+        tool: "sp_start",
+        requiresUserConfirmation: true,
+      }))
+    }
+
+    // Generic surgery templates: controller fills node_id from sp_status / workflow-spec.
+    decisions.push(decisionOption(state, {
+      kind: "skip_node",
+      reason: "Skip a workflow-spec node so dependents can proceed.",
+    }, {
+      reason: "Mark a node skipped (satisfies depends_on) without running it.",
+      risk: "high",
+      tool: "sp_start",
+      requiresUserConfirmation: true,
+    }))
+    decisions.push(decisionOption(state, {
+      kind: "force_dispatch",
+      reason: "Skip unsatisfied ancestors, then dispatch a chosen workflow-spec node.",
+    }, {
+      reason: "Force-start from an arbitrary node; ancestors become skipped for audit.",
+      risk: "high",
+      tool: "sp_start",
+      requiresUserConfirmation: true,
+    }))
+  }
+
   const evidenceRefs = partialEvidenceRefs(failedNode)
   if (evidenceRefs.length > 0) {
     decisions.push(decisionOption(state, {
@@ -347,7 +404,7 @@ function userRequirementForState(state: WorkflowState): ControllerFeedback["requ
   if (state.status === "awaiting_design_approval") return { reason: "Candidate design requires a v5 controller decision or a revised sp_prepare -> sp_start(start_prepared_task) path." }
   if (state.status === "awaiting_plan_approval") return { reason: "Candidate plan requires a v5 controller decision or a revised sp_prepare -> sp_start(start_prepared_task) path." }
   if (state.status === "waiting_user_decision") return { reason: "Controller needs a retry, cancel, approve, or revise decision." }
-  if (state.status === "waiting_controller_decision") return { reason: "Controller needs to apply, replace, retry, block, reprepare, or cancel." }
+  if (state.status === "waiting_controller_decision") return { reason: "Controller may skip_node, force_dispatch, cancel_node, replace_orchestration, retry, continue, block, or reprepare." }
   return undefined
 }
 

@@ -14,6 +14,16 @@ export const AGENT_SKILL_MAP = {
 
 export type NodeAgentName = keyof typeof AGENT_SKILL_MAP
 
+/** Unknown agents (e.g. planner-invented `sp-executor`) normalize to implementer. */
+export function normalizeNodeAgent(agent: string | undefined): NodeAgentName {
+  if (agent && agent in AGENT_SKILL_MAP) return agent as NodeAgentName
+  return "sp-implementer"
+}
+
+export function isKnownNodeAgent(agent: string | undefined): agent is NodeAgentName {
+  return Boolean(agent && agent in AGENT_SKILL_MAP)
+}
+
 export type ModeDefinition = {
   mode: WorkflowMode
   phase: string

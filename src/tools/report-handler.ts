@@ -3,6 +3,7 @@ import { noopProgressReporter, type ProgressReporter } from "../progress/reporte
 import { decideNextDispatches, type DispatchDecision } from "../router/transition"
 import { buildControllerUserInputPrompt, buildNodeTaskPacket } from "../session/templates"
 import { notifyParentControllerDecision } from "../runtime/notify-controller"
+import { emptyDispatchReason, shouldEscalateEmptyDispatch } from "../runtime/empty-dispatch"
 import type { SessionOrchestrator } from "../session/orchestrator"
 import type { ProjectStore } from "../state/store"
 import type { NodeStatus, WorkflowState } from "../state/types"
@@ -68,6 +69,20 @@ export function createReportHandler(deps: {
       message: `${record.event} reported as ${record.status}; workflow is at ${state.current_phase ?? state.phase}.`,
       variant: variantForReportStatus(record.status),
     })
+
+    if (shouldEscalateEmptyDispatch(state, decisions)) {
+      deps.store.markNeedsControllerDecision({
+        runID: state.id,
+        reason: "empty_dispatch",
+        detail: emptyDispatchReason(state),
+      })
+      await progress.report({
+        stage: "workflow_blocked",
+        title: "Superpowers workflow",
+        message: emptyDispatchReason(state),
+        variant: "warning",
+      })
+    }
 
     for (const decision of decisions) {
       if (decision.action === "wait_user") {

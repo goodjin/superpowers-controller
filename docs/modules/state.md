@@ -94,6 +94,9 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 - `mode` 是兼容旧测试和 OpenCode mode 的粗粒度入口；新的 runtime 判断优先看 `workflow`、`entrypoint`、`current_phase`、`status` 和 `node_runs`。
 - `phase` 与 `current_phase` 当前保持同义，用于 durable state、UI 和测试读取。未来如果需要保留历史兼容字段，新的判断应优先读 `current_phase`。
 - `status` 是 workflow 级状态，例如 `running`、`awaiting_design_approval`、`awaiting_plan_approval`、`waiting_user`、`waiting_user_decision`、`waiting_controller_decision`、`blocked`、`failed`、`passed`、`canceled`、`recovered_unknown`。
+- `node_runs[].status` 含 `running` / `passed` / `failed` / `blocked` / `needs_user` / `interrupted` / `dispatch_failed` / `notification_failed` / `canceled` / `skipped`。`skipped` 满足 `depends_on`；`canceled` 不满足。
+- 无 running 子节点且下一步为空时，store 写入 `empty_dispatch` 并进入 `waiting_controller_decision`（见 `src/runtime/empty-dispatch.ts`）。
+- 未知 task agent 归一为 `sp-implementer`；gate 更新只接受 `true`。
 - `pending_question` 只保存等待用户回答的问题；问题回答后必须通过 `sp_start(run_id, resume_input)` 清空并恢复原 child session。
 - `pending_workflow_expansion` 保存 auto expansion policy 不允许时等待主控裁决的 `sp_report.workflow_expansion`。
 - `workflow_spec` 保存 prepare-stage workflow spec，以及用户确认启动时由 `StartConfig` 选择或覆盖的内置 workflow template / 自定义 orchestration。
