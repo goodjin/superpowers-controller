@@ -444,7 +444,7 @@ describe("sp_report dispatch integration", () => {
     }
   })
 
-  test("native design approval prompt goes to the parent controller session", async () => {
+  test("design approval prompt stays on the design child session", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-record-native-design-approval-"))
     try {
       const store = createProjectStore(project)
@@ -494,19 +494,19 @@ describe("sp_report dispatch integration", () => {
 
       expect(store.readCurrent()?.status).toBe("awaiting_design_approval")
       expect(notifications).toHaveLength(1)
-      expect(notifications[0].sessionID).toBe("session-main")
-      expect(notifications[0].agent).toBe("superpowers-agent")
+      expect(notifications[0].sessionID).toBe("session-design")
+      expect(notifications[0].agent).toBe("sp-designer")
       expect(notifications[0].selectSession).toBe(true)
-      expect(notifications[0].prompt).toContain("design waiting for approval")
-      expect(notifications[0].prompt).toContain("main conversation")
-      expect(notifications[0].prompt).toContain('"start_action": "resolve_controller_decision"')
+      expect(notifications[0].prompt).toContain("design candidate ready for review")
+      expect(notifications[0].prompt).toContain("this design session")
       expect(notifications[0].prompt).not.toContain("approve_design")
+      expect(notifications[0].prompt).not.toContain("main conversation")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
   })
 
-  test("native design needs_user prompt goes to the parent controller session", async () => {
+  test("design needs_user prompt goes to the design child session", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-record-native-design-question-"))
     try {
       const store = createProjectStore(project)
@@ -557,12 +557,12 @@ describe("sp_report dispatch integration", () => {
 
       expect(store.readCurrent()?.status).toBe("waiting_user")
       expect(notifications).toHaveLength(1)
-      expect(notifications[0].sessionID).toBe("session-main")
-      expect(notifications[0].agent).toBe("superpowers-agent")
+      expect(notifications[0].sessionID).toBe("session-design")
+      expect(notifications[0].agent).toBe("sp-designer")
       expect(notifications[0].selectSession).toBe(true)
-      expect(notifications[0].prompt).toContain("main conversation")
+      expect(notifications[0].prompt).toContain("this design session")
       expect(notifications[0].prompt).toContain("Should design include a review gate?")
-      expect(notifications[0].prompt).toContain("resume_input")
+      expect(notifications[0].prompt).not.toContain("resume_input")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

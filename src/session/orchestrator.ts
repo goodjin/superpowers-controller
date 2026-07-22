@@ -80,7 +80,6 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
         await maybeFocusDesignSession(adapter, {
           phase: args.decision.phase,
           sessionID: args.decision.session_id,
-          parentSessionID: args.parentSessionID,
         })
         return {
           action: "reuse_session",
@@ -100,7 +99,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
           taskMarkdown,
         })
       }
-      const scheduled = scheduleNodePrompt(adapter, {
+      const scheduledCreate = scheduleNodePrompt(adapter, {
         sessionID,
         agent: args.decision.agent,
         nodeID: args.packet.node_id,
@@ -113,7 +112,7 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
           variant: "error",
         },
       })
-      if (shouldAwaitScheduledPrompt()) await scheduled
+      if (shouldAwaitScheduledPrompt()) await scheduledCreate
       await adapter.showProgress({
         stage: "node_running",
         title: "Superpowers dispatch",
@@ -123,7 +122,6 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
       await maybeFocusDesignSession(adapter, {
         phase: args.decision.phase,
         sessionID,
-        parentSessionID: args.parentSessionID,
       })
       return {
         action: "create_session",
@@ -231,6 +229,23 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
         session_id: sessionID,
       }
     },
+    async returnToParent(args: {
+      sessionID: string
+      message?: string
+    }): Promise<void> {
+      if (adapter.selectSession) {
+        await adapter.selectSession({
+          sessionID: args.sessionID,
+          reason: "left design foreground",
+        })
+      }
+      await adapter.showProgress({
+        stage: "session_focused",
+        title: "Superpowers workflow",
+        message: args.message ?? "design 已结束，已切回主控。",
+        variant: "info",
+      })
+    },
   }
 }
 
@@ -319,7 +334,6 @@ async function maybeFocusDesignSession(
   args: {
     phase: string
     sessionID: string
-    parentSessionID: string
   },
 ): Promise<void> {
   if (!adapter.selectSession) return

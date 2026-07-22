@@ -107,13 +107,33 @@ export function createPluginModule(): PluginModule {
           parts: output.parts,
           progress,
         })
+        if (bridged.bridged && bridged.kind === "design_approval_handoff") {
+          try {
+            await orchestrator.notifyParent({
+              sessionID: bridged.parent_session_id,
+              agent: "superpowers-agent",
+              prompt: bridged.prompt,
+              selectSession: true,
+            })
+            await adapter.showProgress({
+              stage: "session_focused",
+              title: "Superpowers workflow",
+              message: "设计意向已确认，已切回主控完成启动确认。",
+              variant: "success",
+            })
+          } catch {
+            // Handoff failure must not block chat delivery.
+          }
+        }
         if (bridged.bridged) {
           try {
             await ctx.client.app.log({
               body: {
                 service: "superpowers-controller",
                 level: "info",
-                message: `Bridged child answer for ${bridged.node_id} from session ${input.sessionID}.`,
+                message: bridged.kind === "design_approval_handoff"
+                  ? `Handed design approval from session ${input.sessionID} to parent ${bridged.parent_session_id}.`
+                  : `Bridged child answer for ${bridged.node_id} from session ${input.sessionID}.`,
               },
             })
           } catch {

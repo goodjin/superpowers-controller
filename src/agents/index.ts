@@ -8,7 +8,8 @@ export type AgentConfigOptions = {
 
 const RECORD_RULE = [
   "Before ending the node, call sp_report with event, status, summary, artifacts, gates, checks, findings, question, task_graph, or workflow_expansion as relevant.",
-  "If user input is needed, use sp_report with status needs_user and question; do not call the native question tool.",
+  "If user input is needed, clearly ask the question in this session first, then call sp_report with status needs_user and question; do not call the native question tool.",
+  "After sp_report(status=needs_user), stop the turn immediately and wait for the user reply in this session.",
   "Do not include next_action, target_session_id, child_session_id, reuse_session_id, create_sessions, or skills_used.",
   "The plugin owns workflow routing, session creation, session reuse, and retry decisions.",
 ].join(" ")

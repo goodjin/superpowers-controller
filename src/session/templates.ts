@@ -43,7 +43,7 @@ export function buildNodeTaskPrompt(packet: NodeTaskPacket): string {
     "- Optional fields: artifacts, gates, checks, findings, question, task_graph",
     checksContractHint(packet),
     '- question.options uses objects: [{ "label": "...", "description": "..." }].',
-    "- After sp_report(status=needs_user), stop the turn immediately. Do not restate the question or continue to the next clarification; the parent controller collects the answer and resumes this session.",
+    "- After sp_report(status=needs_user), stop the turn immediately. Do not continue to the next clarification in the same turn. For design sessions, wait for the user reply in this session; otherwise the parent controller collects the answer and resumes this session.",
     "- Do not include next_action, target_session_id, child_session_id, reuse_session_id, create_sessions, or skills_used.",
   ]
     .filter(Boolean)

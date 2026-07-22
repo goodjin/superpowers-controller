@@ -1,15 +1,29 @@
 import type { ProgressReporter } from "../progress/reporter"
+import {
+  buildDesignApprovalHandoffPrompt,
+  looksLikeDesignApproval,
+} from "../session/design-foreground"
 import type { ProjectStore } from "../state/store"
-import type { QuestionOption, ResumeInput } from "../state/types"
+import type { QuestionOption, ResumeInput, WorkflowState } from "../state/types"
 
 export type ChildAnswerBridgeResult =
   | { bridged: false; reason: string }
-  | { bridged: true; node_id: string; answer_text: string; selected_options?: string[] }
+  | { bridged: true; kind: "needs_user"; node_id: string; answer_text: string; selected_options?: string[] }
+  | {
+      bridged: true
+      kind: "design_approval_handoff"
+      answer_text: string
+      parent_session_id: string
+      prompt: string
+    }
 
 /**
  * When a user types into a child session that is waiting on needs_user,
  * consume the pending question so the control plane matches the chat reply.
  * Does not call resumeNode — the host already delivers this user message to the child.
+ *
+ * For awaiting_design_approval in the design child, clear approve intent hands off to the parent.
+ * Revise / other replies stay in the child conversation.
  */
 export function bridgeChildAnswerToPendingQuestion(args: {
   store: ProjectStore
@@ -25,6 +39,17 @@ export function bridgeChildAnswerToPendingQuestion(args: {
 
   const state = args.store.readCurrent()
   if (!state) return { bridged: false, reason: "no_active_workflow" }
+
+  if (state.status === "awaiting_design_approval") {
+    return bridgeDesignApprovalAnswer({
+      store: args.store,
+      state,
+      sessionID: args.sessionID,
+      text,
+      progress: args.progress,
+    })
+  }
+
   if (state.status !== "waiting_user" || !state.pending_question?.source_node_id) {
     return { bridged: false, reason: "not_waiting_user" }
   }
@@ -67,9 +92,44 @@ export function bridgeChildAnswerToPendingQuestion(args: {
 
   return {
     bridged: true,
+    kind: "needs_user",
     node_id: node.id,
     answer_text: text,
     selected_options,
+  }
+}
+
+function bridgeDesignApprovalAnswer(args: {
+  store: ProjectStore
+  state: WorkflowState
+  sessionID: string
+  text: string
+  progress?: ProgressReporter
+}): ChildAnswerBridgeResult {
+  const designNode = [...args.state.node_runs].reverse().find((run) => run.phase === "design")
+  if (!designNode || designNode.session_id !== args.sessionID) {
+    return { bridged: false, reason: "session_not_design_approval_source" }
+  }
+  if (!looksLikeDesignApproval(args.text, args.state.pending_question?.options)) {
+    return { bridged: false, reason: "design_revision_or_unclear" }
+  }
+  if (!args.state.parent_session_id) {
+    return { bridged: false, reason: "missing_parent_session" }
+  }
+
+  void args.progress?.report({
+    stage: "session_focused",
+    title: "Superpowers workflow",
+    message: "设计意向已确认，准备切回主控完成启动确认。",
+    variant: "info",
+  })
+
+  return {
+    bridged: true,
+    kind: "design_approval_handoff",
+    answer_text: args.text,
+    parent_session_id: args.state.parent_session_id,
+    prompt: buildDesignApprovalHandoffPrompt(args.state, args.text),
   }
 }
 
@@ -120,6 +180,9 @@ function looksLikeControllerSyntheticPrompt(text: string): boolean {
   return (
     text.startsWith("# Superpowers User Input Resume")
     || text.startsWith("# Superpowers workflow waiting for user input")
+    || text.startsWith("# Superpowers design waiting for user input")
+    || text.startsWith("# Superpowers design candidate ready for review")
+    || text.startsWith("# Superpowers design approval handoff")
     || text.startsWith("# Superpowers Node Task:")
     || text.startsWith("# Superpowers workflow waiting for controller decision")
   )

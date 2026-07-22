@@ -65,6 +65,8 @@ describe("child answer bridge", () => {
 
       expect(result.bridged).toBe(true)
       if (!result.bridged) throw new Error("expected bridge")
+      expect(result.kind).toBe("needs_user")
+      if (result.kind !== "needs_user") throw new Error("expected needs_user")
       expect(result.selected_options).toEqual(["A. inline"])
 
       const state = store.readCurrent()!
@@ -113,6 +115,55 @@ describe("child answer bridge", () => {
       })
       expect(result.bridged).toBe(false)
       expect(store.readCurrent()?.status).toBe("waiting_user")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  test("hands design approval from the design child back to the parent", () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-child-bridge-design-approval-"))
+    try {
+      const store = createProjectStore(project)
+      store.prepareRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Design approval",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-parent",
+        prepareMode: "managed_design",
+      })
+      store.addNodeRun({
+        phase: "design",
+        agent: "sp-designer",
+        session_id: "session-design",
+        task_markdown: "# Task",
+      })
+      store.recordNodeResult({
+        sessionID: "session-design",
+        agent: "sp-designer",
+        input: {
+          event: "design",
+          status: "passed",
+          summary: "Candidate ready",
+          artifacts: { spec: "# Spec" },
+          gates: { spec_written: true },
+        },
+      })
+      expect(store.readCurrent()?.status).toBe("awaiting_design_approval")
+
+      const result = bridgeChildAnswerToPendingQuestion({
+        store,
+        sessionID: "session-design",
+        parts: [{ type: "text", text: "同意" }],
+      })
+      expect(result.bridged).toBe(true)
+      if (!result.bridged || result.kind !== "design_approval_handoff") {
+        throw new Error("expected design_approval_handoff")
+      }
+      expect(result.parent_session_id).toBe("session-parent")
+      expect(result.prompt).toContain("already approved")
+      expect(store.readCurrent()?.status).toBe("awaiting_design_approval")
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

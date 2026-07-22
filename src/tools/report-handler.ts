@@ -1,6 +1,12 @@
 import { parseSpRecordInput } from "../state/record-schema"
 import { noopProgressReporter, type ProgressReporter } from "../progress/reporter"
 import { decideNextDispatches, type DispatchDecision } from "../router/transition"
+import {
+  buildDesignCandidateReviewPrompt,
+  buildDesignForegroundQuestionPrompt,
+  designForegroundSourceNode,
+  isDesignForegroundPhase,
+} from "../session/design-foreground"
 import { buildControllerUserInputPrompt, buildNodeTaskPacket } from "../session/templates"
 import { notifyParentControllerDecision } from "../runtime/notify-controller"
 import { emptyDispatchReason, shouldEscalateEmptyDispatch } from "../runtime/empty-dispatch"
@@ -18,7 +24,7 @@ export type ReportHandlerContext = {
 
 export function createReportHandler(deps: {
   store: ProjectStore
-  orchestrator: Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "notifyParent">>
+  orchestrator: Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "notifyParent" | "returnToParent">>
   progress?: ProgressReporter
   config?: WorkflowConfig
 }) {
@@ -62,6 +68,7 @@ export function createReportHandler(deps: {
     }
     const decisions = decideNextDispatches(state, record)
     const dispatches = []
+    let leftDesignForeground = false
 
     await progress.report({
       stage: "node_recorded",
@@ -93,7 +100,7 @@ export function createReportHandler(deps: {
             await deps.orchestrator.notifyParent({
               sessionID: target.sessionID,
               agent: target.agent,
-              prompt: buildControllerUserInputPrompt(current, { conversation: target.conversation }),
+              prompt: target.prompt,
               selectSession: true,
             })
           } catch (error) {
@@ -118,7 +125,9 @@ export function createReportHandler(deps: {
         await progress.report({
           stage: "waiting_user_input",
           title: "Superpowers workflow",
-          message: "Node requested user input.",
+          message: target.conversation === "foreground"
+            ? "Design session is waiting for your reply."
+            : "Node requested user input.",
           variant: "warning",
         })
         continue
@@ -133,6 +142,9 @@ export function createReportHandler(deps: {
         continue
       }
       if (decision.action === "finish") {
+        if (record.event === "design" && record.status === "passed") {
+          leftDesignForeground = true
+        }
         await progress.report({
           stage: "workflow_finished",
           title: "Superpowers workflow",
@@ -142,6 +154,9 @@ export function createReportHandler(deps: {
         continue
       }
       if (decision.action !== "create_session" && decision.action !== "reuse_session") continue
+      if (record.event === "design" && record.status === "passed" && !isDesignForegroundPhase(decision.phase)) {
+        leftDesignForeground = true
+      }
       const current = deps.store.readCurrent() ?? state
       const nodeID = nextDispatchNodeID(current, decision)
       const packet = buildNodeTaskPacket({
@@ -214,6 +229,11 @@ export function createReportHandler(deps: {
     }
 
     const current = deps.store.readCurrent() ?? state
+    if (leftDesignForeground && current.parent_session_id && deps.orchestrator.returnToParent) {
+      await deps.orchestrator.returnToParent({
+        sessionID: current.parent_session_id,
+      })
+    }
     let feedbackOverride: Partial<ReturnType<typeof buildControllerFeedback>> | undefined
     if (current.status === "waiting_controller_decision" && deps.orchestrator.notifyParent) {
       const notified = await notifyParentControllerDecision({
@@ -248,12 +268,35 @@ function userInputNotificationTarget(state: WorkflowState): {
   agent: string
   conversation: "main" | "foreground"
   label: string
+  prompt: string
 } {
+  const designNode = designForegroundSourceNode(state)
+  if (designNode?.session_id) {
+    if (state.status === "waiting_user") {
+      return {
+        sessionID: designNode.session_id,
+        agent: designNode.agent,
+        conversation: "foreground",
+        label: "Design",
+        prompt: buildDesignForegroundQuestionPrompt(state),
+      }
+    }
+    if (state.status === "awaiting_design_approval") {
+      return {
+        sessionID: designNode.session_id,
+        agent: designNode.agent,
+        conversation: "foreground",
+        label: "Design",
+        prompt: buildDesignCandidateReviewPrompt(state),
+      }
+    }
+  }
   return {
     sessionID: state.parent_session_id,
     agent: "superpowers-agent",
     conversation: "main",
     label: "Parent",
+    prompt: buildControllerUserInputPrompt(state, { conversation: "main" }),
   }
 }
 

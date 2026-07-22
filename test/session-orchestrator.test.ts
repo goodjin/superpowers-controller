@@ -284,17 +284,23 @@ describe("createSessionOrchestrator", () => {
     expect(order).toEqual(["create", "register", "prompt"])
   })
 
-  test("does not auto-select child sessions after dispatch", async () => {
+  test("auto-selects design child sessions after dispatch", async () => {
     const selected: string[] = []
+    const toasts: string[] = []
     const orchestrator = createSessionOrchestrator({
       async createNodeSession(input) {
         return `session-${input.agent}`
+      },
+      async createControllerSession() {
+        return "session-controller"
       },
       async continueNodeSession() {},
       async selectSession(input) {
         selected.push(input.sessionID)
       },
-      async showProgress() {},
+      async showProgress(input) {
+        toasts.push(input.message)
+      },
     })
 
     await orchestrator.dispatch({
@@ -321,7 +327,8 @@ describe("createSessionOrchestrator", () => {
       },
     })
 
-    expect(selected).toEqual([])
+    expect(selected).toEqual(["session-sp-designer"])
+    expect(toasts.some((message) => message.includes("已进入 design 子会话"))).toBe(true)
   })
 
   test("does not auto-select implement children after dispatch", async () => {
@@ -366,11 +373,14 @@ describe("createSessionOrchestrator", () => {
     expect(selected).toEqual([])
   })
 
-  test("keeps the parent route after dispatch", async () => {
+  test("keeps the parent route after non-design dispatch", async () => {
     const selected: string[] = []
     const orchestrator = createSessionOrchestrator({
       async createNodeSession() {
-        return "session-design"
+        return "session-plan"
+      },
+      async createControllerSession() {
+        return "session-controller"
       },
       async continueNodeSession() {},
       async selectSession(input) {
@@ -385,21 +395,21 @@ describe("createSessionOrchestrator", () => {
       parentSessionID: "session-main",
       decision: {
         action: "create_session",
-        phase: "design",
-        agent: "sp-designer",
-        primary_skill: "superpowers-brainstorming",
-        reason: "design next",
+        phase: "plan",
+        agent: "sp-planner",
+        primary_skill: "superpowers-writing-plans",
+        reason: "plan next",
       },
       packet: {
         run_id: "run-1",
-        node_id: "001-design",
+        node_id: "001-plan",
         workflow: "feature",
-        phase: "design",
-        agent: "sp-designer",
-        primary_skill: "superpowers-brainstorming",
-        objective: "Create design.",
+        phase: "plan",
+        agent: "sp-planner",
+        primary_skill: "superpowers-writing-plans",
+        objective: "Create plan.",
         required_artifacts: [],
-        record_contract: { event: "design", expected_artifacts: ["spec"], allowed_gates: ["spec_written"] },
+        record_contract: { event: "plan", expected_artifacts: ["plan"], allowed_gates: ["plan_written"] },
       },
     })
 

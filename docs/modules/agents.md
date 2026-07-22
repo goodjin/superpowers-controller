@@ -48,7 +48,7 @@ agent prompt 不能成为 workflow state machine。职责边界如下：
 - `superpowers-agent` 可以解释 runtime 返回的 state 和 dispatches，但不能根据自然语言自行创建 child session 或跳过 transition。
 - `superpowers-agent` 需要能力目录时调用 `sp_status(include_capabilities=true)`，读取 agent catalog、workflow schema、built-in workflow templates 和 examples。
 - 每个执行任务先 `sp_prepare`，再由用户确认后 `sp_start(action="start_prepared_task", prepared_task_id, start_config)`；`start_config` 可选内置 workflow id 或自定义 orchestration。
-- `superpowers-agent` 收到 `waiting_user` / `pending_question` controller prompt 后，只负责在主会话里问用户；用户回答后调用 `sp_start(run_id, resume_input)`，不能替用户决定答案。
+- `superpowers-agent` 收到非 design 的 `waiting_user` / `pending_question` controller prompt 后，只负责在主会话里问用户；用户回答后调用 `sp_start(run_id, resume_input)`，不能替用户决定答案。design 阶段的澄清与候选稿反馈在 designer 子会话直接进行。
 - 当 workflow `status` 为 `waiting_controller_decision` 时，主控先 `sp_status`，再从 `allowed_controller_decisions` 选择 `skip_node` / `force_dispatch` / `cancel_node` / `replace_orchestration` / `continue_existing_graph` / `retry_node` 等，用 `sp_start(resolve_controller_decision)` 执行。`force_dispatch` 会把未跑的前置标成 `skipped` 再派目标节点，便于审计。
 - 当 workflow `status` 为 `recovered_unknown`（插件重启后）时，主控 prompt 要求：先 `sp_status(detail="full", include_progress=true)` 检查 interrupted task；向用户说明旧 child session 已不可 live；用户确认后用 `sp_start(run_id, resume="all")` 或 `sp_start(run_id, resume=[task_id])` 恢复。禁止不带 `resume` 的 `sp_start(run_id)` 期望自动派发；禁止自造 `resolve_controller_decision` / `retry_node` payload。插件按 task graph 为每个 task 派下一未完成 phase，主控不能跳 phase。
 - 节点 agent 只读取 node task packet 中给出的 scope、artifacts 和 required outputs。
@@ -67,7 +67,7 @@ agent prompt 不能成为 workflow state machine。职责边界如下：
 - 节点 agent 保留 `skill` tool，但 `permission.skill` 只允许 router 分配的 primary skill，并拒绝其它全局 skill。
 - 即使外部插件或全局 permission 放宽了 native `skill` 权限，`tool.execute.before` 也会限制节点 agent 只能加载 `src/router/modes.ts` 分配的 primary skill。
 - 节点 agent 也禁止嵌套调用原生 `task` tool，避免节点绕过 Controller 继续派生未登记子会话。
-- 节点 agent 禁止调用 OpenCode 原生 `question` tool，并通过 `permission.question = deny` 和 `tools.question = false` 隐藏入口。需要用户输入时只能调用 `sp_report`，使用 `status: "needs_user"` 和结构化 `question` 字段；runtime 负责写入 `pending_question`、通知主控会话，并等待 `sp_start(run_id, resume_input)` 恢复原 child session。
+- 节点 agent 禁止调用 OpenCode 原生 `question` tool，并通过 `permission.question = deny` 和 `tools.question = false` 隐藏入口。需要用户输入时只能调用 `sp_report`，使用 `status: "needs_user"` 和结构化 `question` 字段。design 节点由 runtime 通知同一 designer 子会话并等待用户在该会话回复；其他节点仍通知主控，再经 `sp_start(run_id, resume_input)` 恢复原 child session。
 - 节点 agent prompt 只声明一个 primary skill；需要其他 skill 时，由控制器创建或复用另一个节点 session。
 - Runtime system 注入只对 `node_runs.session_id` 匹配的 child node session 生效。父级 `superpowers-agent` 会话不注入 `agent: sp-*` 或 `primary_skill`，避免控制器误认为自己正在执行节点 skill。
 

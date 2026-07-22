@@ -18,6 +18,7 @@ export type ProgressStage =
   | "run_resumed"
   | "controller_decision_resolved"
   | "tui_session_select_failed"
+  | "session_focused"
 
 export type ProgressUpdate = {
   stage: ProgressStage
