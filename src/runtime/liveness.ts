@@ -27,6 +27,9 @@ export function findExpiredRunningNodes(args: {
   for (const node of state.node_runs) {
     if (node.status !== "running") continue
     const progress = args.progressByNode[node.id] ?? []
+    // Long-running tools may stay on tool_running without further progress events.
+    // Do not treat that silence as idle while a tool is still in flight.
+    if (hasInFlightTool(progress)) continue
     const observedAt = progress.at(-1)?.at ?? node.started_at
     const observed = Date.parse(observedAt)
     if (!Number.isFinite(observed) || !Number.isFinite(current)) continue
@@ -37,6 +40,16 @@ export function findExpiredRunningNodes(args: {
   }
 
   return expired
+}
+
+/** Latest tool lifecycle event is pending/running (not yet completed/error). */
+export function hasInFlightTool(progress: ReadonlyArray<NodeProgressEntry>): boolean {
+  for (let index = progress.length - 1; index >= 0; index -= 1) {
+    const kind = progress[index]?.kind
+    if (kind === "tool_running" || kind === "tool_pending") return true
+    if (kind === "tool_completed" || kind === "tool_error") return false
+  }
+  return false
 }
 
 export function createLivenessMonitor(args: {

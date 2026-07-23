@@ -89,6 +89,90 @@ describe("liveness monitor", () => {
     expect(expired).toHaveLength(0)
   })
 
+  test("findExpiredRunningNodes skips nodes with in-flight tool_running", () => {
+    const state = baseState()
+    const now = new Date("2026-01-01T00:10:00.000Z")
+    const expired = findExpiredRunningNodes({
+      state,
+      progressByNode: {
+        "001-implement-T1": [
+          {
+            at: "2026-01-01T00:00:00.000Z",
+            kind: "tool_pending",
+            session_id: "session-T1",
+            node_id: "001-implement-T1",
+            agent: "sp-implementer",
+            phase: "implement",
+            task_id: "T1",
+            summary: "bash pending",
+          },
+          {
+            at: "2026-01-01T00:00:01.000Z",
+            kind: "tool_running",
+            session_id: "session-T1",
+            node_id: "001-implement-T1",
+            agent: "sp-implementer",
+            phase: "implement",
+            task_id: "T1",
+            summary: "bash running",
+            detail: "brew install --cask android-commandlinetools",
+          },
+          {
+            at: "2026-01-01T00:00:02.000Z",
+            kind: "session_status",
+            session_id: "session-T1",
+            node_id: "001-implement-T1",
+            agent: "sp-implementer",
+            phase: "implement",
+            task_id: "T1",
+            summary: "session busy",
+          },
+        ],
+      },
+      now,
+      timeoutMs: DEFAULT_LIVENESS_TIMEOUT_MS,
+    })
+
+    expect(expired).toHaveLength(0)
+  })
+
+  test("findExpiredRunningNodes still expires after tool_completed goes stale", () => {
+    const state = baseState()
+    const now = new Date("2026-01-01T00:10:00.000Z")
+    const expired = findExpiredRunningNodes({
+      state,
+      progressByNode: {
+        "001-implement-T1": [
+          {
+            at: "2026-01-01T00:00:00.000Z",
+            kind: "tool_running",
+            session_id: "session-T1",
+            node_id: "001-implement-T1",
+            agent: "sp-implementer",
+            phase: "implement",
+            task_id: "T1",
+            summary: "bash running",
+          },
+          {
+            at: "2026-01-01T00:00:30.000Z",
+            kind: "tool_completed",
+            session_id: "session-T1",
+            node_id: "001-implement-T1",
+            agent: "sp-implementer",
+            phase: "implement",
+            task_id: "T1",
+            summary: "bash completed",
+          },
+        ],
+      },
+      now,
+      timeoutMs: DEFAULT_LIVENESS_TIMEOUT_MS,
+    })
+
+    expect(expired).toHaveLength(1)
+    expect(expired[0]?.idle_ms).toBe(570_000)
+  })
+
   test("markLivenessExpired closes a stale running node", () => {
     const project = mkdtempSync(join(tmpdir(), "sp-liveness-"))
     try {
