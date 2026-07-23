@@ -33,12 +33,12 @@ export function createPrepareTool(
         .describe("V5 structured task brief prepared by the controller after intake."),
       design_participation: tool.schema
         .object({
-          mode: tool.schema.enum(["none", "brainstorm", "design"]).describe("Whether sp-designer participates during prepare."),
+          mode: tool.schema.enum(["none", "brainstorm", "design"]).describe("Whether sp-designer produces a candidate spec during prepare. Clarifying questions stay with the controller."),
           reason: tool.schema.string().optional().describe("Why designer participation is or is not needed."),
-          blocking_questions_allowed: tool.schema.boolean().optional().describe("Whether designer may ask design-blocking questions."),
+          blocking_questions_allowed: tool.schema.boolean().optional().describe("Deprecated/discouraged. Defaults to false. Designer should not interview the user; use blocked for missing facts."),
         })
         .optional()
-        .describe("V5 prepare-stage designer participation decision."),
+        .describe("V5 prepare-stage designer participation decision. Controller clarifies with the user; designer writes the candidate spec."),
       confirmation: tool.schema
         .object({
           required: tool.schema.boolean().optional().describe("Whether user confirmation is required before sp_start."),
@@ -261,7 +261,7 @@ function prepareDispatchDecisions(mode: PrepareMode) {
       phase: "design",
       agent: "sp-designer" as const,
       primary_skill: AGENT_SKILL_MAP["sp-designer"],
-      reason: "prepare candidate design for controller approval",
+      reason: "prepare candidate design from controller brief for controller approval",
     }]
   }
   if (mode === "managed_planning") {
@@ -313,7 +313,7 @@ function buildPrepareStageWorkflowSpec(args: {
           status: "candidate",
         },
       ],
-      completion_policy: "Designer must report a candidate design with artifacts.spec and gates.spec_written before controller approval.",
+      completion_policy: "Designer must report a candidate design with artifacts.spec and gates.spec_written from the controller brief, without interviewing the user. Missing facts must be reported as blocked for the controller.",
     },
     autoExpansionAllow: false,
     autoExpansionReason: `Prepare-stage designer participation is ${args.designParticipation?.mode ?? "requested"} for ${args.workflow}; controller approval is required before start.`,
@@ -323,7 +323,7 @@ function buildPrepareStageWorkflowSpec(args: {
 function nextMessageForPrepareMode(mode: PrepareMode): string {
   switch (mode) {
     case "managed_design":
-      return "Wait for the designer candidate output. After user confirmation, continue through the v5 path: sp_prepare for the confirmed task, then sp_start(action=\"start_prepared_task\") with confirmation (start_config optional); otherwise request a revision."
+      return "Wait for the designer candidate output (no user interview in the child session). Review the candidate with the user in this main session. After user confirmation, continue through the v5 path: sp_prepare for the confirmed task, then sp_start(action=\"start_prepared_task\") with confirmation (start_config optional); otherwise request a revision or enrich the brief if the designer blocked."
     case "managed_planning":
       return "Wait for the planner candidate output. After user confirmation, continue through the v5 path: sp_prepare for the confirmed task, then sp_start(action=\"start_prepared_task\") with confirmation (start_config optional); otherwise request a revision."
     default:
@@ -398,7 +398,9 @@ function normalizeDesignParticipation(value: unknown): NormalizedDesignParticipa
   return {
     mode: input.mode,
     reason: input.reason,
-    blocking_questions_allowed: input.blocking_questions_allowed,
+    blocking_questions_allowed: input.mode === "none"
+      ? input.blocking_questions_allowed
+      : (input.blocking_questions_allowed ?? false),
   }
 }
 
@@ -473,6 +475,9 @@ function prepareWarnings(args: {
   }
   if (args.designParticipation?.mode === "none" && args.designParticipation.blocking_questions_allowed) {
     warnings.push("blocking_questions_allowed is ignored when design_participation.mode is none.")
+  }
+  if (args.designParticipation && args.designParticipation.mode !== "none" && args.designParticipation.blocking_questions_allowed) {
+    warnings.push("blocking_questions_allowed=true is discouraged; prefer controller clarification and designer blocked reports.")
   }
   return warnings
 }

@@ -43,11 +43,17 @@ export function buildNodeTaskPrompt(packet: NodeTaskPacket): string {
     "- Optional fields: artifacts, gates, checks, findings, question, task_graph",
     checksContractHint(packet),
     '- question.options uses objects: [{ "label": "...", "description": "..." }].',
-    "- After sp_report(status=needs_user), stop the turn immediately. Do not continue to the next clarification in the same turn. For design sessions, wait for the user reply in this session; otherwise the parent controller collects the answer and resumes this session.",
+    designBriefModeEnabled(packet)
+      ? "- Design Brief Mode: do not call sp_report(status=needs_user) for clarifying questions. If the brief is insufficient, sp_report(status=blocked) with missing facts for the controller."
+      : "- After sp_report(status=needs_user), stop the turn immediately. Do not continue to the next clarification in the same turn. For design sessions, wait for the user reply in this session; otherwise the parent controller collects the answer and resumes this session.",
     "- Do not include next_action, target_session_id, child_session_id, reuse_session_id, create_sessions, or skills_used.",
   ]
     .filter(Boolean)
     .join("\n")
+}
+
+function designBriefModeEnabled(packet: NodeTaskPacket): boolean {
+  return packet.agent === "sp-designer" || packet.phase === "design"
 }
 
 function formatSourceArtifacts(sourceArtifacts: NodeTaskPacket["source_artifacts"]): string {
@@ -435,6 +441,9 @@ function objectiveForDecision(
   state: WorkflowState,
   decision: Extract<DispatchDecision, { action: "create_session" | "reuse_session" }>,
 ): string {
+  if (decision.phase === "design" || decision.agent === "sp-designer") {
+    return "Produce the candidate design/spec from the controller's clarified design brief and source artifacts. Do not interview the user. If the brief is insufficient, report blocked with missing facts."
+  }
   if (state.activation === "draft" && decision.phase === "plan") {
     return "Produce the formal implementation plan and task graph for controller review. Do not begin implementation."
   }
@@ -444,6 +453,12 @@ function objectiveForDecision(
 
 function requiredArtifactsForPhase(phase: string, state: WorkflowState, taskID?: string): NodeTaskPacket["required_artifacts"] {
   switch (phase) {
+    case "design":
+      return [
+        { name: "request", path: "request.md" },
+        { name: "task", path: "task.md" },
+        { name: "proposal", path: "proposal.md" },
+      ]
     case "plan":
       if (state.activation === "draft") {
         return [{ name: "request", path: "request.md" }]
@@ -495,6 +510,17 @@ function contextSectionsForDecision(
   decision: Extract<DispatchDecision, { action: "create_session" | "reuse_session" }>,
 ): NodeTaskPacket["context_sections"] {
   const sections: NodeTaskPacket["context_sections"] = []
+  if (decision.phase === "design" || decision.agent === "sp-designer") {
+    sections.push({
+      title: "Design Brief Mode",
+      body: [
+        "The controller already clarified requirements with the user in the main session.",
+        "Source artifacts (request/task/proposal) are the design brief.",
+        "Skip interactive clarifying questions, visual-companion consent gates, and mid-design sectional user approval.",
+        "Write the candidate spec for controller review. If critical facts are missing, sp_report(status=blocked) instead of needs_user.",
+      ].join("\n"),
+    })
+  }
   if (decision.task_id) {
     const task = state.task_graph?.tasks.find((item) => item.id === decision.task_id)
     sections.push({

@@ -14,7 +14,7 @@ agents 模块负责注入 Superpowers Controller 的 OpenCode agent 配置。`su
 | Agent | Mode | 用途 | 适用场景 | Primary skill |
 |---|---|---|---|---|
 | `superpowers-agent` | `primary` | 主会话控制器，确认用户意图、恢复或创建 workflow state，并通过插件工具推进调度。 | 用户选择 `superpowers-agent` 启动、继续、查看或推进 Superpowers workflow 时。 | 无。控制器不加载业务 skill。 |
-| `sp-designer` | `subagent` | 设计和 spec 节点，澄清改动形状并产出设计产物。 | `design` mode；需要在实现前明确需求、方案、边界和验收条件时。 | `superpowers-brainstorming` |
+| `sp-designer` | `subagent` | 设计/spec 节点：根据主控已澄清的 design brief 产出候选设计，不在子会话里向用户追问。 | `design` mode；需要正式 spec 产物时。澄清问答由 `superpowers-agent` 完成。 | `superpowers-brainstorming` |
 | `sp-planner` | `subagent` | 计划节点，把已确认需求转成 implementation plan 和 `depends_on` task graph。 | `plan` mode；已有 spec 或需求，需要拆成可执行任务和依赖关系时。 | `superpowers-writing-plans` |
 | `sp-debugger` | `subagent` | 调试节点，先调查症状并记录 root cause，再允许修复工作开始。 | `debug` mode；遇到 bug、测试失败或异常行为，需要先定位原因时。 | `superpowers-systematic-debugging` |
 | `sp-investigator` | `subagent` | 只读调查节点，读取一个独立问题域并返回 findings，不修改文件。 | `parallel-investigate` mode；多个独立领域可以并行调查，或需要把研究工作隔离到子会话时。 | `superpowers-dispatching-parallel-agents` |

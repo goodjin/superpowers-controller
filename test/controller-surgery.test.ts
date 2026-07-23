@@ -43,6 +43,16 @@ function baseState(overrides: Partial<WorkflowState> = {}): WorkflowState {
 }
 
 describe("never-stuck controller surgery", () => {
+  test("draft prepares do not escalate empty dispatch", () => {
+    const draft = baseState({
+      activation: "draft",
+      status: "running",
+      phase: "intake",
+      current_phase: "intake",
+    })
+    expect(shouldEscalateEmptyDispatch(draft, [])).toBe(false)
+  })
+
   test("normalizeTaskGraph coerces unknown agents to sp-implementer", () => {
     const graph = normalizeTaskGraph({
       tasks: [{

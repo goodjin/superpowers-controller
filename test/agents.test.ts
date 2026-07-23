@@ -32,7 +32,13 @@ describe("createAgentConfig", () => {
       expect(prompt, `${agentName} should load ${primarySkill}`).toContain(primarySkill)
       expect(prompt, `${agentName} should describe one primary skill`).toContain("Primary skill:")
       expect(prompt, `${agentName} should not mention control-plane fields`).toContain("Do not include next_action")
-      expect(prompt, `${agentName} should route user input through sp_report`).toContain("status needs_user")
+      if (agentName === "sp-designer") {
+        expect(prompt).toContain("Design Brief Mode")
+        expect(prompt).toContain("status=blocked")
+        expect(prompt).not.toContain("status needs_user")
+      } else {
+        expect(prompt, `${agentName} should route user input through sp_report`).toContain("status needs_user")
+      }
       expect(permission?.skill?.["*"], `${agentName} should deny unrelated global skills`).toBe("deny")
       expect(permission?.skill?.[primarySkill], `${agentName} should allow only its primary skill`).toBe("allow")
       expect(tools?.task, `${agentName} should hide native task`).toBe(false)
@@ -73,6 +79,9 @@ describe("createAgentConfig", () => {
     expect(prompt).toContain("clean_handoff=true")
     expect(prompt).toContain("design-only/plan-only/review-only")
     expect(prompt).toContain("waiting_controller_decision")
+    expect(prompt).toContain("finish clarifying purpose, constraints, success criteria")
+    expect(prompt).toContain("blocking_questions_allowed")
+    expect(prompt).toContain("do not tell the user to switch into the designer session")
   })
 
   test("controller prompt guides recovered_unknown resume without retry_node", () => {

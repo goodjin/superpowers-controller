@@ -9,6 +9,18 @@ Help turn ideas into fully formed designs and specs through natural collaborativ
 
 Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
 
+## Superpowers Controller: Design Brief Mode
+
+When this skill runs under `sp-designer` and the node task includes **Design Brief Mode** (or says the controller already clarified requirements):
+
+1. **Skip** interactive clarifying questions (one-at-a-time), visual-companion consent as a blocking gate, and mid-design sectional user approval.
+2. Explore project context as needed, propose 2–3 approaches with a recommendation, then write the candidate spec required by the node `sp_report` contract (usually `artifacts/spec.md`).
+3. **Do not interview the user** in this session. If critical facts are missing from the brief/source artifacts, stop and `sp_report(status=blocked)` with a concrete missing-fact list so the controller can ask.
+4. User review/approval of the written candidate happens in the **controller** session after your report—not here. For HARD-GATE purposes, producing the candidate spec and reporting it for controller review is the design handoff; do not wait for in-session user approval.
+5. Do not invoke writing-plans or implementation skills from this node; the plugin routes the next step.
+
+When Design Brief Mode is **not** active, follow the normal interactive checklist below.
+
 <HARD-GATE>
 Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.
 </HARD-GATE>

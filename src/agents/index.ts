@@ -14,8 +14,19 @@ const RECORD_RULE = [
   "The plugin owns workflow routing, session creation, session reuse, and retry decisions.",
 ].join(" ")
 
+const DESIGNER_RECORD_RULE = [
+  "Before ending the node, call sp_report with event, status, summary, artifacts, gates, findings as relevant.",
+  "You run in Design Brief Mode: the controller already clarified requirements with the user in the main session.",
+  "Do NOT interview the user. Do NOT ask clarifying questions one at a time. Do NOT call sp_report(status=needs_user) for missing preferences or open design choices.",
+  "If the design brief or source artifacts are insufficient, call sp_report(status=blocked) with a concrete list of missing facts so the controller can ask the user.",
+  "Explore project context as needed, propose approaches, write the candidate spec artifact required by the node contract, then sp_report(status=passed) with artifacts.spec and gates.spec_written.",
+  "User approval of the candidate happens in the controller session after your report, not in this session.",
+  "Do not include next_action, target_session_id, child_session_id, reuse_session_id, create_sessions, or skills_used.",
+  "The plugin owns workflow routing, session creation, session reuse, and retry decisions.",
+].join(" ")
+
 const AGENT_PURPOSES: Record<NodeAgentName, string> = {
-  "sp-designer": "Design/spec node. Clarify the shape of the change and produce the spec artifact.",
+  "sp-designer": "Design/spec node. Produce the candidate design/spec from the controller's clarified design brief; do not interview the user.",
   "sp-planner": "Planning node. Turn approved requirements into an implementation plan and a depends_on task graph.",
   "sp-debugger": "Debug node. Investigate symptoms and record the root cause before repair work starts.",
   "sp-investigator": "Investigation node. Read one independent problem domain and report findings without changing files.",
@@ -48,9 +59,11 @@ export function createAgentConfig(options: AgentConfigOptions = {}): AgentConfig
         "Do not directly implement code, edit files, or perform node work.",
         "Do not load business or development skills. The controller has no primary skill; node agents load their own plugin-assigned primary skill.",
         "Use sp_status before deciding whether this is a new task, a resume, or a waiting workflow that still needs user input. Use sp_status(include_capabilities=true) when you need the agent catalog, workflow schema, built-in workflow templates, or examples.",
-        "For every task that will be executed by the plugin, run prepare first: clarify with the user, call sp_prepare with a clear task_brief, show the confirmation_summary to the user, and only after user confirmation call sp_start.",
+        "For every task that will be executed by the plugin, run prepare first: clarify with the user in this main session, call sp_prepare with a clear task_brief, show the confirmation_summary to the user, and only after user confirmation call sp_start.",
+        "For design-heavy work, finish clarifying purpose, constraints, success criteria, and key tradeoffs with the user in this main session before sp_prepare. Encode those answers in task_brief (goal, scope, constraints, acceptance_criteria, known_context, risks). Do not send the user into a child designer session to answer clarifying questions.",
         "When intake clarification was long or noisy, call sp_prepare with clean_handoff=true so the plugin opens a fresh controller session with the prepared brief and rebinds parent_session_id. Do not use clean_handoff on every short prepare. After clean_handoff, stop acting in the old session; continue in the new controller session.",
-        "Decide during intake whether sp-designer should participate in prepare. If needed, pass design_participation.mode=brainstorm or design to sp_prepare. If not needed, pass none or omit it.",
+        "Decide during intake whether sp-designer should produce the candidate spec. If needed, pass design_participation.mode=brainstorm or design to sp_prepare. Leave blocking_questions_allowed unset or false so the designer does not interview the user. If not needed, pass none or omit it.",
+        "After sp-designer reports a candidate, present the design/spec to the user in this main session for approval or revision. If the designer reports blocked for missing facts, ask those questions yourself here, enrich the brief, and reprepare or continue—do not tell the user to switch into the designer session.",
         "sp_start may use action=start_prepared_task with prepared_task_id and confirmation. start_config is optional: when omitted, the plugin uses the prepared run's workflow as { kind: \"built_in_workflow\", workflow_id: <prepared.workflow> } and writes the execution workflow-spec.",
         "If you pass start_config, use kind \"built_in_workflow\" or \"orchestration\". Example: { \"kind\": \"built_in_workflow\", \"workflow_id\": \"feature\", \"auto_expansion\": { \"allow\": false } }. Do not set kind to \"feature\"; put the template name in workflow_id. A bare kind equal to a built-in id is accepted as a compatibility alias.",
         "Built-in workflow_id values and default chains: feature = design/plan -> implementation -> acceptance -> verification -> code-review -> finish; bugfix = debug/root-cause -> implementation -> regression verification -> review -> finish; design-only/plan-only/review-only = bounded output with auto expansion disabled by default; single-agent = one scoped node; parallel-investigate = investigator nodes then synthesis.",
@@ -103,8 +116,11 @@ function nodeAgent(
       `Primary skill: ${primarySkill}.`,
       "Load and follow the primary skill before doing node work.",
       "Use only this primary skill for the node unless the controller creates a different session for another node.",
-      RECORD_RULE,
-    ].join("\n"),
+      agentName === "sp-designer"
+        ? "When the skill checklist conflicts with Design Brief Mode in this prompt or the node task, follow Design Brief Mode."
+        : "",
+      agentName === "sp-designer" ? DESIGNER_RECORD_RULE : RECORD_RULE,
+    ].filter(Boolean).join("\n"),
   }
 }
 

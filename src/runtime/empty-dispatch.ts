@@ -23,6 +23,8 @@ export function shouldEscalateEmptyDispatch(
 ): boolean {
   if (decisions.length > 0) return false
   if (hasRunningNodeRuns(state)) return false
+  // Draft prepares often intentionally have zero nodes (proposal_only / awaiting confirmation).
+  if (state.activation === "draft") return false
   if (TERMINAL_OR_WAITING.has(state.status)) return false
   return true
 }
