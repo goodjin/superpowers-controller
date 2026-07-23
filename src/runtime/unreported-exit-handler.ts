@@ -18,7 +18,7 @@ export type UnreportedExitHandler = {
 
 export function createUnreportedExitHandler(deps: {
   store: ProjectStore
-  orchestrator: Pick<SessionOrchestrator, "notifyParent">
+  orchestrator: Pick<SessionOrchestrator, "notifyParent"> & Partial<Pick<SessionOrchestrator, "returnToParent">>
   progress: ProgressReporter
   fetchMessages: (sessionID: string) => Promise<ReadonlyArray<unknown>>
   readProgressForNode: (state: WorkflowState, nodeID: string) => NodeProgressEntry[]

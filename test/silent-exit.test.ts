@@ -69,7 +69,8 @@ describe("silent exit evidence", () => {
 describe("unreported exit handler", () => {
   test("session idle without sp_report stores evidence and notifies parent", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-silent-exit-"))
-    const prompts: Array<{ sessionID: string; prompt: string }> = []
+    const prompts: Array<{ sessionID: string; prompt: string; selectSession?: boolean }> = []
+    const focused: Array<{ sessionID: string; message?: string }> = []
     try {
       const store = createProjectStore(project)
       store.startRun({
@@ -91,7 +92,14 @@ describe("unreported exit handler", () => {
         store,
         orchestrator: {
           async notifyParent(input) {
-            prompts.push({ sessionID: input.sessionID, prompt: input.prompt })
+            prompts.push({
+              sessionID: input.sessionID,
+              prompt: input.prompt,
+              selectSession: input.selectSession,
+            })
+          },
+          async returnToParent(input) {
+            focused.push(input)
           },
         },
         progress: { async report() {} },
@@ -133,8 +141,13 @@ describe("unreported exit handler", () => {
       expect(body.assistant_text).toContain("candidate UI design")
       expect(body.produced_paths).toContain("app/lib/app.dart")
 
+      expect(focused).toEqual([{
+        sessionID: "session-parent",
+        message: "子会话异常结束，已切回主控。",
+      }])
       expect(prompts).toHaveLength(1)
       expect(prompts[0]?.sessionID).toBe("session-parent")
+      expect(prompts[0]?.selectSession).toBe(false)
       expect(prompts[0]?.prompt).toContain("without calling `sp_report`")
       expect(prompts[0]?.prompt).toContain("app/lib/app.dart")
       expect(prompts[0]?.prompt).toContain("candidate UI design")
@@ -145,6 +158,7 @@ describe("unreported exit handler", () => {
       })
       expect(again.handled).toBe(false)
       expect(prompts).toHaveLength(1)
+      expect(focused).toHaveLength(1)
     } finally {
       rmSync(project, { recursive: true, force: true })
     }

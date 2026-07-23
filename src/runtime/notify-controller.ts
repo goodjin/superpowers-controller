@@ -8,7 +8,7 @@ import type { SilentExitEvidence } from "./silent-exit"
 
 export async function notifyParentControllerDecision(args: {
   store: ProjectStore
-  orchestrator: Pick<SessionOrchestrator, "notifyParent">
+  orchestrator: Pick<SessionOrchestrator, "notifyParent"> & Partial<Pick<SessionOrchestrator, "returnToParent">>
   progress?: ProgressReporter
   state: WorkflowState
   silentExit?: SilentExitEvidence & { artifact_path?: string }
@@ -18,6 +18,17 @@ export async function notifyParentControllerDecision(args: {
   }
   const parentSessionID = args.state.parent_session_id
   if (!parentSessionID) return { ok: false, error: "missing parent_session_id" }
+
+  // Always try to leave the child route first so the user sees the controller reaction,
+  // even when the follow-up parent prompt fails to schedule.
+  if (args.orchestrator.returnToParent) {
+    await args.orchestrator.returnToParent({
+      sessionID: parentSessionID,
+      message: args.silentExit
+        ? "子会话异常结束，已切回主控。"
+        : "需要主控接手，已切回主控。",
+    })
+  }
 
   const feedback = buildControllerFeedback(args.state)
   const prompt = args.silentExit
@@ -33,7 +44,8 @@ export async function notifyParentControllerDecision(args: {
       sessionID: parentSessionID,
       agent: "superpowers-agent",
       prompt,
-      selectSession: true,
+      // returnToParent already focused the controller when available.
+      selectSession: args.orchestrator.returnToParent ? false : true,
     })
     return { ok: true }
   } catch (error) {

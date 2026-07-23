@@ -232,13 +232,17 @@ export function createReportHandler(deps: {
     if (leftDesignForeground && current.parent_session_id && deps.orchestrator.returnToParent) {
       await deps.orchestrator.returnToParent({
         sessionID: current.parent_session_id,
+        message: "design 已结束，已切回主控。",
       })
     }
     let feedbackOverride: Partial<ReturnType<typeof buildControllerFeedback>> | undefined
     if (current.status === "waiting_controller_decision" && deps.orchestrator.notifyParent) {
       const notified = await notifyParentControllerDecision({
         store: deps.store,
-        orchestrator: { notifyParent: deps.orchestrator.notifyParent },
+        orchestrator: {
+          notifyParent: deps.orchestrator.notifyParent,
+          returnToParent: deps.orchestrator.returnToParent,
+        },
         progress,
         state: current,
       })

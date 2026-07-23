@@ -1,8 +1,12 @@
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import type { ProjectStore } from "../state/store"
 import { buildControllerFeedback } from "../controller/feedback"
+import type { SessionOrchestrator } from "../session/orchestrator"
 
-export function createCancelTool(store: ProjectStore): ToolDefinition {
+export function createCancelTool(
+  store: ProjectStore,
+  orchestrator?: Partial<Pick<SessionOrchestrator, "returnToParent">>,
+): ToolDefinition {
   return tool({
     description: "Cancel a Superpowers workflow, task, or session.",
     args: {
@@ -18,6 +22,12 @@ export function createCancelTool(store: ProjectStore): ToolDefinition {
         sessionID: args.session_id,
         reason: args.reason,
       })
+      if (state.parent_session_id && orchestrator?.returnToParent) {
+        await orchestrator.returnToParent({
+          sessionID: state.parent_session_id,
+          message: "workflow 已取消，已切回主控。",
+        })
+      }
       return JSON.stringify({ state, controller_feedback: buildControllerFeedback(state) }, null, 2)
     },
   })

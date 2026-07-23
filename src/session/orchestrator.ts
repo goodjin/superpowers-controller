@@ -236,13 +236,13 @@ export function createSessionOrchestrator(adapter: SessionAdapter) {
       if (adapter.selectSession) {
         await adapter.selectSession({
           sessionID: args.sessionID,
-          reason: "left design foreground",
+          reason: "return to parent controller",
         })
       }
       await adapter.showProgress({
         stage: "session_focused",
         title: "Superpowers workflow",
-        message: args.message ?? "design 已结束，已切回主控。",
+        message: args.message ?? "已切回主控。",
         variant: "info",
       })
     },
