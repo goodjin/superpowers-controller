@@ -175,4 +175,46 @@ describe("ProjectStore node runs", () => {
       rmSync(project, { recursive: true, force: true })
     }
   })
+
+  test("healInterruptedBusySessions does not demote waiting_controller_decision to running", () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-node-heal-waiting-"))
+    try {
+      const store = createProjectStore(project)
+      store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Keep waiting",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-main",
+      })
+      const node = store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        session_id: "session-child",
+        task_markdown: "# Task",
+      })
+      store.markUnreportedExit({
+        session_id: "session-child",
+        reason: "session_idle",
+        summary: "ended without report",
+        evidence: {
+          assistant_text: "partial",
+          produced_paths: [],
+          collected_at: new Date().toISOString(),
+        },
+        node_status: "interrupted",
+      })
+      expect(store.readCurrent()?.status).toBe("waiting_controller_decision")
+
+      const healed = store.healInterruptedBusySessions({
+        sessionIDs: ["session-child"],
+        reason: "TUI saw busy",
+      })
+      expect(healed?.status).toBe("waiting_controller_decision")
+      expect(healed?.node_runs.find((run) => run.id === node.id)?.status).toBe("running")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
 })

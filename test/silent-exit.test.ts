@@ -164,6 +164,78 @@ describe("unreported exit handler", () => {
     }
   })
 
+  test("silent exit with running sibling still returns to parent and notifies", async () => {
+    const project = mkdtempSync(join(tmpdir(), "sp-silent-exit-sibling-"))
+    const prompts: Array<{ sessionID: string; prompt: string }> = []
+    const focused: Array<{ sessionID: string; message?: string }> = []
+    try {
+      const store = createProjectStore(project)
+      store.startRun({
+        workflow: "feature",
+        entrypoint: "feature",
+        goal: "Parallel",
+        request: "# Request",
+        proposal: "# Proposal",
+        parentSessionID: "session-parent",
+      })
+      store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        session_id: "session-t1",
+        task_id: "T1",
+        task_markdown: "# T1",
+      })
+      store.addNodeRun({
+        phase: "implement",
+        agent: "sp-implementer",
+        session_id: "session-t4",
+        task_id: "T4",
+        task_markdown: "# T4",
+      })
+
+      const handler = createUnreportedExitHandler({
+        store,
+        orchestrator: {
+          async notifyParent(input) {
+            prompts.push({ sessionID: input.sessionID, prompt: input.prompt })
+          },
+          async returnToParent(input) {
+            focused.push(input)
+          },
+        },
+        progress: { async report() {} },
+        async fetchMessages() {
+          return [{
+            role: "assistant",
+            parts: [{ type: "text", text: "Stopped mid-task without report." }],
+          }]
+        },
+        readProgressForNode: () => [],
+      })
+
+      const result = await handler.handle({
+        sessionID: "session-t4",
+        reason: "session_idle",
+      })
+      expect(result.handled).toBe(true)
+
+      const state = store.readCurrent()!
+      expect(state.status).toBe("running")
+      expect(state.node_runs.find((n) => n.session_id === "session-t4")?.status).toBe("interrupted")
+      expect(state.node_runs.find((n) => n.session_id === "session-t1")?.status).toBe("running")
+
+      expect(focused).toEqual([{
+        sessionID: "session-parent",
+        message: "子会话异常结束，已切回主控。其它任务仍在跑。",
+      }])
+      expect(prompts).toHaveLength(1)
+      expect(prompts[0]?.prompt).toContain("sibling nodes are still marked running")
+      expect(prompts[0]?.prompt).toContain("Stopped mid-task")
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   test("needs_user idle is ignored because node is not running", async () => {
     const project = mkdtempSync(join(tmpdir(), "sp-silent-exit-needs-user-"))
     try {

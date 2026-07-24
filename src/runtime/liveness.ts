@@ -3,6 +3,8 @@ import type { NodeRun, WorkflowState } from "../state/types"
 
 export const DEFAULT_LIVENESS_TIMEOUT_MS = 300_000
 export const DEFAULT_LIVENESS_CHECK_INTERVAL_MS = 15_000
+/** Max time a stuck tool_running/pending event can suppress liveness (host may die without completing the tool). */
+export const IN_FLIGHT_TOOL_GRACE_MS = 45 * 60 * 1000
 
 export type LivenessExpiredNode = {
   node: NodeRun
@@ -14,6 +16,7 @@ export function findExpiredRunningNodes(args: {
   progressByNode: Record<string, NodeProgressEntry[]>
   now?: Date
   timeoutMs?: number
+  inFlightGraceMs?: number
 }): LivenessExpiredNode[] {
   const state = args.state
   if (!state) return []
@@ -21,6 +24,7 @@ export function findExpiredRunningNodes(args: {
 
   const now = args.now ?? new Date()
   const timeoutMs = args.timeoutMs ?? DEFAULT_LIVENESS_TIMEOUT_MS
+  const inFlightGraceMs = args.inFlightGraceMs ?? IN_FLIGHT_TOOL_GRACE_MS
   const current = now.getTime()
   const expired: LivenessExpiredNode[] = []
 
@@ -28,8 +32,8 @@ export function findExpiredRunningNodes(args: {
     if (node.status !== "running") continue
     const progress = args.progressByNode[node.id] ?? []
     // Long-running tools may stay on tool_running without further progress events.
-    // Do not treat that silence as idle while a tool is still in flight.
-    if (hasInFlightTool(progress)) continue
+    // Do not treat that silence as idle while a tool is still in flight (within grace).
+    if (hasInFlightTool(progress, now, inFlightGraceMs)) continue
     const observedAt = progress.at(-1)?.at ?? node.started_at
     const observed = Date.parse(observedAt)
     if (!Number.isFinite(observed) || !Number.isFinite(current)) continue
@@ -42,11 +46,27 @@ export function findExpiredRunningNodes(args: {
   return expired
 }
 
-/** Latest tool lifecycle event is pending/running (not yet completed/error). */
-export function hasInFlightTool(progress: ReadonlyArray<NodeProgressEntry>): boolean {
+/**
+ * Latest tool lifecycle is pending/running, not completed/error,
+ * and not superseded by session_idle/session_error, and still within grace.
+ */
+export function hasInFlightTool(
+  progress: ReadonlyArray<NodeProgressEntry>,
+  now: Date = new Date(),
+  graceMs: number = IN_FLIGHT_TOOL_GRACE_MS,
+): boolean {
+  const current = now.getTime()
   for (let index = progress.length - 1; index >= 0; index -= 1) {
-    const kind = progress[index]?.kind
-    if (kind === "tool_running" || kind === "tool_pending") return true
+    const entry = progress[index]
+    const kind = entry?.kind
+    if (kind === "session_idle" || kind === "session_error") return false
+    if (kind === "tool_running" || kind === "tool_pending") {
+      const observed = Date.parse(entry?.at ?? "")
+      if (Number.isFinite(observed) && Number.isFinite(current) && current - observed >= graceMs) {
+        return false
+      }
+      return true
+    }
     if (kind === "tool_completed" || kind === "tool_error") return false
   }
   return false

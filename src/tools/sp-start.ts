@@ -15,8 +15,10 @@ import {
   taskResumeContextForDecision,
 } from "../runtime/task-resume"
 import { emptyDispatchReason, shouldEscalateEmptyDispatch } from "../runtime/empty-dispatch"
+import { notifyParentControllerDecision } from "../runtime/notify-controller"
+import { needsControllerAttention } from "../runtime/workflow-attention"
 
-type StartOrchestrator = Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "resumeNode">>
+type StartOrchestrator = Pick<SessionOrchestrator, "dispatch"> & Partial<Pick<SessionOrchestrator, "resumeNode" | "notifyParent" | "returnToParent">>
 
 export function createStartTool(
   store: ProjectStore,
@@ -143,6 +145,7 @@ export function createStartTool(
         const result = await resolveControllerDecision({
           store,
           orchestrator,
+          progress,
           parentSessionID,
           state: current,
           decision,
@@ -254,6 +257,7 @@ export function createStartTool(
           state,
           taskID: args.task_id,
           startMode,
+          progress,
         })
       }
       await progress.report({
@@ -278,21 +282,33 @@ export function createStartTool(
 
 export async function dispatchWorkflowDecisions(args: {
   store: ProjectStore
-  orchestrator?: Pick<SessionOrchestrator, "dispatch">
+  orchestrator?: StartOrchestrator
   state: WorkflowState
   taskID?: string
   startMode: "new" | "resume"
   decisions?: ReturnType<typeof startDecisions>
   resumeFromState?: WorkflowState
+  progress?: ProgressReporter
 }): Promise<Array<Record<string, string | undefined>>> {
   if (!args.orchestrator) return []
   const decisions = args.decisions ?? startDecisions(args.state, args.startMode, args.taskID)
   if (shouldEscalateEmptyDispatch(args.state, decisions)) {
-    args.store.markNeedsControllerDecision({
+    const escalated = args.store.markNeedsControllerDecision({
       runID: args.state.id,
       reason: "empty_dispatch",
       detail: emptyDispatchReason(args.state),
     })
+    if (args.orchestrator.notifyParent) {
+      await notifyParentControllerDecision({
+        store: args.store,
+        orchestrator: {
+          notifyParent: args.orchestrator.notifyParent,
+          returnToParent: args.orchestrator.returnToParent,
+        },
+        progress: args.progress,
+        state: escalated,
+      })
+    }
     return []
   }
   const filtered = args.taskID && args.state.status !== "recovered_unknown" && !args.resumeFromState
@@ -337,6 +353,18 @@ export async function dispatchWorkflowDecisions(args: {
             session_id: input.sessionID,
             error: input.error,
           })
+          const latest = args.store.readCurrent()
+          if (latest && needsControllerAttention(latest) && args.orchestrator?.notifyParent) {
+            await notifyParentControllerDecision({
+              store: args.store,
+              orchestrator: {
+                notifyParent: args.orchestrator.notifyParent,
+                returnToParent: args.orchestrator.returnToParent,
+              },
+              progress: args.progress,
+              state: latest,
+            })
+          }
         },
       })
     } catch (error) {
@@ -381,6 +409,7 @@ const dispatchStart = dispatchWorkflowDecisions
 async function resolveControllerDecision(args: {
   store: ProjectStore
   orchestrator?: StartOrchestrator
+  progress?: ProgressReporter
   parentSessionID: string
   state: WorkflowState
   decision: ControllerDecision
@@ -395,6 +424,7 @@ async function resolveControllerDecision(args: {
       const dispatches = await dispatchStart({
         store: args.store,
         orchestrator: args.orchestrator,
+        progress: args.progress,
         state,
         startMode: "resume",
         decisions: [retryDecisionForNode(args.state, args.decision.node_id ?? args.decision.task_id)],
@@ -410,6 +440,7 @@ async function resolveControllerDecision(args: {
       const dispatches = await dispatchStart({
         store: args.store,
         orchestrator: args.orchestrator,
+        progress: args.progress,
         state,
         startMode: "resume",
       })
@@ -430,6 +461,7 @@ async function resolveControllerDecision(args: {
       const dispatches = await dispatchStart({
         store: args.store,
         orchestrator: args.orchestrator,
+        progress: args.progress,
         state,
         startMode: "resume",
         decisions: [decision],
@@ -545,6 +577,7 @@ async function executeTaskResume(args: {
   const dispatches = await dispatchStart({
     store: args.store,
     orchestrator: args.orchestrator,
+    progress: args.progress,
     state: args.store.readCurrent() ?? resumedState,
     startMode: "resume",
     decisions,

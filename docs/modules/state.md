@@ -10,10 +10,10 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
 - `src/state/paths.ts`：项目本地数据根目录 `.superpowers/`（与 `.opencode/superpowers.jsonc` 配置分离）。
 - `src/state/store.ts`：读写 current pointer、run directory、state、artifacts、nodes 和 changelog；含 `markPromptDeliveryFailed`、`markSessionError`、`markNotificationFailed`、`markUnreportedExit`（无 `sp_report` 闭合 + silent-exit 证据）。
 - `src/runtime/workflow-attention.ts`：并行混合态、技术异常后的 workflow status 和 `parallel_context` 辅助逻辑。
-- `src/runtime/liveness.ts`：基于 progress 陈旧度把挂死 `running` node 标为 `interrupted`（默认 5 分钟，可配置）。若最近工具生命周期事件仍是 `tool_running` / `tool_pending`（尚未 `completed` / `error`），不计入超时，避免长命令静默执行被误杀。
+- `src/runtime/liveness.ts`：基于 progress 陈旧度把挂死 `running` node 标为 `interrupted`（默认 5 分钟，可配置）。若最近工具生命周期仍是 `tool_running` / `tool_pending`（尚未 `completed` / `error`），且其后没有 `session_idle` / `session_error`，则在最长 45 分钟内不计入超时，避免长命令静默执行被误杀；超过 grace 或已出现 session_idle 后按普通空闲判定。
 - `src/runtime/silent-exit.ts`：子会话无 `sp_report` 结束时采集最后助手文字与产出路径。
 - `src/runtime/unreported-exit-handler.ts`：`session.idle` / liveness / `session.error` 的无汇报闭合与主控通知。
-- `src/runtime/notify-controller.ts`：`waiting_controller_decision` 时调度 parent 决策 prompt。
+- `src/runtime/notify-controller.ts`：需要主控接手时（含 `waiting_controller_decision`，以及 silent-exit 后仍有 sibling `running` 的并行 attention）先 `returnToParent` 再调度 parent 决策 prompt。
 - `src/runtime/session-activity.ts`：从 progress/live status 推导 `permission_context` 与 stalled 检测，供 `controller_feedback` 使用。
 - `src/runtime/quality-checks.ts`：解析 `sp_report.checks`、合并 `quality_checks`、finish 前 quality gate 评估。
 - `src/state/transitions.ts`：把 `sp_report` 应用到 workflow state，校验 gate 和 artifact 关系。
@@ -56,7 +56,7 @@ state 模块负责 workflow run 的本地持久化、artifact/report 写入、ta
       silent-exit.md
 ```
 
-`silent-exit.*` 在子会话结束却未调用 `sp_report` 时写入：包含最后助手文字、产出路径列表和闭合原因（`session_idle` / `liveness_timeout` / `session_error`）。同时把节点标为 `interrupted`（或 `session_error` 下的 `failed`），workflow 进入 `waiting_controller_decision`，并由 `notifyParent` 把证据摘要交给主控决策；不会自动当成 `passed` 推进。
+`silent-exit.*` 在子会话结束却未调用 `sp_report` 时写入：包含最后助手文字、产出路径列表和闭合原因（`session_idle` / `liveness_timeout` / `session_error`）。同时把节点标为 `interrupted`（或 `session_error` 下的 `failed`）。若无其他 running sibling，workflow 进入 `waiting_controller_decision`；若仍有 sibling running，workflow 可保持 `running` 并附 `parallel_context`。无论哪种，都会 `returnToParent` 切回主控并 toast，再 `notifyParent` 把证据交给主控；不会自动当成 `passed` 推进。
 
 ## Workflow State
 
@@ -178,7 +178,7 @@ matching node 的归属顺序是：显式 `nodeID`、child `sessionID`、event p
 
 插件进程启动时会启用 startup reconciliation。因为 host 进程停止后不可能继承旧 child turn，持久化 state 中遗留的 `node_runs[].status === "running"` 会被改成 `interrupted`，并设置 `closed_at/ended_at`。如果 active workflow 顶层仍是 `status === "running"`，即使没有 running node，也会被改成 `recovered_unknown`。draft prepared workflow 不属于已启动运行，不会被 startup recovery 改写。`recovered_unknown` 表示需要主控会话询问用户是恢复、取消还是先检查，不允许启动时自动重派发。
 
-短生命周期 CLI（如 `opencode agent list`、`opencode debug …`）也会加载服务端插件，但它们看不到 TUI 进程里真实的 session busy。因此这些调用默认**跳过写盘启动恢复**（`shouldWriteStartupRecovery()`）；可用 `SUPERPOWERS_SKIP_STARTUP_RECOVERY=1` / `SUPERPOWERS_FORCE_STARTUP_RECOVERY=1` 覆盖。TUI 侧栏在刷新时若发现节点已是 `interrupted` 而 host `session.status` 仍为 busy/retry/waiting_permission，会调用 `healInterruptedBusySessions` 写回 `running`，并在 workflow 为 `recovered_unknown` 时恢复为 `running`。TUI slot 的常规 store 读取仍默认只读（不带 `reconcileOnLoad`），避免 UI 读路径本身制造中断。
+短生命周期 CLI（如 `opencode agent list`、`opencode debug …`）也会加载服务端插件，但它们看不到 TUI 进程里真实的 session busy。因此这些调用默认**跳过写盘启动恢复**（`shouldWriteStartupRecovery()`）；可用 `SUPERPOWERS_SKIP_STARTUP_RECOVERY=1` / `SUPERPOWERS_FORCE_STARTUP_RECOVERY=1` 覆盖。TUI 侧栏在刷新时若发现节点已是 `interrupted` 而 host `session.status` 仍为 busy/retry/waiting_permission，会调用 `healInterruptedBusySessions` 写回 `running`，并在 workflow 为 `recovered_unknown` 时恢复为 `running`；**不会**把已是 `waiting_controller_decision` 的 workflow 状态改回 `running`（节点本身仍可 heal，避免主控裁决态被误消）。TUI slot 的常规 store 读取仍默认只读（不带 `reconcileOnLoad`），避免 UI 读路径本身制造中断。
 
 `node_runs` 是执行事实来源：
 

@@ -10,6 +10,7 @@ import {
 import { buildControllerUserInputPrompt, buildNodeTaskPacket } from "../session/templates"
 import { notifyParentControllerDecision } from "../runtime/notify-controller"
 import { emptyDispatchReason, shouldEscalateEmptyDispatch } from "../runtime/empty-dispatch"
+import { needsControllerAttention } from "../runtime/workflow-attention"
 import type { SessionOrchestrator } from "../session/orchestrator"
 import type { ProjectStore } from "../state/store"
 import type { NodeStatus, WorkflowState } from "../state/types"
@@ -69,6 +70,7 @@ export function createReportHandler(deps: {
     const decisions = decideNextDispatches(state, record)
     const dispatches = []
     let leftDesignForeground = false
+    let forceControllerAttend = false
 
     await progress.report({
       stage: "node_recorded",
@@ -191,6 +193,7 @@ export function createReportHandler(deps: {
               session_id: input.sessionID,
               error: input.error,
             })
+            forceControllerAttend = true
           },
         })
       } catch (error) {
@@ -201,6 +204,7 @@ export function createReportHandler(deps: {
           task_id: decision.task_id,
           error,
         })
+        forceControllerAttend = true
         dispatches.push({
           action: "dispatch_failed",
           agent: decision.agent,
@@ -236,7 +240,10 @@ export function createReportHandler(deps: {
       })
     }
     let feedbackOverride: Partial<ReturnType<typeof buildControllerFeedback>> | undefined
-    if (current.status === "waiting_controller_decision" && deps.orchestrator.notifyParent) {
+    const shouldAttend =
+      current.status === "waiting_controller_decision"
+      || (forceControllerAttend && needsControllerAttention(current))
+    if (shouldAttend && deps.orchestrator.notifyParent) {
       const notified = await notifyParentControllerDecision({
         store: deps.store,
         orchestrator: {

@@ -5,6 +5,7 @@ import { buildControllerDecisionPrompt, buildSilentExitControllerPrompt } from "
 import type { ProjectStore } from "../state/store"
 import type { WorkflowState } from "../state/types"
 import type { SilentExitEvidence } from "./silent-exit"
+import { needsControllerAttention } from "./workflow-attention"
 
 export async function notifyParentControllerDecision(args: {
   store: ProjectStore
@@ -13,11 +14,15 @@ export async function notifyParentControllerDecision(args: {
   state: WorkflowState
   silentExit?: SilentExitEvidence & { artifact_path?: string }
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (args.state.status !== "waiting_controller_decision") {
+  // Parallel runs may keep workflow `running` after one node silent-exits.
+  // Still hand off to the controller whenever attention is required.
+  if (!needsControllerAttention(args.state)) {
     return { ok: false, error: `workflow status is ${args.state.status}` }
   }
   const parentSessionID = args.state.parent_session_id
   if (!parentSessionID) return { ok: false, error: "missing parent_session_id" }
+
+  const siblingsStillRunning = args.state.status === "running" || args.state.status === "intake"
 
   // Always try to leave the child route first so the user sees the controller reaction,
   // even when the follow-up parent prompt fails to schedule.
@@ -25,7 +30,9 @@ export async function notifyParentControllerDecision(args: {
     await args.orchestrator.returnToParent({
       sessionID: parentSessionID,
       message: args.silentExit
-        ? "子会话异常结束，已切回主控。"
+        ? siblingsStillRunning
+          ? "子会话异常结束，已切回主控。其它任务仍在跑。"
+          : "子会话异常结束，已切回主控。"
         : "需要主控接手，已切回主控。",
     })
   }

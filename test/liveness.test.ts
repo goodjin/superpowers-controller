@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { DEFAULT_LIVENESS_TIMEOUT_MS, findExpiredRunningNodes } from "../src/runtime/liveness"
+import { DEFAULT_LIVENESS_TIMEOUT_MS, IN_FLIGHT_TOOL_GRACE_MS, findExpiredRunningNodes } from "../src/runtime/liveness"
 import { createNodeProgressStore } from "../src/progress/node-progress"
 import { createProjectStore } from "../src/state/store"
 import type { WorkflowState } from "../src/state/types"
@@ -134,6 +134,70 @@ describe("liveness monitor", () => {
     })
 
     expect(expired).toHaveLength(0)
+  })
+
+  test("findExpiredRunningNodes expires after session_idle follows tool_running", () => {
+    const state = baseState()
+    const now = new Date("2026-01-01T00:10:00.000Z")
+    const expired = findExpiredRunningNodes({
+      state,
+      progressByNode: {
+        "001-implement-T1": [
+          {
+            at: "2026-01-01T00:00:00.000Z",
+            kind: "tool_running",
+            session_id: "session-T1",
+            node_id: "001-implement-T1",
+            agent: "sp-implementer",
+            phase: "implement",
+            task_id: "T1",
+            summary: "bash running",
+          },
+          {
+            at: "2026-01-01T00:00:30.000Z",
+            kind: "session_idle",
+            session_id: "session-T1",
+            node_id: "001-implement-T1",
+            agent: "sp-implementer",
+            phase: "implement",
+            task_id: "T1",
+            summary: "session idle",
+          },
+        ],
+      },
+      now,
+      timeoutMs: DEFAULT_LIVENESS_TIMEOUT_MS,
+    })
+
+    expect(expired).toHaveLength(1)
+    expect(expired[0]?.idle_ms).toBe(570_000)
+  })
+
+  test("findExpiredRunningNodes expires stale in-flight tool after grace", () => {
+    const state = baseState()
+    const now = new Date(Date.parse("2026-01-01T00:00:00.000Z") + IN_FLIGHT_TOOL_GRACE_MS + DEFAULT_LIVENESS_TIMEOUT_MS)
+    const expired = findExpiredRunningNodes({
+      state,
+      progressByNode: {
+        "001-implement-T1": [
+          {
+            at: "2026-01-01T00:00:00.000Z",
+            kind: "tool_running",
+            session_id: "session-T1",
+            node_id: "001-implement-T1",
+            agent: "sp-implementer",
+            phase: "implement",
+            task_id: "T1",
+            summary: "bash running forever",
+          },
+        ],
+      },
+      now,
+      timeoutMs: DEFAULT_LIVENESS_TIMEOUT_MS,
+    })
+
+    expect(expired).toHaveLength(1)
+    expect(expired[0]?.idle_ms).toBe(IN_FLIGHT_TOOL_GRACE_MS + DEFAULT_LIVENESS_TIMEOUT_MS)
   })
 
   test("findExpiredRunningNodes still expires after tool_completed goes stale", () => {

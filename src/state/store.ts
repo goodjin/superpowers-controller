@@ -564,10 +564,15 @@ export function createProjectStore(project: string, options: ProjectStoreOptions
         }
       })
       if (healedIDs.length === 0) return null
+      // Never demote waiting_controller_decision back to running via heal —
+      // that creates a false "waiting for child" loop after silent-exit.
+      const nextStatus = current.status === "waiting_controller_decision"
+        ? "waiting_controller_decision"
+        : resumableStatus(current.status)
       const reason = args.reason ?? "TUI observed host session still busy; restored interrupted node to running."
       const next: WorkflowState = {
         ...current,
-        status: resumableStatus(current.status),
+        status: nextStatus,
         node_runs: nodeRuns,
         updated_at: now,
         state_version: nextStateVersion(),

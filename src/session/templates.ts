@@ -170,6 +170,9 @@ export function buildSilentExitControllerPrompt(
   const excerpt = assistant
     ? (assistant.length > 3500 ? `${assistant.slice(0, 3497)}...` : assistant)
     : "(no assistant text captured)"
+  const siblingNote = state.status === "running" || state.status === "intake"
+    ? "Other sibling nodes are still marked running. Decide how to handle this interrupted node; do not assume the whole workflow stopped."
+    : "Do not treat this as a successful node completion."
   return [
     "# Superpowers workflow waiting for controller decision",
     "",
@@ -178,8 +181,9 @@ export function buildSilentExitControllerPrompt(
     `Phase: ${state.current_phase}`,
     `Status: ${state.status}`,
     "",
-    "A child session ended without calling `sp_report`. Runtime captured partial evidence and stopped for a controller decision.",
-    "Do not treat this as a successful node completion. First call `sp_status`, inspect the silent-exit artifact, then choose one of `allowed_controller_decisions`.",
+    "A child session ended without calling `sp_report`. Runtime captured partial evidence and needs a controller decision.",
+    siblingNote,
+    "First call `sp_status`, inspect the silent-exit artifact, then choose one of `allowed_controller_decisions`.",
     "",
     "## Capture Summary",
     "",
